@@ -10,21 +10,21 @@ Reusable Codex skills collected in one repository. Each skill lives in its own f
 
 ## Install
 
-Install one skill by copying it into your Codex skills directory:
+Use the preinstalled `$skill-installer` system skill to install from this repository.
 
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/subagent-creator "${CODEX_HOME:-$HOME/.codex}/skills/"
+Example using repo + path:
+
+```text
+Use $skill-installer to install `skills/subagent-creator` from the GitHub repo `smturtle2/codex-skills`.
 ```
 
-If you want the repo checkout to stay as the source of truth while you update it, create a symlink instead:
+Example using the GitHub URL directly:
 
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-ln -s "$(pwd)/skills/subagent-creator" "${CODEX_HOME:-$HOME/.codex}/skills/subagent-creator"
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/subagent-creator
 ```
 
-After that, Codex can discover the skill as `$subagent-creator`.
+After installation, restart Codex to pick up the new skill.
 
 ## Current Skills
 

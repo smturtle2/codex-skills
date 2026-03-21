@@ -10,21 +10,21 @@
 
 ## 설치 방법
 
-스킬 하나를 설치하려면 Codex 스킬 디렉터리로 복사하면 된다.
+이 저장소의 스킬은 기본 내장된 시스템 스킬 `$skill-installer`로 설치하면 된다.
 
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/subagent-creator "${CODEX_HOME:-$HOME/.codex}/skills/"
+리포지토리와 경로를 지정하는 예시:
+
+```text
+Use $skill-installer to install `skills/subagent-creator` from the GitHub repo `smturtle2/codex-skills`.
 ```
 
-이 저장소를 계속 업데이트하면서 그대로 원본으로 쓰고 싶다면 심볼릭 링크를 만들면 된다.
+GitHub URL을 바로 넘기는 예시:
 
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-ln -s "$(pwd)/skills/subagent-creator" "${CODEX_HOME:-$HOME/.codex}/skills/subagent-creator"
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/subagent-creator
 ```
 
-이후 Codex에서 `$subagent-creator`로 스킬을 사용할 수 있다.
+설치 후에는 Codex를 다시 시작해야 새 스킬이 반영된다.
 
 ## 현재 포함된 스킬
 
