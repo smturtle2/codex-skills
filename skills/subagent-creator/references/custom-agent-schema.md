@@ -24,12 +24,18 @@ If a custom agent uses one of those names, the custom agent takes precedence. Av
 Every standalone custom agent file must define:
 
 ```toml
-name = "docs-researcher"
-description = "Documentation specialist that verifies APIs and framework behavior."
+name = "task-focused-agent"
+description = """
+Use `task-focused-agent` for <clear trigger>.
+<Short statement of strengths and scope>.
+Rules:
+- <non-negotiable rule>
+- <non-negotiable rule>
+"""
 developer_instructions = """
-Use primary documentation sources to confirm APIs, options, and version-specific behavior.
-Return concise answers with exact references when available.
-Do not make code changes.
+<Operational priorities>.
+<Evidence, validation, or output expectations>.
+<What the agent must avoid doing>.
 """
 ```
 
@@ -59,8 +65,9 @@ When omitted, these settings inherit from the parent session.
 
 ## Naming guidance
 
-- Prefer short, concrete names tied to the role: `reviewer`, `code-mapper`, `docs-researcher`, `ui-fixer`.
+- Prefer short, concrete names derived from the user's task language.
 - Keep the role narrow. One agent should not mix exploration, review, implementation, and docs research unless the user explicitly wants a generalist.
+- Do not default to stock names unless the brief clearly points there.
 - Use a distinct name if a file already exists and the user did not ask to update it.
 
 ## Nickname guidance
