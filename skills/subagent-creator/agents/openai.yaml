@@ -1,0 +1,4 @@
+interface:
+  display_name: "Subagent Creator"
+  short_description: "Create Codex subagents from task briefs"
+  default_prompt: "Use $subagent-creator to turn this task brief into a focused Codex subagent."
