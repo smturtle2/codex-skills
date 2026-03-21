@@ -1,8 +1,8 @@
-# Zero-Shot Rubric
+# Quality Rubric
 
 Use this reference to judge whether a generated subagent was actually synthesized from the user's brief instead of snapped to a canned template.
 
-## What zero-shot means here
+## Source of truth
 
 - The user's brief is the source of truth.
 - The generated role should reflect the user's actual nouns, verbs, boundaries, and priorities.

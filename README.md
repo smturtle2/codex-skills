@@ -15,7 +15,7 @@ Reusable Codex skills collected in one repository. Each skill lives in its own f
 - Folder: `skills/subagent-creator`
 - Purpose: create one focused Codex custom subagent from a natural-language brief
 - Default behavior: write a single custom-agent TOML, usually under `~/.codex/agents/`
-- Style: zero-shot, conservative defaults, no invented MCP URLs or extra config unless the task provides them
+- Style: derive the role from the brief, keep defaults conservative, and avoid inventing MCP URLs or extra config unless the task provides them
 
 This skill is grounded in the official Codex subagent documentation:
 

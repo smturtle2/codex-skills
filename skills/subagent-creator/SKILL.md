@@ -1,13 +1,13 @@
 ---
 name: subagent-creator
-description: Create high-quality Codex custom subagents directly from a raw task brief. Use when Codex needs to design, write, or update a `~/.codex/agents/*.toml` or `.codex/agents/*.toml` file zero-shot, especially when the role is novel and should be derived from the user's task instead of picked from canned templates.
+description: Create high-quality Codex custom subagents directly from a raw task brief. Use when Codex needs to design, write, or update a `~/.codex/agents/*.toml` or `.codex/agents/*.toml` file, especially when the role is novel and should be derived from the user's task instead of picked from canned templates.
 ---
 
 # Subagent Creator
 
 Create one high-quality Codex custom agent directly from the user's brief.
 
-Read [references/custom-agent-schema.md](references/custom-agent-schema.md) for the file schema and inheritance rules. Read [references/zero-shot-rubric.md](references/zero-shot-rubric.md) for the quality bar the finished agent definition should meet.
+Read [references/custom-agent-schema.md](references/custom-agent-schema.md) for the file schema and inheritance rules. Read [references/quality-rubric.md](references/quality-rubric.md) for the quality bar the finished agent definition should meet.
 
 ## Core Rule
 
@@ -79,7 +79,7 @@ Before you write, answer these questions from the brief itself:
 - Add `nickname_candidates` only when the user is likely to run many copies of the same agent and wants clearer UI labels.
 - Do not create or modify `.codex/config.toml` unless the user explicitly asks for global agent settings too.
 
-## Zero-Shot Defaults
+## Default Behavior
 
 - Ask at most one clarification only when a concrete missing value blocks correctness or safety.
 - Otherwise proceed with conservative defaults.
