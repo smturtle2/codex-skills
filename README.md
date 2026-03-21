@@ -8,6 +8,24 @@ Reusable Codex skills collected in one repository. Each skill lives in its own f
 
 - `skills/`: skill folders ready to copy into a Codex skills directory
 
+## Install
+
+Install one skill by copying it into your Codex skills directory:
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R skills/subagent-creator "${CODEX_HOME:-$HOME/.codex}/skills/"
+```
+
+If you want the repo checkout to stay as the source of truth while you update it, create a symlink instead:
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/skills/subagent-creator" "${CODEX_HOME:-$HOME/.codex}/skills/subagent-creator"
+```
+
+After that, Codex can discover the skill as `$subagent-creator`.
+
 ## Current Skills
 
 ### `subagent-creator`

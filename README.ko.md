@@ -8,6 +8,24 @@
 
 - `skills/`: Codex 스킬 디렉터리로 복사해 사용할 수 있는 스킬 폴더들
 
+## 설치 방법
+
+스킬 하나를 설치하려면 Codex 스킬 디렉터리로 복사하면 된다.
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R skills/subagent-creator "${CODEX_HOME:-$HOME/.codex}/skills/"
+```
+
+이 저장소를 계속 업데이트하면서 그대로 원본으로 쓰고 싶다면 심볼릭 링크를 만들면 된다.
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/skills/subagent-creator" "${CODEX_HOME:-$HOME/.codex}/skills/subagent-creator"
+```
+
+이후 Codex에서 `$subagent-creator`로 스킬을 사용할 수 있다.
+
 ## 현재 포함된 스킬
 
 ### `subagent-creator`
