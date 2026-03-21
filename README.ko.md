@@ -10,27 +10,16 @@
 
 ## 설치 방법
 
-이 저장소의 스킬은 기본 내장된 시스템 스킬 `$skill-installer`로 설치하면 된다.
+이 저장소의 스킬은 기본 내장된 시스템 스킬 `$skill-installer`로 설치하면 된다. 각 스킬 항목 아래에 한 줄 설치 문구를 적어 두었다.
 
-리포지토리와 경로를 지정하는 예시:
-
-```text
-Use $skill-installer to install `skills/subagent-creator` from the GitHub repo `smturtle2/codex-skills`.
-```
-
-GitHub URL을 바로 넘기는 예시:
-
-```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/subagent-creator
-```
-
-설치 후에는 Codex를 다시 시작해야 새 스킬이 반영된다.
+스킬을 설치한 뒤에는 Codex를 다시 시작해야 반영된다.
 
 ## 현재 포함된 스킬
 
 ### `subagent-creator`
 
 - 위치: `skills/subagent-creator`
+- 설치: `Use $skill-installer to install \`skills/subagent-creator\` from the GitHub repo \`smturtle2/codex-skills\`.`
 - 목적: 자연어 브리프만으로 하나의 집중된 Codex 커스텀 서브에이전트를 생성
 - 기본 동작: 보통 `~/.codex/agents/` 아래에 커스텀 에이전트 TOML 파일 하나를 작성
 - 성격: 브리프에서 역할을 직접 도출하고, 기본값은 보수적으로 유지하며, 근거 없는 MCP URL이나 추가 전역 설정을 임의로 만들지 않음

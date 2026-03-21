@@ -10,27 +10,16 @@ Reusable Codex skills collected in one repository. Each skill lives in its own f
 
 ## Install
 
-Use the preinstalled `$skill-installer` system skill to install from this repository.
+Use the preinstalled `$skill-installer` system skill. Each skill entry below includes a one-line install command.
 
-Example using repo + path:
-
-```text
-Use $skill-installer to install `skills/subagent-creator` from the GitHub repo `smturtle2/codex-skills`.
-```
-
-Example using the GitHub URL directly:
-
-```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/subagent-creator
-```
-
-After installation, restart Codex to pick up the new skill.
+After installing a skill, restart Codex to pick it up.
 
 ## Current Skills
 
 ### `subagent-creator`
 
 - Folder: `skills/subagent-creator`
+- Install: `Use $skill-installer to install \`skills/subagent-creator\` from the GitHub repo \`smturtle2/codex-skills\`.`
 - Purpose: create one focused Codex custom subagent from a natural-language brief
 - Default behavior: write a single custom-agent TOML, usually under `~/.codex/agents/`
 - Style: derive the role from the brief, keep defaults conservative, and avoid inventing MCP URLs or extra config unless the task provides them
