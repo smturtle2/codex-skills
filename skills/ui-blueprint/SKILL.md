@@ -11,6 +11,7 @@ Build frontend UI from a generated visual blueprint, not from an unvisualized te
 
 - Use `gpt-5.4` as the reasoning model for this workflow whenever model selection is available.
 - Before writing UI code, generate a UI mockup image through the `imagegen` workflow.
+- Save or copy the selected generated blueprint image under the project-root `ui-blueprints/` directory before implementation. Do not leave it only in the default image generation output location.
 - Inspect the generated image and extract concrete implementation notes before coding.
 - Do not silently skip the image step for new UI, major redesigns, visually led pages, app surfaces, prototypes, or game UI.
 - Do not implement from a generic placeholder mockup. The image prompt must reflect the user's actual product, audience, content, and constraints.
@@ -44,15 +45,19 @@ Do not use this skill for:
    - required content and controls
    - visual tone, density, and constraints from the repo
 3. Use `imagegen` to generate one strong UI mockup image before implementation.
-4. Inspect the mockup and write a short visual extraction:
+4. Persist the selected image under the project-root `ui-blueprints/` directory:
+   - create `ui-blueprints/` if it does not exist
+   - use a descriptive, non-overwriting filename
+   - keep the blueprint image even if the final UI does not directly reference it
+5. Inspect the saved mockup and write a short visual extraction:
    - layout grid and major regions
    - typography scale and hierarchy
    - color palette and contrast strategy
    - component states, controls, imagery, and iconography
    - spacing, density, and responsive behavior implied by the image
-5. Implement the UI in the existing stack, using existing components and local patterns first.
-6. Verify in the browser or an equivalent renderer. Compare the result against the blueprint for composition, hierarchy, spacing, color, and responsiveness.
-7. If the implemented screen drifts from the blueprint, revise the UI rather than rationalizing the drift.
+6. Implement the UI in the existing stack, using existing components and local patterns first.
+7. Verify in the browser or an equivalent renderer. Compare the result against the blueprint for composition, hierarchy, spacing, color, and responsiveness.
+8. If the implemented screen drifts from the blueprint, revise the UI rather than rationalizing the drift.
 
 ## Blueprint Prompt Rules
 
@@ -77,6 +82,7 @@ Do not use this skill for:
 When finished, report:
 
 - where the implementation changed
+- the project-local path of the saved blueprint image
 - that a generated UI blueprint was used
 - what verification was run
 - any meaningful deviations from the blueprint and why they were necessary
