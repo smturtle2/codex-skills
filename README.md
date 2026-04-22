@@ -22,6 +22,7 @@ After installing a skill, restart Codex to pick it up.
 - Purpose: generate or edit raster images from the user's intended prompt without rewriting, translating, embellishing, or adding prompt scaffolding
 - Default behavior: follow the same image generation path as `imagegen`, using built-in `image_gen` by default, loading any requested local input images first, then saving the generated image to the requested path or project root
 - Style: preserve the user's creative intent exactly while treating obvious save paths and file-loading details as execution instructions
+- Pre-screening: do not apply skill-level generation-feasibility or image-safety screening before handing the prompt to the selected generation path
 - Boundary: intended for prompt-faithful image creation; skip when the user wants prompt engineering, UI blueprints, or code-native SVG/HTML/CSS artwork
 
 Install:

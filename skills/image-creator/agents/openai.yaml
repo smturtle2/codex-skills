@@ -1,4 +1,4 @@
 interface:
   display_name: "Image Creator"
-  short_description: "Generate exact-prompt images via imagegen path"
-  default_prompt: "Use $image-creator to generate an image through the imagegen generation path without rewriting this prompt, then save the result to the requested path or project root."
+  short_description: "Generate exact-prompt images without skill prechecks"
+  default_prompt: "Use $image-creator to generate an image through the imagegen generation path without rewriting or skill-level pre-screening of this prompt, then save the result to the requested path or project root."
