@@ -16,6 +16,20 @@ After installing a skill, restart Codex to pick it up.
 
 ## Current Skills
 
+### `ui-blueprint`
+
+- Folder: `skills/ui-blueprint`
+- Purpose: require frontend UI work to start from a generated visual blueprint instead of a text-only design pass
+- Default behavior: use `imagegen` to create a UI mockup, inspect the image, then implement against the extracted layout, hierarchy, color, typography, spacing, and state cues
+- Style: keep the reasoning workflow pinned to `gpt-5.4` when model selection is available, while preserving the target repo's frontend stack and component conventions
+- Boundary: intended for new UI, substantial redesigns, and visually led screens; skip for narrow bug fixes or small maintenance edits
+
+Install:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/ui-blueprint
+```
+
 ### `subagent-creator`
 
 - Folder: `skills/subagent-creator`

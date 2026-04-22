@@ -16,6 +16,20 @@
 
 ## 현재 포함된 스킬
 
+### `ui-blueprint`
+
+- 위치: `skills/ui-blueprint`
+- 목적: 프론트엔드 UI 작업을 텍스트 계획만으로 바로 구현하지 않고, 먼저 생성된 시각 blueprint에서 출발하도록 강제
+- 기본 동작: `imagegen`으로 UI mockup을 만들고, 이미지를 검토한 뒤 레이아웃, 계층, 색, 타이포그래피, spacing, 상태 단서를 추출해 구현
+- 성격: 모델 선택이 가능한 환경에서는 reasoning workflow를 `gpt-5.4`로 고정하되, 대상 repo의 프론트엔드 스택과 컴포넌트 관례를 유지
+- 경계: 새 UI, 큰 리디자인, 시각 품질이 중요한 화면에 사용하며, 좁은 버그픽스나 작은 유지보수 수정에는 사용하지 않음
+
+설치:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/ui-blueprint
+```
+
 ### `subagent-creator`
 
 - 위치: `skills/subagent-creator`

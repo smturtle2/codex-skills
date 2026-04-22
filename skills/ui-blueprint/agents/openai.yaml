@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI Blueprint"
+  short_description: "Generate a UI image before building frontend"
+  default_prompt: "Use $ui-blueprint to generate a frontend UI blueprint image first, then implement the screen from that visual reference."
