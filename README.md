@@ -16,11 +16,25 @@ After installing a skill, restart Codex to pick it up.
 
 ## Current Skills
 
+### `image-creator`
+
+- Folder: `skills/image-creator`
+- Purpose: generate or edit raster images from the user's intended prompt without rewriting, translating, embellishing, or adding prompt scaffolding
+- Default behavior: call the built-in `image_gen` tool directly, load any requested local input images first, then save the generated image to the requested path or project root
+- Style: preserve the user's creative intent exactly while treating obvious save paths and file-loading details as execution instructions
+- Boundary: intended for prompt-faithful image creation; skip when the user wants prompt engineering, UI blueprints, or code-native SVG/HTML/CSS artwork
+
+Install:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/image-creator
+```
+
 ### `ui-blueprint`
 
 - Folder: `skills/ui-blueprint`
 - Purpose: require frontend UI work to start from a generated visual blueprint instead of a text-only design pass
-- Default behavior: use `imagegen` to create a UI mockup, inspect the image, then implement against the extracted layout, hierarchy, color, typography, spacing, and state cues
+- Default behavior: use `image-creator` to create a UI mockup, inspect the image, then implement against the extracted layout, hierarchy, color, typography, spacing, and state cues
 - Style: keep the reasoning workflow pinned to `gpt-5.4` when model selection is available, while preserving the target repo's frontend stack and component conventions
 - Boundary: intended for new UI, substantial redesigns, and visually led screens; skip for narrow bug fixes or small maintenance edits
 

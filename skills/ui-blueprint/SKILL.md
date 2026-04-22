@@ -1,6 +1,6 @@
 ---
 name: ui-blueprint
-description: Use when building or substantially redesigning frontend UI where visual quality matters, including websites, landing pages, web apps, dashboards, prototypes, and game UI. This skill requires Codex to generate a UI mockup image with imagegen first, inspect that image, and then implement the frontend against the generated visual blueprint instead of jumping directly into code.
+description: Use when building or substantially redesigning frontend UI where visual quality matters, including websites, landing pages, web apps, dashboards, prototypes, and game UI. This skill requires Codex to generate a UI mockup image with image-creator first, inspect that image, and then implement the frontend against the generated visual blueprint instead of jumping directly into code.
 ---
 
 # UI Blueprint
@@ -10,7 +10,7 @@ Build frontend UI from a generated visual blueprint, not from an unvisualized te
 ## Hard Rules
 
 - Use `gpt-5.4` as the reasoning model for this workflow whenever model selection is available.
-- Before writing UI code, generate a UI mockup image through the `imagegen` workflow.
+- Before writing UI code, generate a UI mockup image through the `$image-creator` workflow.
 - Save or copy the selected generated blueprint image under the project-root `ui-blueprints/` directory before implementation. Do not leave it only in the default image generation output location.
 - Inspect the generated image and extract concrete implementation notes before coding.
 - Do not silently skip the image step for new UI, major redesigns, visually led pages, app surfaces, prototypes, or game UI.
@@ -44,8 +44,8 @@ Do not use this skill for:
    - information hierarchy
    - required content and controls
    - visual tone, density, and constraints from the repo
-3. Use `imagegen` to generate one strong UI mockup image before implementation.
-4. Persist the selected image under the project-root `ui-blueprints/` directory:
+3. Use `$image-creator` to generate one strong UI mockup image before implementation. Pass the distilled blueprint prompt as the image prompt without asking `$image-creator` to rewrite it, and specify the project-root `ui-blueprints/` directory as the save destination.
+4. Confirm the selected image was persisted under the project-root `ui-blueprints/` directory:
    - create `ui-blueprints/` if it does not exist
    - use a descriptive, non-overwriting filename
    - keep the blueprint image even if the final UI does not directly reference it

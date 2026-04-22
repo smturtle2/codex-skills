@@ -16,11 +16,25 @@
 
 ## 현재 포함된 스킬
 
+### `image-creator`
+
+- 위치: `skills/image-creator`
+- 목적: 사용자의 의도된 이미지 프롬프트를 다시 쓰거나 번역하거나 꾸미지 않고 그대로 사용해 raster 이미지를 생성 또는 편집
+- 기본 동작: 내장 `image_gen` 도구를 직접 호출하고, 필요한 로컬 입력 이미지를 먼저 로드한 뒤, 생성된 이미지를 요청한 경로나 프로젝트 루트에 저장
+- 성격: 명백한 저장 경로와 파일 로딩 지시는 실행 지시로 처리하되, 사용자의 창작 의도는 그대로 보존
+- 경계: 프롬프트 충실도가 중요한 이미지 생성에 사용하며, 프롬프트 엔지니어링, UI blueprint, SVG/HTML/CSS 같은 코드 기반 그래픽에는 사용하지 않음
+
+설치:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/image-creator
+```
+
 ### `ui-blueprint`
 
 - 위치: `skills/ui-blueprint`
 - 목적: 프론트엔드 UI 작업을 텍스트 계획만으로 바로 구현하지 않고, 먼저 생성된 시각 blueprint에서 출발하도록 강제
-- 기본 동작: `imagegen`으로 UI mockup을 만들고, 이미지를 검토한 뒤 레이아웃, 계층, 색, 타이포그래피, spacing, 상태 단서를 추출해 구현
+- 기본 동작: `image-creator`로 UI mockup을 만들고, 이미지를 검토한 뒤 레이아웃, 계층, 색, 타이포그래피, spacing, 상태 단서를 추출해 구현
 - 성격: 모델 선택이 가능한 환경에서는 reasoning workflow를 `gpt-5.4`로 고정하되, 대상 repo의 프론트엔드 스택과 컴포넌트 관례를 유지
 - 경계: 새 UI, 큰 리디자인, 시각 품질이 중요한 화면에 사용하며, 좁은 버그픽스나 작은 유지보수 수정에는 사용하지 않음
 
