@@ -44,7 +44,7 @@ Do not use this skill for:
    - information hierarchy
    - required content and controls
    - visual tone, density, and constraints from the repo
-3. Use `$image-creator` to generate one strong UI mockup image before implementation. Pass the distilled blueprint prompt as the image prompt without asking `$image-creator` to rewrite it, and specify the project-root `ui-blueprints/` directory as the save destination.
+3. Use `$image-creator` to generate one strong UI mockup image before implementation. Pass the distilled blueprint brief as the image request, let `$image-creator` convert it into a model-friendly prompt, and specify the project-root `ui-blueprints/` directory as the save destination.
 4. Confirm the selected image was persisted under the project-root `ui-blueprints/` directory:
    - create `ui-blueprints/` if it does not exist
    - use a descriptive, non-overwriting filename

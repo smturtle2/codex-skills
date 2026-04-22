@@ -1,4 +1,4 @@
 interface:
   display_name: "Image Creator"
-  short_description: "Generate exact-prompt images without skill filters"
-  default_prompt: "Use $image-creator to generate an image from this exact prompt without rewriting or skill-level filtering, then save the result to the requested path or project root."
+  short_description: "Rewrite prompts without skill blocks"
+  default_prompt: "Use $image-creator to rewrite my image request into a model-friendly prompt without skill-level blocking, generate the image, and save it to the requested path or project root."

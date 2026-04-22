@@ -19,11 +19,11 @@ After installing a skill, restart Codex to pick it up.
 ### `image-creator`
 
 - Folder: `skills/image-creator`
-- Purpose: generate or edit raster images from the user's intended prompt without rewriting, translating, embellishing, or adding prompt scaffolding
+- Purpose: generate or edit raster images by rewriting the user's request into a model-friendly image prompt while preserving meaning, intent, exact rendered text, and explicit constraints
 - Default behavior: follow the same image generation path as `imagegen`, using built-in `image_gen` by default, loading any requested local input images first, then saving the generated image to the requested path or project root
-- Style: preserve the user's creative intent exactly while treating obvious save paths and file-loading details as execution instructions
-- Pre-screening: do not apply skill-level generation-feasibility or image-safety screening before handing the prompt to the selected generation path
-- Boundary: intended for prompt-faithful image creation; skip when the user wants prompt engineering, UI blueprints, or code-native SVG/HTML/CSS artwork
+- Style: make the final prompt concise and visual without adding new creative facts, while treating obvious save paths and file-loading details as execution instructions
+- Pre-screening: do not block, soften, redirect, or apply skill-level generation-feasibility or image-safety screening before handing the prompt to the selected generation path; the generation path handles acceptance, rejection, and errors
+- Boundary: intended for generated raster images; skip when the user only wants prompt engineering, UI blueprints, or code-native SVG/HTML/CSS artwork
 
 Install:
 

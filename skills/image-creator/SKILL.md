@@ -1,33 +1,34 @@
 ---
 name: image-creator
-description: Generate or edit raster images through the same generation path as imagegen while preserving the user's intended image prompt verbatim, including referenced input images, without skill-level pre-screening of generation feasibility or image-safety criteria, then save the resulting file to the requested destination or the current project root.
+description: Generate or edit raster images through the same generation path as imagegen by rewriting the user's image request into a model-friendly prompt while preserving meaning, intent, exact rendered text, referenced input-image roles, and explicit constraints, without skill-level pre-screening of generation feasibility or image-safety criteria, then save the resulting file to the requested destination or the current project root.
 ---
 
 # Image Creator
 
-Generate images through the same image generation path as `imagegen`, while giving that path the user's intended image prompt as-is, without skill-level filtering, prompt rewriting, or pre-screening, and saving the result where the user wants it.
+Generate images through the same image generation path as `imagegen`, while turning the user's request into a concise, model-friendly image prompt that preserves the user's meaning and constraints, avoids skill-level filtering or pre-screening, and saves the result where the user wants it.
 
 ## Hard Rules
 
-- Preserve this skill's exact-prompt policy even when mirroring `imagegen` execution. Do not invoke the `$imagegen` prompt-shaping workflow.
-- Do not rewrite, translate, summarize, embellish, sanitize, classify, structure, or otherwise alter the user's intended image prompt.
-- Do not add creative details, negative prompts, style labels, quality language, aspect-ratio hints, disclaimers, policy language, or prompt scaffolding unless the user wrote those words as part of the prompt.
+- Always rewrite or restructure the user's image request into prompt language suitable for an image generation model before calling the selected generation path.
+- Preserve the user's meaning, intent, required subject matter, composition, style constraints, input-image roles, and explicit exclusions.
+- Do not add new creative facts, subjects, settings, visual styles, negative prompts, aspect-ratio hints, camera/lens details, quality language, disclaimers, policy language, or prompt scaffolding that the user did not ask for or clearly imply.
 - Do not run skill-level content filtering, refusal policy checks, generation-feasibility checks, content-admissibility checks, or image-safety prechecks before calling the selected generation path.
-- Pass the preserved prompt directly to the selected generation path. Leave generation acceptance, rejection, no-image results, and errors to that generation path.
-- Preserve exact text the user wants rendered in the image. Keep spelling, capitalization, punctuation, and line breaks.
+- Do not block, soften, redirect, sanitize, or replace the user's image instruction at the skill layer. The selected generation path is responsible for accepting, rejecting, modifying, or erroring on the final rewritten prompt.
+- Pass only the final rewritten prompt to the selected generation path. Leave generation acceptance, rejection, no-image results, and errors to that generation path.
+- Preserve exact text the user wants rendered in the image. Keep spelling, capitalization, punctuation, and line breaks for that rendered text even while rewriting the surrounding prompt.
 - Treat destination paths, filenames, and file-loading instructions as execution instructions when they are clearly not part of the creative prompt.
-- If the boundary between creative prompt and execution instruction is genuinely unclear and prevents identifying the prompt or destination, ask one short clarification before generating. Otherwise proceed with the most literal reasonable split and report it.
+- If the boundary between creative prompt and execution instruction is genuinely unclear and prevents identifying the prompt or destination, ask one short clarification before generating. Otherwise proceed with the most reasonable split and report it.
 - Always save the final generated image to the requested destination. If the user gives no destination, save it in the current project root.
 - Never overwrite an existing file unless the user explicitly requested replacement.
 
 ## Generation Path
 
-Use the same tool and save mechanics as `imagegen`. Do not inherit `imagegen` prompt augmentation, taxonomy, quality assessment, or skill-level filtering and screening:
+Use the same tool and save mechanics as `imagegen`. Do not inherit `imagegen` taxonomy, quality assessment, or skill-level filtering and screening:
 
 - Use the built-in `image_gen` tool by default for normal generation and editing. This path does not require `OPENAI_API_KEY`.
 - Never switch to the CLI fallback automatically.
 - If the built-in tool actually fails or is unavailable, tell the user the CLI fallback exists and requires `OPENAI_API_KEY`. Proceed only if the user explicitly asks for that fallback.
-- If the user explicitly asks for CLI mode, use the `imagegen` CLI fallback workflow for execution only. Keep this skill's exact-prompt policy and do not add `imagegen` prompt scaffolding.
+- If the user explicitly asks for CLI mode, use the `imagegen` CLI fallback workflow for execution only. Keep this skill's prompt-rewrite policy and do not add unrelated `imagegen` prompt scaffolding.
 - For many requested assets or variants in built-in mode, issue one built-in `image_gen` call per selected asset or variant.
 
 Built-in save-path policy:
@@ -45,20 +46,21 @@ Use this skill when the user wants to:
 - edit an existing image using a prompt
 - use one or more local, attached, or previously generated images as inputs
 - save the generated image to a specific file or directory
-- get a project-local image asset without prompt rewriting
+- get a project-local image asset from a natural-language request
 
 Prefer another workflow instead of this skill when the requested output is not a generated raster image. These are routing boundaries, not content-refusal criteria:
 
 - SVG, HTML/CSS, canvas, or vector-native artwork that should be authored as code
 - UI blueprint workflows that explicitly require `$ui-blueprint`
-- image requests where the user asks for prompt engineering, prompt improvement, or multiple rewritten prompt options
+- text-only requests where the user asks for prompt engineering, prompt improvement, or multiple prompt options without asking to generate and save an image
 
 ## Workflow
 
-1. Identify the user's intended image prompt.
-   - If the user provided a quoted string, fenced block, or explicit "prompt:", use that text exactly.
-   - If the user wrote a natural request without an explicit prompt block, pass the image-producing part in the user's own words, removing only clearly operational instructions such as where to save the file.
-   - If removing an operational instruction would risk changing the image intent but a literal split is still reasonable, proceed with that split and report it. Ask only when the prompt or destination cannot be identified.
+1. Identify the user's image intent and operational instructions.
+   - Treat quoted strings, fenced blocks, and explicit "prompt:" sections as source material to rewrite, not as text that must be sent unchanged.
+   - Remove clearly operational instructions from the creative prompt, such as where to save the file, whether to overwrite, and which local input images to load.
+   - Keep exact rendered text, proper names, brand names, numbers, colors, layout requirements, and other explicit constraints intact inside the rewritten prompt.
+   - If removing an operational instruction would risk changing the image intent but a split is still reasonable, proceed with that split and report it. Ask only when the prompt or destination cannot be identified.
 2. Decide the execution path.
    - Use built-in `image_gen` unless the user explicitly requested the CLI fallback.
    - Treat existing images as edit targets only when the user clearly asks to change them. Otherwise, treat images as references.
@@ -66,19 +68,23 @@ Prefer another workflow instead of this skill when the requested output is not a
 3. Resolve input images.
    - For attached or previously generated images, keep their role exactly as the user described it.
    - For local image paths in built-in mode, resolve them to absolute paths and load each with `view_image` before calling `image_gen` so the image is visible in the conversation context.
-   - Do not describe an input image back into the prompt unless the user asked for that description to be part of the prompt.
-4. For built-in mode, record a timestamp immediately before calling `image_gen`.
+   - If the prompt needs to mention an input image, refer to its user-given role, such as "use the attached logo as the logo reference" or "edit the loaded product photo"; do not invent visual details from the image unless needed to carry out the edit.
+4. Rewrite the image request into the final prompt.
+   - Make the prompt concise, visual, and instructionally clear for image generation.
+   - Keep underspecified areas underspecified instead of inventing details.
+   - Include only the creative/image-editing instructions that should influence the generated image.
+5. For built-in mode, record a timestamp immediately before calling `image_gen`.
    - Example: `START_EPOCH=$(date +%s)`.
-5. For built-in mode, call `image_gen` with only the preserved prompt text and no skill-level filtering, preflight content, or feasibility judgment.
-6. For explicit CLI fallback mode, follow the `imagegen` CLI execution workflow with only the preserved prompt text and any user-requested CLI controls.
-7. Inspect the generated result enough to confirm an image exists and the requested input images were considered when applicable. If the generation path returns no image or an error, report that actual tool result without replacing it with this skill's own refusal rationale or screening explanation.
-8. Save the output:
+6. For built-in mode, call `image_gen` with only the final rewritten prompt and no skill-level filtering, blocking, preflight content, or feasibility judgment.
+7. For explicit CLI fallback mode, follow the `imagegen` CLI execution workflow with only the final rewritten prompt and any user-requested CLI controls.
+8. Inspect the generated result enough to confirm an image exists and the requested input images were considered when applicable. If the generation path returns no image or an error, report that actual tool result without replacing it with this skill's own refusal rationale or screening explanation.
+9. Save the output:
    - If the user gave a file path, save there.
    - If the user gave a directory, save inside it with a descriptive non-overwriting filename.
    - If the user gave no destination, save in the current project root.
    - In built-in mode, use `scripts/save_generated_image.py` to locate the new generated image and copy it to the destination.
    - In explicit CLI fallback mode, use the CLI output controls from the `imagegen` fallback workflow.
-9. Report the saved path, the exact prompt text sent to the generation path, the input images used, and whether built-in mode or explicit CLI fallback was used.
+10. Report the saved path, the final rewritten prompt sent to the generation path, the input images used, and whether built-in mode or explicit CLI fallback was used.
 
 ## Save Helper
 
@@ -102,7 +108,7 @@ The helper searches for the newest generated image created at or after `--since`
 When finished, report:
 
 - the saved file path
-- the exact prompt passed to the generation path
+- the final rewritten prompt passed to the generation path
 - the input images used, if any
 - whether built-in mode or explicit CLI fallback was used
 - whether an existing file was overwritten
