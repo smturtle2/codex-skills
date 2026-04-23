@@ -16,6 +16,7 @@ Generate images through the same image generation path as `imagegen`, while turn
 - Keep the requested subject, action, text, style, composition, and constraints in the final prompt unless they are clearly operational instructions.
 - For reference images, mention only the user-given role in the final prompt; do not describe, summarize, caption, or visually transcribe the image contents into the prompt.
 - Use `view_image` only as the immediate bridge for local input images that will be included in the next built-in `image_gen` call. Load only those images, do it after the final prompt is ready, and call `image_gen` immediately after the last required `view_image` call.
+- When calling `view_image`, omit the `detail` parameter.
 - Outside that exact immediate bridge step, never call `view_image` for any reason.
 - Do not use `view_image`, generated-image outputs, or any visual inspection step to analyze, describe, caption, transcribe, evaluate, approve, reject, revise, or otherwise judge input, reference, or generated images.
 - Do not critique, score, revise, or regenerate generated output based on skill-layer judgments about quality, style, modesty, exposure, appropriateness, or better fit.
@@ -82,6 +83,7 @@ Prefer another workflow instead of this skill when the requested output is not a
 5. For built-in mode, record a timestamp immediately before calling `image_gen`.
    - Example: `START_EPOCH=$(date +%s)`.
 6. For built-in mode with local input images, call `view_image` only for the local images needed by the next `image_gen` call.
+   - Call `view_image` with only the path.
    - Outside this step, never call `view_image`.
    - Do not inspect, describe, or reason from the `view_image` result.
    - Do not send intervening commentary, rewrite the prompt, perform a preflight, or add a check after the last required `view_image` call.
