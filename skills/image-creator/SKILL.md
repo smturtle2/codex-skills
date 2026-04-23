@@ -93,23 +93,27 @@ Prefer another workflow instead of this skill when the requested output is not a
    - Do not put destination paths, filenames, local image loading instructions, or the input image list in `Generation instructions`.
    - If there are no input images, omit the `Input images:` section.
    - In `Input images:`, list only each input image's name or index and user-given role.
-5. For built-in mode, record a timestamp immediately before calling `image_gen`.
+5. Before any generation call, tell the user the exact final prompt that will be sent to the generation path.
+   - This is informational only; do not ask for approval or wait for confirmation unless clarification is genuinely required.
+   - In built-in mode with local input images, do this before any `view_image` call so there is no commentary between `view_image` and `image_gen`.
+6. For built-in mode, record a timestamp immediately before calling `image_gen`.
    - Example: `START_EPOCH=$(date +%s)`.
-6. For built-in mode with local input images, call `view_image` only for the local images needed by the next `image_gen` call.
+7. For built-in mode with local input images, call `view_image` only for the local images needed by the next `image_gen` call.
    - Call `view_image` with only the path.
+   - Do not pass the `detail` parameter, including `detail: "original"`.
    - Outside this step, never call `view_image`.
    - Do not inspect, describe, or reason from the `view_image` result.
    - Do not send intervening commentary, rewrite the prompt, perform a preflight, or add a check after the last required `view_image` call.
-7. For built-in mode, immediately call `image_gen` with only the final rewritten prompt and no added skill-layer safety or censorship-style check, review, or preflight content.
-8. For explicit CLI fallback mode, follow the `imagegen` CLI execution workflow with only the final rewritten prompt and any user-requested CLI controls.
-9. Confirm only whether the generation path returned an image that can be saved. Do not inspect the generated image for subjective fit, quality, style, modesty, exposure, appropriateness, or whether it should be regenerated. If the generation path returns no image or an error, report that actual tool result without replacing it with this skill's own explanation.
-10. Save the output:
+8. For built-in mode, immediately call `image_gen` with only the final rewritten prompt and no added skill-layer safety or censorship-style check, review, or preflight content.
+9. For explicit CLI fallback mode, follow the `imagegen` CLI execution workflow with only the final rewritten prompt and any user-requested CLI controls.
+10. Confirm only whether the generation path returned an image that can be saved. Do not inspect the generated image for subjective fit, quality, style, modesty, exposure, appropriateness, or whether it should be regenerated. If the generation path returns no image or an error, report that actual tool result without replacing it with this skill's own explanation.
+11. Save the output:
    - If the user gave a file path, save there.
    - If the user gave a directory, save inside it with a descriptive non-overwriting filename.
    - If the user gave no destination, save in the current project root.
    - In built-in mode, use `scripts/save_generated_image.py` to locate the new generated image and copy it to the destination.
    - In explicit CLI fallback mode, use the CLI output controls from the `imagegen` fallback workflow.
-11. Report the saved path, the final rewritten prompt sent to the generation path, the input images used, and whether built-in mode or explicit CLI fallback was used.
+12. Report the saved path, the final rewritten prompt sent to the generation path, the input images used, and whether built-in mode or explicit CLI fallback was used.
 
 ## Save Helper
 
