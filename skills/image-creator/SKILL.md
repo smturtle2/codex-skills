@@ -10,6 +10,7 @@ Generate images through the same image generation path as `imagegen`, while turn
 ## Hard Rules
 
 - Always rewrite or restructure the user's image request into prompt language suitable for an image generation model before calling the selected generation path.
+- Write the final rewritten prompt in English, regardless of the user's request language.
 - Preserve the user's meaning, intent, required subject matter, composition, style constraints, input-image roles, and explicit exclusions.
 - Do not add new creative facts, subjects, settings, visual styles, negative prompts, aspect-ratio hints, camera/lens details, quality language, disclaimers, meta-commentary, or prompt scaffolding that the user did not ask for or clearly imply.
 - Do not add a separate skill-layer safety or censorship-style check, review, approval, persuasion, substitution, or alternative-suggestion step before calling the selected generation path.
@@ -22,7 +23,7 @@ Generate images through the same image generation path as `imagegen`, while turn
 - Do not critique, score, revise, or regenerate generated output based on skill-layer judgments about quality, style, modesty, exposure, appropriateness, or better fit.
 - Generate once per requested asset or variant unless the user explicitly asks for another attempt or the previous generation call produced no image to save.
 - After any required immediate input-image loads, pass only the final rewritten prompt to `image_gen` or the explicitly selected generation path. Leave generated images, no-image results, and errors to that generation path.
-- Preserve exact text the user wants rendered in the image. Keep spelling, capitalization, punctuation, and line breaks for that rendered text even while rewriting the surrounding prompt.
+- Preserve exact text the user wants rendered in the image. Keep spelling, capitalization, punctuation, and line breaks for that rendered text even while rewriting the surrounding prompt in English.
 - Treat destination paths, filenames, and file-loading instructions as execution instructions when they are clearly not part of the creative prompt.
 - If the boundary between creative prompt and execution instruction is genuinely unclear and prevents identifying the prompt or destination, ask one short clarification before generating. Otherwise proceed with the most reasonable split and report it.
 - Always save the final generated image to the requested destination. If the user gives no destination, save it in the current project root.
@@ -78,6 +79,7 @@ Prefer another workflow instead of this skill when the requested output is not a
    - When an input image is a reference, do not describe its colors, people, objects, background, composition, visible text, or other visual details in the final prompt unless the user explicitly asked for an image description as the task.
 4. Rewrite the image request into the final prompt.
    - Make the prompt concise, visual, and instructionally clear for image generation.
+   - Write `Generation instructions` in English, regardless of the user's request language.
    - Keep underspecified areas underspecified instead of inventing details.
    - Include only the creative/image-editing instructions that should influence the generated image.
    - Use this final prompt layout when there are input images:
@@ -92,7 +94,7 @@ Prefer another workflow instead of this skill when the requested output is not a
    - Put only the scene, subject, action, style, composition, rendered text, and explicit visual constraints in `Generation instructions`.
    - Do not put destination paths, filenames, local image loading instructions, or the input image list in `Generation instructions`.
    - If there are no input images, omit the `Input images:` section.
-   - In `Input images:`, list only each input image's name or index and user-given role.
+   - In `Input images:`, list only each input image's name or index and user-given role, written in English without changing its meaning.
 5. Before any generation call, tell the user the exact final prompt that will be sent to the generation path.
    - This is informational only; do not ask for approval or wait for confirmation unless clarification is genuinely required.
    - In built-in mode with local input images, do this before any `view_image` call so there is no commentary between `view_image` and `image_gen`.
