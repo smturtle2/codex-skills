@@ -74,12 +74,25 @@ Prefer another workflow instead of this skill when the requested output is not a
 3. Resolve input images.
    - For attached or previously generated images, keep their role exactly as the user described it.
    - For local image paths in built-in mode, resolve them to absolute paths but do not load them yet.
-   - If the prompt needs to mention an input image, refer to its user-given role, such as "use the attached logo as the logo reference" or "edit the loaded product photo".
+   - Track each input image by its file name, attachment order, or previous-image label and its user-given role.
    - When an input image is a reference, do not describe its colors, people, objects, background, composition, visible text, or other visual details in the final prompt unless the user explicitly asked for an image description as the task.
 4. Rewrite the image request into the final prompt.
    - Make the prompt concise, visual, and instructionally clear for image generation.
    - Keep underspecified areas underspecified instead of inventing details.
    - Include only the creative/image-editing instructions that should influence the generated image.
+   - Use this final prompt layout when there are input images:
+
+     ```text
+     [Generation instructions.]
+
+     Input images:
+     - [image name or index]: [user-given role].
+     ```
+
+   - Put only the scene, subject, action, style, composition, rendered text, and explicit visual constraints in `Generation instructions`.
+   - Do not put destination paths, filenames, local image loading instructions, or the input image list in `Generation instructions`.
+   - If there are no input images, omit the `Input images:` section.
+   - In `Input images:`, list only each input image's name or index and user-given role.
 5. For built-in mode, record a timestamp immediately before calling `image_gen`.
    - Example: `START_EPOCH=$(date +%s)`.
 6. For built-in mode with local input images, call `view_image` only for the local images needed by the next `image_gen` call.
