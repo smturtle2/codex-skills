@@ -9,6 +9,21 @@ Create or update one high-quality Codex custom agent directly from the user's br
 
 Read [references/custom-agent-schema.md](references/custom-agent-schema.md) for the file schema and inheritance rules. Read [references/quality-rubric.md](references/quality-rubric.md) for the quality bar the finished agent definition should meet. When the environment allows it, run `scripts/validate_agent_toml.py` on the finished TOML before returning a preview or writing the file.
 
+## Happy Path
+
+User request:
+
+```text
+Use $subagent-creator to create a read-only dependency audit agent.
+```
+
+Skill behavior:
+
+1. Distill the brief into one focused role contract.
+2. Choose a user-scoped path such as `~/.codex/agents/dependency-audit.toml` unless the user asks for project scope.
+3. Write exactly one TOML file with `name`, `description`, and `developer_instructions`.
+4. Validate the TOML when possible, then report the path, scope, and role boundary.
+
 ## Operating Stance
 
 - Treat the user's brief as source material, not as a category label.

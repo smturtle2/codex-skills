@@ -7,6 +7,21 @@ description: Generate or edit raster images through the same generation path as 
 
 Generate images through the same image generation path as `imagegen`, while turning the user's request into a concise, model-friendly image prompt that preserves the user's meaning and constraints, then saves the result where the user wants it.
 
+## Happy Path
+
+User request:
+
+```text
+Use $image-creator to make a README workflow image and save it to docs/assets/workflow.png.
+```
+
+Skill behavior:
+
+1. Split the creative request from the save destination.
+2. Rewrite the creative request into a concise English generation prompt.
+3. Record the timestamp, call built-in `image_gen` once, then copy the new generated file into `docs/assets/workflow.png`.
+4. Report the saved path, final prompt, image inputs if any, generation mode, and overwrite status.
+
 ## Hard Rules
 
 - Always rewrite or restructure the user's image request into prompt language suitable for an image generation model before calling the selected generation path.

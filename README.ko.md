@@ -4,9 +4,18 @@
 
 재사용 가능한 Codex 스킬을 모아 두는 저장소다. 각 스킬은 별도 폴더에 들어가며, 기본적으로 `SKILL.md`와 필요할 때 참조 문서, 스크립트, 에셋을 함께 포함한다.
 
+![Codex 스킬 개요](docs/assets/codex-skills-hero.png)
+
+이 저장소는 작고 설치 가능한 스킬 카탈로그로 쓰면 된다. `$skill-installer`로 원하는 스킬을 Codex 스킬 디렉터리에 설치하고, Codex를 다시 시작한 뒤 작업에 맞는 스킬 이름을 호출한다.
+
 ## 저장소 구조
 
 - `skills/`: Codex 스킬 디렉터리로 복사해 사용할 수 있는 스킬 폴더들
+- `skills/*/SKILL.md`: 스킬이 트리거될 때 Codex가 읽는 지침 본문
+- `skills/*/scripts/`: 스킬과 함께 배포되는 보조 스크립트
+- `skills/*/references/`: 스킬이 필요할 때 읽는 참조 문서
+- `skills/*/agents/`: 스킬별 agent/provider 메타데이터
+- `docs/assets/`: README 이미지와 저장소 수준 문서 에셋
 
 ## 설치 방법
 
@@ -14,16 +23,26 @@
 
 스킬을 설치한 뒤에는 Codex를 다시 시작해야 반영된다.
 
+## 스킬 선택
+
+| 필요한 작업 | 사용할 스킬 | 결과 |
+| --- | --- | --- |
+| 프로젝트 안에 생성형 raster 이미지 저장 | `image-creator` | 저장된 이미지 파일과 실제 전달된 최종 프롬프트 |
+| 새 프론트엔드 UI 제작 또는 큰 리디자인 | `ui-blueprint` | 생성된 UI mockup, 시각 추출 노트, 구현된 UI |
+| Codex 커스텀 서브에이전트 생성 또는 갱신 | `subagent-creator` | 검증 가능한 단일 TOML agent 정의 |
+
 ## 현재 포함된 스킬
 
 ### `image-creator`
 
-- 위치: `skills/image-creator`
-- 목적: 사용자의 요청을 이미지 생성 모델에 적합한 프롬프트로 재구성하되 의미, 의도, 이미지 안에 들어갈 정확한 문구, 명시 제약은 보존해 raster 이미지를 생성 또는 편집
-- 기본 동작: `imagegen`과 같은 이미지 생성 경로를 따르며, 기본적으로 내장 `image_gen`을 사용하고 생성에 필요한 로컬 입력 이미지만 `image_gen` 직전에 로드하며 그 브리지 단계 외에는 `view_image`를 절대 쓰지 않은 뒤 생성된 이미지를 요청한 경로나 프로젝트 루트에 저장
-- 성격: 새 창작 요소를 임의로 추가하지 않고 최종 프롬프트를 간결하고 시각적으로 정리하며, 명백한 저장 경로와 파일 로딩 지시는 실행 지시로 처리
-- 프롬프트 처리: 사용자의 이미지 의도와 명시 제약을 보존해 모델에 적합한 프롬프트로 재구성한 뒤, 별도 스킬 레이어 안전성/검열식 검사를 추가하지 않고 선택된 생성 경로를 호출
-- 경계: 생성형 raster 이미지에 사용하며, 이미지를 만들지 않는 프롬프트 엔지니어링이나 SVG/HTML/CSS 같은 코드 기반 그래픽에는 사용하지 않음
+![Image Creator 워크플로](docs/assets/image-creator-workflow.png)
+
+| 항목 | 내용 |
+| --- | --- |
+| 위치 | `skills/image-creator` |
+| 사용 시점 | 생성형 또는 편집된 raster 이미지를 현재 프로젝트에 저장해야 할 때 |
+| 하는 일 | 사용자 요청을 간결한 이미지 프롬프트로 재구성하고, 이미지 안에 들어갈 정확한 문구와 명시 제약을 보존하며, 생성 경로 호출 뒤 결과를 저장한다. |
+| 하지 않는 일 | 로컬 입력 이미지 브리지 단계 밖에서 `view_image`를 쓰지 않고, 새 창작 제약을 임의로 만들지 않으며, SVG/HTML/CSS 같은 코드 기반 그래픽을 처리하지 않는다. |
 
 설치:
 
@@ -33,11 +52,12 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 
 ### `ui-blueprint`
 
-- 위치: `skills/ui-blueprint`
-- 목적: 프론트엔드 UI 작업을 텍스트 계획만으로 바로 구현하지 않고, 먼저 생성된 시각 blueprint에서 출발하도록 강제
-- 기본 동작: `image-creator`로 UI mockup을 만들고, 이미지를 검토한 뒤 레이아웃, 계층, 색, 타이포그래피, spacing, 상태 단서를 추출해 구현
-- 성격: 모델 선택이 가능한 환경에서는 reasoning workflow를 `gpt-5.4`로 고정하되, 대상 repo의 프론트엔드 스택과 컴포넌트 관례를 유지
-- 경계: 새 UI, 큰 리디자인, 시각 품질이 중요한 화면에 사용하며, 좁은 버그픽스나 작은 유지보수 수정에는 사용하지 않음
+| 항목 | 내용 |
+| --- | --- |
+| 위치 | `skills/ui-blueprint` |
+| 사용 시점 | 새 UI, 큰 리디자인, 시각 품질이 중요한 화면을 구현할 때 |
+| 하는 일 | `image-creator`로 먼저 UI mockup을 만들고, 레이아웃과 시각 결정을 추출한 뒤 기존 프론트엔드 스택에 맞춰 구현한다. |
+| 하지 않는 일 | 시각적으로 중요한 UI 작업에서 blueprint 생성을 건너뛰지 않고, 좁은 버그픽스나 작은 유지보수 수정에는 이 흐름을 적용하지 않는다. |
 
 설치:
 
@@ -47,11 +67,14 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 
 ### `subagent-creator`
 
-- 위치: `skills/subagent-creator`
-- 목적: 자연어 브리프만으로 하나의 집중된 Codex 커스텀 서브에이전트를 생성하거나 갱신
-- 기본 동작: 보통 `~/.codex/agents/` 아래에 커스텀 에이전트 TOML 파일 하나를 작성
-- 성격: 브리프에서 역할을 직접 도출하고, 기본값은 보수적으로 유지하며, 근거 없는 MCP URL이나 추가 전역 설정을 임의로 만들지 않음
-- 철학: canned role example은 의도적으로 피하고, 대신 규칙, 스키마 제약, 검증 단계에 투자해 zero-shot 성질을 유지
+![Subagent Creator 워크플로](docs/assets/subagent-creator-workflow.png)
+
+| 항목 | 내용 |
+| --- | --- |
+| 위치 | `skills/subagent-creator` |
+| 사용 시점 | 자연어 브리프에서 하나의 집중된 Codex 커스텀 서브에이전트를 만들어야 할 때 |
+| 하는 일 | 역할 계약을 정리하고, TOML agent 정의를 작성하며, 기본값을 보수적으로 유지하고 가능한 경우 결과를 검증한다. |
+| 하지 않는 일 | 기본적으로 여러 agent를 만들지 않고, MCP URL이나 credentials를 임의로 만들지 않으며, 브리프가 요구하지 않는 canned role example에 맞추지 않는다. |
 
 설치:
 

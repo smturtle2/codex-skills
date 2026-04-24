@@ -4,9 +4,18 @@
 
 Reusable Codex skills collected in one repository. Each skill lives in its own folder and includes a `SKILL.md` plus any bundled references, scripts, or assets it needs.
 
+![Codex skills overview](docs/assets/codex-skills-hero.png)
+
+Use this repository as a small installable catalog: copy a skill into your Codex skills directory with `$skill-installer`, restart Codex, then invoke the skill by name when its trigger matches your work.
+
 ## Repository Layout
 
 - `skills/`: skill folders ready to copy into a Codex skills directory
+- `skills/*/SKILL.md`: the instruction body Codex reads when a skill is triggered
+- `skills/*/scripts/`: helper scripts bundled with a skill
+- `skills/*/references/`: optional supporting references used by a skill
+- `skills/*/agents/`: optional agent/provider metadata for a skill
+- `docs/assets/`: README images and other repository-level documentation assets
 
 ## Install
 
@@ -14,16 +23,26 @@ Use the preinstalled `$skill-installer` system skill. Each skill entry below inc
 
 After installing a skill, restart Codex to pick it up.
 
+## Choose A Skill
+
+| Need | Use | Output |
+| --- | --- | --- |
+| Generate or edit a project-local raster image | `image-creator` | Saved image file plus the exact rewritten prompt |
+| Build or substantially redesign frontend UI | `ui-blueprint` | Generated UI mockup, extracted visual notes, implemented UI |
+| Create or update one custom Codex subagent | `subagent-creator` | One focused TOML agent definition with validation |
+
 ## Current Skills
 
 ### `image-creator`
 
-- Folder: `skills/image-creator`
-- Purpose: generate or edit raster images by rewriting the user's request into a model-friendly image prompt while preserving meaning, intent, exact rendered text, and explicit constraints
-- Default behavior: follow the same image generation path as `imagegen`, using built-in `image_gen` by default, loading only the local input images needed for generation immediately before `image_gen`, never using `view_image` outside that bridge step, then saving the generated image to the requested path or project root
-- Style: make the final prompt concise and visual without adding new creative facts, while treating obvious save paths and file-loading details as execution instructions
-- Prompt handling: preserve the user's image intent and explicit constraints, rewrite them into a model-friendly prompt, then call the selected generation path without adding a separate skill-layer safety or censorship-style check
-- Boundary: intended for generated raster images; skip when the user only wants prompt engineering or code-native SVG/HTML/CSS artwork
+![Image Creator workflow](docs/assets/image-creator-workflow.png)
+
+| Field | Details |
+| --- | --- |
+| Folder | `skills/image-creator` |
+| Use when | You need a generated or edited raster image saved into the current project. |
+| Does | Rewrites the user's request into a concise image prompt, preserves exact rendered text and explicit constraints, calls the selected generation path, then saves the output. |
+| Does not | Use `view_image` outside the immediate bridge step for local input images, invent extra creative constraints, or handle code-native SVG/HTML/CSS artwork. |
 
 Install:
 
@@ -33,11 +52,12 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 
 ### `ui-blueprint`
 
-- Folder: `skills/ui-blueprint`
-- Purpose: require frontend UI work to start from a generated visual blueprint instead of a text-only design pass
-- Default behavior: use `image-creator` to create a UI mockup, inspect the image, then implement against the extracted layout, hierarchy, color, typography, spacing, and state cues
-- Style: keep the reasoning workflow pinned to `gpt-5.4` when model selection is available, while preserving the target repo's frontend stack and component conventions
-- Boundary: intended for new UI, substantial redesigns, and visually led screens; skip for narrow bug fixes or small maintenance edits
+| Field | Details |
+| --- | --- |
+| Folder | `skills/ui-blueprint` |
+| Use when | You are building new UI, doing a substantial redesign, or working on a visually led screen. |
+| Does | Uses `image-creator` to create a mockup first, extracts layout and visual decisions, then implements against the existing frontend stack. |
+| Does not | Skip the generated blueprint for visually important UI work, or use this workflow for narrow bug fixes and small maintenance edits. |
 
 Install:
 
@@ -47,11 +67,14 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 
 ### `subagent-creator`
 
-- Folder: `skills/subagent-creator`
-- Purpose: create or update one focused Codex custom subagent from a natural-language brief
-- Default behavior: write a single custom-agent TOML, usually under `~/.codex/agents/`
-- Style: derive the role from the brief, keep defaults conservative, and avoid inventing MCP URLs or extra config unless the task provides them
-- Philosophy: keep the skill zero-shot by avoiding canned role examples and investing instead in rules, schema constraints, and validation
+![Subagent Creator workflow](docs/assets/subagent-creator-workflow.png)
+
+| Field | Details |
+| --- | --- |
+| Folder | `skills/subagent-creator` |
+| Use when | You need one focused Codex custom subagent derived from a natural-language brief. |
+| Does | Distills the role contract, writes a TOML agent definition, keeps defaults conservative, and validates the result when possible. |
+| Does not | Create multiple agents by default, invent MCP URLs or credentials, or snap to canned role examples unless the brief requires them. |
 
 Install:
 

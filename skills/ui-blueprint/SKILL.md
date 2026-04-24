@@ -7,6 +7,21 @@ description: Use when building or substantially redesigning frontend UI where vi
 
 Build frontend UI from a generated visual blueprint, not from an unvisualized text-only plan.
 
+## Happy Path
+
+User request:
+
+```text
+Use $ui-blueprint to redesign the settings dashboard.
+```
+
+Skill behavior:
+
+1. Read the existing frontend structure, routes, components, and styling conventions.
+2. Ask `$image-creator` for a project-specific UI mockup and save it under `ui-blueprints/`.
+3. Inspect the saved mockup and extract concrete layout, hierarchy, color, spacing, state, and responsive notes.
+4. Implement the UI in the existing stack, verify it in a browser or equivalent renderer, and report the blueprint path.
+
 ## Hard Rules
 
 - Use `gpt-5.4` as the reasoning model for this workflow whenever model selection is available.
