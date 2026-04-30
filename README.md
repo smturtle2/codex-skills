@@ -94,7 +94,7 @@ This skill is grounded in the official Codex subagent documentation:
 | --- | --- |
 | Folder | `skills/gomoku` |
 | Use when | You want to play Gomoku with a local Python GUI while Codex chooses and applies its own moves. |
-| Does | Runs a Pygame board, persists a JSON game state, validates moves, wins, and optional Renju restrictions, and lets Codex wait on the state file before applying its configured color. |
+| Does | Runs a Pygame board, manages game state internally, validates moves, wins, and optional Renju restrictions, and lets Codex wait before applying its configured color. |
 | Does not | Implement a fixed AI engine or call the OpenAI API from the GUI. |
 
 Install:

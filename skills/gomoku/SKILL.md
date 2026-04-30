@@ -5,9 +5,9 @@ description: Play Gomoku with a human user through a Python/Pygame board while C
 
 # Gomoku
 
-Run a local Python/Pygame Gomoku board for the user while Codex waits through the bundled script, reasons from the script's 1-based Codex view, and applies its next move through the bundled script.
+Run a local Python/Pygame Gomoku board for the user while Codex waits through the bundled script, reads the script's 1-based Codex view, and applies its next move through the bundled script.
 
-Do not read the raw state file for move selection. Use `--codex-view` or `--wait-for-codex-turn` output.
+Do not read, choose, or mention the backing storage during normal play. Use `--codex-view` or `--wait-for-codex-turn` output.
 
 ## Dependency Handling
 
@@ -18,31 +18,31 @@ The GUI script depends on `pygame>=2.6`. If launching the GUI fails because `pyg
 Start the GUI from the project root:
 
 ```bash
-python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json
+python3 skills/gomoku/scripts/gomoku_gui.py
 ```
 
 Use this command when Codex needs the current position for move selection:
 
 ```bash
-python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --codex-view
+python3 skills/gomoku/scripts/gomoku_gui.py --codex-view
 ```
 
 Wait until the board reaches Codex's turn:
 
 ```bash
-python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --wait-for-codex-turn
+python3 skills/gomoku/scripts/gomoku_gui.py --wait-for-codex-turn
 ```
 
 Start a configured game from the command line when needed:
 
 ```bash
-python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --start-game
+python3 skills/gomoku/scripts/gomoku_gui.py --start-game
 ```
 
 Apply Codex's move after choosing a coordinate:
 
 ```bash
-python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --codex-move 8 8
+python3 skills/gomoku/scripts/gomoku_gui.py --codex-move 8 8
 ```
 
 Coordinates are 1-based as `row col`, matching the labels shown in the GUI.
@@ -64,11 +64,11 @@ Waiting behavior is the most important part of this skill.
 2. New games open on the settings screen. Let the user choose settings there; the game does not start from setting changes alone.
 3. Wait for the user to click `Start Game`, or run `--start-game` only when the user explicitly wants to begin with the current settings.
 4. Run `--wait-for-codex-turn` and leave it blocking while the user plays on the GUI. Waiting only wakes after the game has started.
-5. When the wait command returns JSON, choose Codex's move from that 1-based Codex view. Do not open or parse the raw state file.
+5. When the wait command returns JSON, choose Codex's move from that 1-based Codex view. Do not open or parse the backing JSON.
 6. Run `--codex-move <row> <col>` with the chosen 1-based coordinate.
 7. Run `--wait-for-codex-turn` again and repeat until `winner` or `draw` is set in the state.
 
-If the GUI is already running, it watches the state file and refreshes after Codex applies a move.
+If the GUI is already running, it refreshes after Codex applies a move.
 
 ## Move Selection Guidance
 
@@ -89,8 +89,7 @@ The script validates only board legality and win conditions. Codex is responsibl
 - `--start-game`: mark setup complete so moves and Codex waiting can begin.
 - `--codex-move ROW COL`: place Codex's configured stone color, save state, and exit.
 - `--wait-for-codex-turn`: block until setup is complete and it is Codex's turn, or until the game ends, then print Codex view JSON and exit.
-- `--reset`: overwrite the state file with a new game and exit.
-- `--state PATH`: choose the state JSON path. Default is `.codex-gomoku/state.json`.
+- `--reset`: reset the game and exit.
 - `--size N`: board size for new games. Default is `15`.
 - `--human black|white`: human player color for new games. Default is `black`.
 - `--renju`: enable Renju restrictions for black.
@@ -101,10 +100,9 @@ Use `--codex-view` and `--wait-for-codex-turn` output for move selection. This i
 
 - `black`: black stones as `[[row, col], ...]`.
 - `white`: white stones as `[[row, col], ...]`.
-- `legal_moves`: legal moves as `[[row, col], ...]`, with Renju forbidden moves excluded.
-- `moves`: move history as `[[player, row, col], ...]`.
+- `forbidden_moves`: empty intersections that current `next_player` cannot play, as `[[row, col], ...]`.
 - `last_move`: last move object with 1-based `row`, `col`, and `player`.
-- The raw `board` matrix is intentionally omitted to avoid zero-based indexing mistakes.
+- The raw `board` matrix, full legal move list, and move history are intentionally omitted to avoid duplicate or noisy inputs.
 
 ## Rules
 
@@ -114,7 +112,7 @@ Default rules are simple Gomoku: black moves first after setup, no forbidden-mov
 
 When starting or continuing a game, report:
 
-- the GUI command or state path in use
+- the GUI command in use
 - whether it is the user's turn or Codex's turn
 - Codex's chosen move when applying one
 - the winner or draw status when the game ends

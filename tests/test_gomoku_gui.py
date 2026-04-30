@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -21,6 +22,12 @@ spec.loader.exec_module(gomoku_gui)
 
 def started_state(**kwargs):
     return gomoku_gui.start_game(gomoku_gui.new_state(**kwargs))
+
+
+def script_env(state_path: pathlib.Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["GOMOKU_STATE_PATH"] = str(state_path)
+    return env
 
 
 class GomokuGuiTests(unittest.TestCase):
@@ -263,14 +270,23 @@ class GomokuGuiTests(unittest.TestCase):
         with self.assertRaises(gomoku_gui.GomokuError):
             gomoku_gui.apply_move(state, 8, 8, "black")
 
-    def test_status_legal_moves_excludes_renju_forbidden_black_move(self) -> None:
+    def test_status_payload_includes_only_empty_forbidden_moves(self) -> None:
         state = started_state(renju_rules=True)
         for row, col in ((8, 6), (8, 7), (6, 8), (7, 8)):
             state["board"][row - 1][col - 1] = gomoku_gui.BLACK
 
         payload = gomoku_gui.status_payload(state)
 
-        self.assertNotIn({"row": 8, "col": 8}, payload["legal_moves"])
+        self.assertIn([8, 8], payload["forbidden_moves"])
+        self.assertNotIn([8, 6], payload["forbidden_moves"])
+
+    def test_status_payload_has_no_forbidden_moves_in_standard_rules(self) -> None:
+        state = started_state()
+        state = gomoku_gui.apply_move(state, 8, 8, "black")
+
+        payload = gomoku_gui.status_payload(state)
+
+        self.assertEqual(payload["forbidden_moves"], [])
 
     def test_codex_view_payload_uses_one_based_coordinate_summary(self) -> None:
         state = started_state(human_player="white", renju_rules=True)
@@ -288,18 +304,33 @@ class GomokuGuiTests(unittest.TestCase):
         self.assertEqual(payload["last_move"], {"row": 9, "col": 8, "player": "black"})
         self.assertEqual(payload["black"], [[8, 8], [9, 8]])
         self.assertEqual(payload["white"], [[7, 8]])
-        self.assertEqual(payload["moves"], [["black", 8, 8], ["white", 7, 8], ["black", 9, 8]])
-        self.assertIn([1, 1], payload["legal_moves"])
-        self.assertNotIn([8, 8], payload["legal_moves"])
+        self.assertNotIn("moves", payload)
+        self.assertNotIn("legal_moves", payload)
+        self.assertEqual(payload["forbidden_moves"], [])
 
-    def test_codex_view_legal_moves_exclude_renju_forbidden_move(self) -> None:
+    def test_codex_view_forbidden_moves_include_renju_forbidden_empty_move(self) -> None:
         state = started_state(renju_rules=True)
         for row, col in ((8, 6), (8, 7), (6, 8), (7, 8)):
             state["board"][row - 1][col - 1] = gomoku_gui.BLACK
 
         payload = gomoku_gui.codex_view_payload(state)
 
-        self.assertNotIn([8, 8], payload["legal_moves"])
+        self.assertIn([8, 8], payload["forbidden_moves"])
+        self.assertNotIn([8, 6], payload["forbidden_moves"])
+
+    def test_cli_help_hides_storage_and_raw_status_options(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("--state", result.stdout)
+        self.assertNotIn("--status", result.stdout)
+        self.assertNotIn("state file", result.stdout)
 
     def test_cli_codex_view_outputs_summary_without_raw_board(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -309,29 +340,33 @@ class GomokuGuiTests(unittest.TestCase):
             gomoku_gui.save_state(state_path, state)
 
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--state", str(state_path), "--codex-view"],
+                [sys.executable, str(SCRIPT), "--codex-view"],
                 check=False,
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertNotIn("board", payload)
+            self.assertNotIn("moves", payload)
+            self.assertNotIn("legal_moves", payload)
             self.assertEqual(payload["black"], [[8, 8]])
             self.assertEqual(payload["white"], [])
-            self.assertIn([1, 1], payload["legal_moves"])
+            self.assertEqual(payload["forbidden_moves"], [])
 
     def test_cli_codex_move_updates_state_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = pathlib.Path(tmpdir) / "state.json"
             reset = subprocess.run(
-                [sys.executable, str(SCRIPT), "--state", str(state_path), "--reset"],
+                [sys.executable, str(SCRIPT), "--reset"],
                 check=False,
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             self.assertEqual(reset.returncode, 0, reset.stderr)
 
@@ -341,16 +376,19 @@ class GomokuGuiTests(unittest.TestCase):
             gomoku_gui.save_state(state_path, state)
 
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--state", str(state_path), "--codex-move", "8", "9"],
+                [sys.executable, str(SCRIPT), "--codex-move", "8", "9"],
                 check=False,
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertNotIn("board", payload)
+            self.assertNotIn("moves", payload)
+            self.assertNotIn("legal_moves", payload)
             self.assertIn([8, 9], payload["white"])
             self.assertEqual(payload["next_player"], "black")
 
@@ -358,34 +396,39 @@ class GomokuGuiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = pathlib.Path(tmpdir) / "state.json"
             reset = subprocess.run(
-                [sys.executable, str(SCRIPT), "--state", str(state_path), "--human", "white", "--reset"],
+                [sys.executable, str(SCRIPT), "--human", "white", "--reset"],
                 check=False,
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             self.assertEqual(reset.returncode, 0, reset.stderr)
 
             start = subprocess.run(
-                [sys.executable, str(SCRIPT), "--state", str(state_path), "--start-game"],
+                [sys.executable, str(SCRIPT), "--start-game"],
                 check=False,
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             self.assertEqual(start.returncode, 0, start.stderr)
 
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--state", str(state_path), "--codex-move", "8", "8"],
+                [sys.executable, str(SCRIPT), "--codex-move", "8", "8"],
                 check=False,
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertNotIn("board", payload)
+            self.assertNotIn("moves", payload)
+            self.assertNotIn("legal_moves", payload)
             self.assertIn([8, 8], payload["black"])
             self.assertEqual(payload["next_player"], "white")
 
@@ -401,8 +444,6 @@ class GomokuGuiTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(SCRIPT),
-                    "--state",
-                    str(state_path),
                     "--wait-for-codex-turn",
                     "--poll-interval",
                     "0.05",
@@ -413,6 +454,7 @@ class GomokuGuiTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             time.sleep(0.15)
             state = gomoku_gui.load_state(state_path)
@@ -425,6 +467,8 @@ class GomokuGuiTests(unittest.TestCase):
             self.assertEqual(payload["next_player"], payload["codex_player"])
             self.assertEqual(payload["last_move"], {"row": 9, "col": 9, "player": "black"})
             self.assertNotIn("board", payload)
+            self.assertNotIn("moves", payload)
+            self.assertNotIn("legal_moves", payload)
 
     def test_wait_does_not_return_during_setup_even_when_codex_is_black(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -436,8 +480,6 @@ class GomokuGuiTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(SCRIPT),
-                    "--state",
-                    str(state_path),
                     "--wait-for-codex-turn",
                     "--poll-interval",
                     "0.05",
@@ -448,6 +490,7 @@ class GomokuGuiTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
 
             self.assertEqual(result.returncode, 2)
@@ -462,8 +505,6 @@ class GomokuGuiTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(SCRIPT),
-                    "--state",
-                    str(state_path),
                     "--wait-for-codex-turn",
                     "--poll-interval",
                     "0.05",
@@ -474,6 +515,7 @@ class GomokuGuiTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             time.sleep(0.1)
             state = gomoku_gui.load_state(state_path)
@@ -495,8 +537,6 @@ class GomokuGuiTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(SCRIPT),
-                    "--state",
-                    str(state_path),
                     "--wait-for-codex-turn",
                     "--poll-interval",
                     "0.05",
@@ -507,6 +547,7 @@ class GomokuGuiTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             time.sleep(0.1)
             state = gomoku_gui.start_game(gomoku_gui.load_state(state_path))
@@ -518,6 +559,8 @@ class GomokuGuiTests(unittest.TestCase):
             self.assertEqual(payload["codex_player"], "black")
             self.assertEqual(payload["next_player"], "black")
             self.assertNotIn("board", payload)
+            self.assertNotIn("moves", payload)
+            self.assertNotIn("legal_moves", payload)
 
     def test_human_white_wait_flow_resumes_after_white_move(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -529,8 +572,6 @@ class GomokuGuiTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(SCRIPT),
-                    "--state",
-                    str(state_path),
                     "--wait-for-codex-turn",
                     "--poll-interval",
                     "0.05",
@@ -541,16 +582,18 @@ class GomokuGuiTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             self.assertEqual(first_wait.returncode, 0, first_wait.stderr)
             self.assertEqual(json.loads(first_wait.stdout)["codex_player"], "black")
 
             codex_move = subprocess.run(
-                [sys.executable, str(SCRIPT), "--state", str(state_path), "--codex-move", "8", "8"],
+                [sys.executable, str(SCRIPT), "--codex-move", "8", "8"],
                 check=False,
                 capture_output=True,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             self.assertEqual(codex_move.returncode, 0, codex_move.stderr)
 
@@ -558,8 +601,6 @@ class GomokuGuiTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(SCRIPT),
-                    "--state",
-                    str(state_path),
                     "--wait-for-codex-turn",
                     "--poll-interval",
                     "0.05",
@@ -570,6 +611,7 @@ class GomokuGuiTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=REPO_ROOT,
+                env=script_env(state_path),
             )
             time.sleep(0.15)
             state = gomoku_gui.load_state(state_path)
@@ -582,6 +624,8 @@ class GomokuGuiTests(unittest.TestCase):
             self.assertEqual(payload["next_player"], "black")
             self.assertEqual(payload["last_move"], {"row": 8, "col": 9, "player": "white"})
             self.assertNotIn("board", payload)
+            self.assertNotIn("moves", payload)
+            self.assertNotIn("legal_moves", payload)
 
 def rectangles_overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
     ax, ay, aw, ah = a

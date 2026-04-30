@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 from copy import deepcopy
@@ -22,6 +23,7 @@ MIN_BOARD_SIZE = 5
 MAX_BOARD_SIZE = 25
 MIN_WINDOW_WIDTH = 560
 MIN_WINDOW_HEIGHT = 620
+DEFAULT_STATE_PATH = pathlib.Path(".codex-gomoku/state.json")
 
 
 class GomokuError(ValueError):
@@ -285,18 +287,28 @@ def collect_line(
     return list(reversed(before)) + [(row, col)] + after
 
 
+def forbidden_move_list(state: dict[str, Any]) -> list[list[int]]:
+    validate_state_shape(state)
+    forbidden_moves = []
+    if not state.get("setup_complete", False) or state.get("winner") or state.get("draw"):
+        return forbidden_moves
+
+    player = state["next_player"]
+    for row_index, board_row in enumerate(state["board"]):
+        for col_index, cell in enumerate(board_row):
+            if cell != EMPTY:
+                continue
+            row = row_index + 1
+            col = col_index + 1
+            if not is_legal_move(state, row, col, player):
+                forbidden_moves.append([row, col])
+    return forbidden_moves
+
+
 def status_payload(state: dict[str, Any]) -> dict[str, Any]:
     validate_state_shape(state)
-    legal_moves = []
-    if state.get("setup_complete", False) and not state.get("winner") and not state.get("draw"):
-        for row_index, board_row in enumerate(state["board"]):
-            for col_index, cell in enumerate(board_row):
-                if cell == EMPTY:
-                    player = state["next_player"]
-                    if is_legal_move(state, row_index + 1, col_index + 1, player):
-                        legal_moves.append({"row": row_index + 1, "col": col_index + 1})
     payload = deepcopy(state)
-    payload["legal_moves"] = legal_moves
+    payload["forbidden_moves"] = forbidden_move_list(state)
     return payload
 
 
@@ -322,8 +334,7 @@ def codex_view_payload(state: dict[str, Any]) -> dict[str, Any]:
         "last_move": status.get("last_move"),
         "black": coordinate_list(status, BLACK),
         "white": coordinate_list(status, WHITE),
-        "legal_moves": [[move["row"], move["col"]] for move in status["legal_moves"]],
-        "moves": [[move["player"], move["row"], move["col"]] for move in status.get("moves", [])],
+        "forbidden_moves": status["forbidden_moves"],
         "winner": status.get("winner"),
         "winning_line": [[item["row"], item["col"]] for item in status.get("winning_line", [])],
         "draw": status.get("draw", False),
@@ -743,13 +754,12 @@ def hint_text(state: dict[str, Any]) -> str:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Play Gomoku with Codex through a Pygame GUI and managed state file.")
-    parser.add_argument("--state", type=pathlib.Path, default=pathlib.Path(".codex-gomoku/state.json"))
+    parser = argparse.ArgumentParser(description="Play Gomoku with Codex through a Pygame GUI and managed game state.")
     parser.add_argument("--size", type=int, default=15)
     parser.add_argument("--human", choices=("black", "white"), default="black", help="Human player color for new games.")
     parser.add_argument("--renju", action="store_true", help="Enable Renju restrictions for black.")
     parser.add_argument("--codex-view", action="store_true", help="Print a compact 1-based coordinate summary for Codex move selection.")
-    parser.add_argument("--reset", action="store_true", help="Reset the state file and exit.")
+    parser.add_argument("--reset", action="store_true", help="Reset the game and exit.")
     parser.add_argument("--start-game", action="store_true", help="Mark setup complete and start the current game.")
     parser.add_argument("--codex-move", nargs=2, type=int, metavar=("ROW", "COL"), help="Apply Codex's configured move using 1-based coordinates.")
     parser.add_argument(
@@ -764,15 +774,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
+    state_path = pathlib.Path(os.environ.get("GOMOKU_STATE_PATH", DEFAULT_STATE_PATH))
     try:
         if args.reset:
-            save_state(args.state, new_state(args.size, args.human, args.renju))
-            print(f"reset {args.state}")
+            save_state(state_path, new_state(args.size, args.human, args.renju))
+            print("reset")
             return 0
 
         if args.wait_for_codex_turn:
             payload = wait_for_codex_turn(
-                args.state,
+                state_path,
                 args.size,
                 args.human,
                 args.renju,
@@ -782,18 +793,18 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(codex_view_payload(payload), indent=2, sort_keys=True))
             return 0
 
-        state = load_state(args.state, args.size, args.human, args.renju)
+        state = load_state(state_path, args.size, args.human, args.renju)
 
         if args.start_game:
             state = start_game(state)
-            save_state(args.state, state)
+            save_state(state_path, state)
             print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
             return 0
 
         if args.codex_move:
             row, col = args.codex_move
             state = apply_move(state, row, col, state["codex_player"])
-            save_state(args.state, state)
+            save_state(state_path, state)
             print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
             return 0
 
@@ -801,7 +812,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
             return 0
 
-        run_gui(args.state, args.size, args.human, args.renju)
+        run_gui(state_path, args.size, args.human, args.renju)
         return 0
     except GomokuError as exc:
         print(f"error: {exc}", file=sys.stderr)

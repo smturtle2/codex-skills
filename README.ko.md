@@ -94,7 +94,7 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 | --- | --- |
 | 위치 | `skills/gomoku` |
 | 사용 시점 | 로컬 Python GUI에서 사용자가 오목을 두고 Codex가 직접 다음 수를 골라 적용하게 할 때 |
-| 하는 일 | Pygame 보드를 실행하고, JSON 게임 상태를 저장하며, 착수와 승패 및 선택적 렌주 금수를 검증하고, Codex가 상태 파일을 기다린 뒤 설정된 색으로 착수하게 한다. |
+| 하는 일 | Pygame 보드를 실행하고, 게임 상태를 내부적으로 관리하며, 착수와 승패 및 선택적 렌주 금수를 검증하고, Codex가 기다린 뒤 설정된 색으로 착수하게 한다. |
 | 하지 않는 일 | 고정 AI 엔진을 구현하지 않고, GUI에서 OpenAI API를 호출하지 않는다. |
 
 설치:
