@@ -1,11 +1,17 @@
 ---
 name: gomoku
-description: Play Gomoku with a human user through a Python/Pygame board while Codex chooses its own moves from a JSON state file. Use when the user wants to play 오목/Gomoku/Five-in-a-row against Codex, launch a local Python GUI game board, inspect the board state, apply Codex moves, reset the game, or maintain a Codex-vs-user Gomoku session without building a fixed AI engine.
+description: Play Gomoku with a human user through a Python/Pygame board while Codex chooses its own moves from the script's Codex view output. Use when the user wants to play 오목/Gomoku/Five-in-a-row against Codex, launch a local Python GUI game board, inspect the board position, apply Codex moves, reset the game, or maintain a Codex-vs-user Gomoku session without building a fixed AI engine.
 ---
 
 # Gomoku
 
-Run a local Python/Pygame Gomoku board for the user while Codex waits on the shared JSON state, reasons about the position, and applies its next move through the bundled script.
+Run a local Python/Pygame Gomoku board for the user while Codex waits through the bundled script, reasons from the script's 1-based Codex view, and applies its next move through the bundled script.
+
+Do not read the raw state file for move selection. Use `--codex-view` or `--wait-for-codex-turn` output.
+
+## Dependency Handling
+
+The GUI script depends on `pygame>=2.6`. If launching the GUI fails because `pygame` is missing, install `pygame` into the active Python environment and retry the same command. Do not ask the user to install dependencies unless the automated install fails or the environment blocks package installation.
 
 ## Quick Start
 
@@ -21,7 +27,7 @@ Use this command when Codex needs the current position for move selection:
 python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --codex-view
 ```
 
-Use raw status only for debugging or recovery:
+Do not use raw status during normal play. Use it only for debugging or recovery:
 
 ```bash
 python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --status
@@ -64,7 +70,7 @@ Waiting behavior is the most important part of this skill.
 2. New games open on the settings screen. Let the user choose settings there; the game does not start from setting changes alone.
 3. Wait for the user to click `Start Game`, or run `--start-game` only when the user explicitly wants to begin with the current settings.
 4. Run `--wait-for-codex-turn` and leave it blocking while the user plays on the GUI. Waiting only wakes after the game has started.
-5. When the wait command returns JSON, choose Codex's move from the 1-based coordinate summary. Do not expect the script to contain an AI engine.
+5. When the wait command returns JSON, choose Codex's move from that 1-based Codex view. Do not open or parse the raw state file.
 6. Run `--codex-move <row> <col>` with the chosen 1-based coordinate.
 7. Run `--wait-for-codex-turn` again and repeat until `winner` or `draw` is set in the state.
 
@@ -86,7 +92,7 @@ The script validates only board legality and win conditions. Codex is responsibl
 ## Commands
 
 - `--codex-view`: print Codex's preferred 1-based coordinate summary without the raw board matrix.
-- `--status`: print the JSON state and exit.
+- `--status`: print the raw JSON state and exit. Debug/recovery only; do not use for move selection.
 - `--start-game`: mark setup complete so moves and Codex waiting can begin.
 - `--codex-move ROW COL`: place Codex's configured stone color, save state, and exit.
 - `--wait-for-codex-turn`: block until setup is complete and it is Codex's turn, or until the game ends, then print Codex view JSON and exit.
@@ -96,9 +102,22 @@ The script validates only board legality and win conditions. Codex is responsibl
 - `--human black|white`: human player color for new games. Default is `black`.
 - `--renju`: enable Renju restrictions for black.
 
-## State Contract
+## Codex View Contract
 
-The raw state file is JSON with stable fields:
+Use `--codex-view` and `--wait-for-codex-turn` output for move selection. This is the required board-reading interface for Codex during normal play. Both use 1-based coordinates matching the GUI and `--codex-move`.
+
+- `black`: black stones as `[[row, col], ...]`.
+- `white`: white stones as `[[row, col], ...]`.
+- `legal_moves`: legal moves as `[[row, col], ...]`, with Renju forbidden moves excluded.
+- `moves`: move history as `[[player, row, col], ...]`.
+- `last_move`: last move object with 1-based `row`, `col`, and `player`.
+- The raw `board` matrix is intentionally omitted to avoid zero-based indexing mistakes.
+
+## Raw State Contract
+
+The raw state file is an implementation detail for persistence and GUI refresh. Do not read it to choose a move during normal play. Use `--status` only for debugging or recovery.
+
+Stable raw fields include:
 
 - `board`: square matrix of `0` empty, `1` black, `2` white.
 - `human_player`: `black` or `white`.
@@ -113,17 +132,6 @@ The raw state file is JSON with stable fields:
 - `draw`: true when the board is full without a winner.
 
 Do not edit the JSON manually unless recovery is necessary; prefer the script commands.
-
-## Codex View Contract
-
-Use `--codex-view` and `--wait-for-codex-turn` output for move selection. Both use 1-based coordinates matching the GUI and `--codex-move`.
-
-- `black`: black stones as `[[row, col], ...]`.
-- `white`: white stones as `[[row, col], ...]`.
-- `legal_moves`: legal moves as `[[row, col], ...]`, with Renju forbidden moves excluded.
-- `moves`: move history as `[[player, row, col], ...]`.
-- `last_move`: last move object with 1-based `row`, `col`, and `player`.
-- The raw `board` matrix is intentionally omitted to avoid zero-based indexing mistakes.
 
 ## Rules
 

@@ -350,7 +350,8 @@ class GomokuGuiTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
-            self.assertEqual(payload["board"][7][8], gomoku_gui.WHITE)
+            self.assertNotIn("board", payload)
+            self.assertIn([8, 9], payload["white"])
             self.assertEqual(payload["next_player"], "black")
 
     def test_cli_codex_move_uses_configured_codex_color(self) -> None:
@@ -384,7 +385,8 @@ class GomokuGuiTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
-            self.assertEqual(payload["board"][7][7], gomoku_gui.BLACK)
+            self.assertNotIn("board", payload)
+            self.assertIn([8, 8], payload["black"])
             self.assertEqual(payload["next_player"], "white")
 
     def test_wait_for_codex_turn_returns_after_human_move(self) -> None:

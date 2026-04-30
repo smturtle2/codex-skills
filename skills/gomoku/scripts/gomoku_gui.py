@@ -743,12 +743,12 @@ def hint_text(state: dict[str, Any]) -> str:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Play Gomoku with Codex through a Pygame GUI and JSON state file.")
+    parser = argparse.ArgumentParser(description="Play Gomoku with Codex through a Pygame GUI and managed state file.")
     parser.add_argument("--state", type=pathlib.Path, default=pathlib.Path(".codex-gomoku/state.json"))
     parser.add_argument("--size", type=int, default=15)
     parser.add_argument("--human", choices=("black", "white"), default="black", help="Human player color for new games.")
     parser.add_argument("--renju", action="store_true", help="Enable Renju restrictions for black.")
-    parser.add_argument("--status", action="store_true", help="Print state JSON and exit.")
+    parser.add_argument("--status", action="store_true", help="Print raw state JSON for debugging or recovery only.")
     parser.add_argument("--codex-view", action="store_true", help="Print a compact 1-based coordinate summary for Codex move selection.")
     parser.add_argument("--reset", action="store_true", help="Reset the state file and exit.")
     parser.add_argument("--start-game", action="store_true", help="Mark setup complete and start the current game.")
@@ -788,14 +788,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.start_game:
             state = start_game(state)
             save_state(args.state, state)
-            print(json.dumps(status_payload(state), indent=2, sort_keys=True))
+            print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
             return 0
 
         if args.codex_move:
             row, col = args.codex_move
             state = apply_move(state, row, col, state["codex_player"])
             save_state(args.state, state)
-            print(json.dumps(status_payload(state), indent=2, sort_keys=True))
+            print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
             return 0
 
         if args.status:
