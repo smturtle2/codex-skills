@@ -30,7 +30,7 @@
 | 프로젝트 안에 생성형 raster 이미지 저장 | `image-creator` | 저장된 이미지 파일과 실제 전달된 최종 프롬프트 |
 | 새 프론트엔드 UI 제작 또는 큰 리디자인 | `ui-blueprint` | 생성된 UI mockup, 시각 추출 노트, 구현된 UI |
 | Codex 커스텀 서브에이전트 생성 또는 갱신 | `subagent-creator` | 검증 가능한 단일 TOML agent 정의 |
-| Codex와 오목 대국 | `gomoku-codex` | Python GUI 보드와 Codex 착수를 위한 JSON 상태 브리지 |
+| Codex와 오목 대국 | `gomoku` | Python GUI 보드와 Codex 착수를 위한 JSON 상태 브리지 |
 
 ## 현재 포함된 스킬
 
@@ -88,11 +88,11 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 - https://developers.openai.com/codex/subagents
 - https://developers.openai.com/codex/concepts/subagents
 
-### `gomoku-codex`
+### `gomoku`
 
 | 항목 | 내용 |
 | --- | --- |
-| 위치 | `skills/gomoku-codex` |
+| 위치 | `skills/gomoku` |
 | 사용 시점 | 로컬 Python GUI에서 사용자가 오목을 두고 Codex가 직접 다음 수를 골라 적용하게 할 때 |
 | 하는 일 | Pygame 보드를 실행하고, JSON 게임 상태를 저장하며, 착수와 승패 및 선택적 렌주 금수를 검증하고, Codex가 상태 파일을 기다린 뒤 설정된 색으로 착수하게 한다. |
 | 하지 않는 일 | 고정 AI 엔진을 구현하지 않고, GUI에서 OpenAI API를 호출하지 않는다. |
@@ -100,7 +100,7 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 설치:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/gomoku-codex
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/gomoku
 ```
 
 ## 메모

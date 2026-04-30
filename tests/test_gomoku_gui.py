@@ -11,7 +11,7 @@ import unittest
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "skills" / "gomoku-codex" / "scripts" / "gomoku_gui.py"
+SCRIPT = REPO_ROOT / "skills" / "gomoku" / "scripts" / "gomoku_gui.py"
 
 spec = importlib.util.spec_from_file_location("gomoku_gui", SCRIPT)
 gomoku_gui = importlib.util.module_from_spec(spec)

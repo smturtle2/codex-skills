@@ -30,7 +30,7 @@ After installing a skill, restart Codex to pick it up.
 | Generate or edit a project-local raster image | `image-creator` | Saved image file plus the exact rewritten prompt |
 | Build or substantially redesign frontend UI | `ui-blueprint` | Generated UI mockup, extracted visual notes, implemented UI |
 | Create or update one custom Codex subagent | `subagent-creator` | One focused TOML agent definition with validation |
-| Play Gomoku against Codex | `gomoku-codex` | Python GUI board plus JSON state bridge for Codex moves |
+| Play Gomoku against Codex | `gomoku` | Python GUI board plus JSON state bridge for Codex moves |
 
 ## Current Skills
 
@@ -88,11 +88,11 @@ This skill is grounded in the official Codex subagent documentation:
 - https://developers.openai.com/codex/subagents
 - https://developers.openai.com/codex/concepts/subagents
 
-### `gomoku-codex`
+### `gomoku`
 
 | Field | Details |
 | --- | --- |
-| Folder | `skills/gomoku-codex` |
+| Folder | `skills/gomoku` |
 | Use when | You want to play Gomoku with a local Python GUI while Codex chooses and applies its own moves. |
 | Does | Runs a Pygame board, persists a JSON game state, validates moves, wins, and optional Renju restrictions, and lets Codex wait on the state file before applying its configured color. |
 | Does not | Implement a fixed AI engine or call the OpenAI API from the GUI. |
@@ -100,7 +100,7 @@ This skill is grounded in the official Codex subagent documentation:
 Install:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/gomoku-codex
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/gomoku
 ```
 
 ## Notes

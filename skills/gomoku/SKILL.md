@@ -1,9 +1,9 @@
 ---
-name: gomoku-codex
+name: gomoku
 description: Play Gomoku with a human user through a Python/Pygame board while Codex chooses its own moves from a JSON state file. Use when the user wants to play 오목/Gomoku/Five-in-a-row against Codex, launch a local Python GUI game board, inspect the board state, apply Codex moves, reset the game, or maintain a Codex-vs-user Gomoku session without building a fixed AI engine.
 ---
 
-# Gomoku Codex
+# Gomoku
 
 Run a local Python/Pygame Gomoku board for the user while Codex waits on the shared JSON state, reasons about the position, and applies its next move through the bundled script.
 
@@ -12,37 +12,37 @@ Run a local Python/Pygame Gomoku board for the user while Codex waits on the sha
 Start the GUI from the project root:
 
 ```bash
-python3 skills/gomoku-codex/scripts/gomoku_gui.py --state .codex-gomoku/state.json
+python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json
 ```
 
 Use this command when Codex needs the current position for move selection:
 
 ```bash
-python3 skills/gomoku-codex/scripts/gomoku_gui.py --state .codex-gomoku/state.json --codex-view
+python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --codex-view
 ```
 
 Use raw status only for debugging or recovery:
 
 ```bash
-python3 skills/gomoku-codex/scripts/gomoku_gui.py --state .codex-gomoku/state.json --status
+python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --status
 ```
 
 Wait until the board reaches Codex's turn:
 
 ```bash
-python3 skills/gomoku-codex/scripts/gomoku_gui.py --state .codex-gomoku/state.json --wait-for-codex-turn
+python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --wait-for-codex-turn
 ```
 
 Start a configured game from the command line when needed:
 
 ```bash
-python3 skills/gomoku-codex/scripts/gomoku_gui.py --state .codex-gomoku/state.json --start-game
+python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --start-game
 ```
 
 Apply Codex's move after choosing a coordinate:
 
 ```bash
-python3 skills/gomoku-codex/scripts/gomoku_gui.py --state .codex-gomoku/state.json --codex-move 8 8
+python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --codex-move 8 8
 ```
 
 Coordinates are 1-based as `row col`, matching the labels shown in the GUI.

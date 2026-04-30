@@ -410,7 +410,7 @@ def run_gui(state_path: pathlib.Path, size: int, human_player: str, renju_rules:
     status_height = 78
     width, height = window_size(board_size, cell, margin, status_height)
     screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption("Gomoku Codex")
+    pygame.display.set_caption("Gomoku")
     font = pygame.font.SysFont("arial", 18)
     small_font = pygame.font.SysFont("arial", 14)
     title_font = pygame.font.SysFont("arial", 28)
