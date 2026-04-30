@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gomoku Codex"
+  short_description: "Play Gomoku with Codex in Python"
+  default_prompt: "Use $gomoku-codex to start a Python GUI Gomoku game where I can choose settings and Codex waits on the shared state file to choose and apply its moves."
