@@ -27,12 +27,6 @@ Use this command when Codex needs the current position for move selection:
 python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --codex-view
 ```
 
-Do not use raw status during normal play. Use it only for debugging or recovery:
-
-```bash
-python3 skills/gomoku/scripts/gomoku_gui.py --state .codex-gomoku/state.json --status
-```
-
 Wait until the board reaches Codex's turn:
 
 ```bash
@@ -92,7 +86,6 @@ The script validates only board legality and win conditions. Codex is responsibl
 ## Commands
 
 - `--codex-view`: print Codex's preferred 1-based coordinate summary without the raw board matrix.
-- `--status`: print the raw JSON state and exit. Debug/recovery only; do not use for move selection.
 - `--start-game`: mark setup complete so moves and Codex waiting can begin.
 - `--codex-move ROW COL`: place Codex's configured stone color, save state, and exit.
 - `--wait-for-codex-turn`: block until setup is complete and it is Codex's turn, or until the game ends, then print Codex view JSON and exit.
@@ -112,26 +105,6 @@ Use `--codex-view` and `--wait-for-codex-turn` output for move selection. This i
 - `moves`: move history as `[[player, row, col], ...]`.
 - `last_move`: last move object with 1-based `row`, `col`, and `player`.
 - The raw `board` matrix is intentionally omitted to avoid zero-based indexing mistakes.
-
-## Raw State Contract
-
-The raw state file is an implementation detail for persistence and GUI refresh. Do not read it to choose a move during normal play. Use `--status` only for debugging or recovery.
-
-Stable raw fields include:
-
-- `board`: square matrix of `0` empty, `1` black, `2` white.
-- `human_player`: `black` or `white`.
-- `codex_player`: the opposite color.
-- `renju_rules`: true when Renju restrictions are enabled.
-- `setup_complete`: false while the initial settings screen is active; true after the game starts.
-- `game_event_id`: monotonic counter that changes only for real game events such as start and moves.
-- `next_player`: `black` or `white`.
-- `moves`: move history with 1-based `row`, `col`, and `player`.
-- `winner`: `null`, `black`, or `white`.
-- `winning_line`: 1-based coordinates for the winning line, when present.
-- `draw`: true when the board is full without a winner.
-
-Do not edit the JSON manually unless recovery is necessary; prefer the script commands.
 
 ## Rules
 

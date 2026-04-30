@@ -748,7 +748,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--size", type=int, default=15)
     parser.add_argument("--human", choices=("black", "white"), default="black", help="Human player color for new games.")
     parser.add_argument("--renju", action="store_true", help="Enable Renju restrictions for black.")
-    parser.add_argument("--status", action="store_true", help="Print raw state JSON for debugging or recovery only.")
     parser.add_argument("--codex-view", action="store_true", help="Print a compact 1-based coordinate summary for Codex move selection.")
     parser.add_argument("--reset", action="store_true", help="Reset the state file and exit.")
     parser.add_argument("--start-game", action="store_true", help="Mark setup complete and start the current game.")
@@ -796,10 +795,6 @@ def main(argv: list[str] | None = None) -> int:
             state = apply_move(state, row, col, state["codex_player"])
             save_state(args.state, state)
             print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
-            return 0
-
-        if args.status:
-            print(json.dumps(status_payload(state), indent=2, sort_keys=True))
             return 0
 
         if args.codex_view:
