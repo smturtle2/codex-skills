@@ -27,6 +27,12 @@ Use this command when Codex needs the current position for move selection:
 python3 skills/gomoku/scripts/gomoku_gui.py
 ```
 
+Use this opt-in tactical fact view before choosing a move. It reports immediate completions and visible line patterns, but it does not score or recommend moves:
+
+```bash
+python3 skills/gomoku/scripts/gomoku_gui.py --threat-view
+```
+
 Wait until the board reaches Codex's turn:
 
 ```bash
@@ -51,12 +57,13 @@ Coordinates are 1-based as `row col`, matching the labels shown in the GUI.
 
 Waiting behavior is the most important part of this skill.
 
+- Before starting a wait command, Codex may use multi-turn reasoning and helper commands such as `--threat-view` to analyze the current position or choose its move.
 - Start or restart `--wait-for-codex-turn` immediately after the GUI opens, after `Start Game`, and after every Codex move.
 - Keep the wait command running while it is the user's turn. Do not ask the user to say they moved.
 - Do not send a final response while a game is active and Codex is supposed to be waiting.
 - Only stop waiting when the wait command returns, the game ends, the GUI is closed, or the user explicitly stops the session.
 - Settings changes are not game events. The wait command should only wake for actual game events: game start, user move, Codex turn, win, or draw.
-- After applying a Codex move, immediately start the next wait command before giving any closing-style response.
+- After applying a Codex move, immediately start the next wait command before giving any closing-style response; do analysis before this wait, not after it.
 
 ## Game Flow
 
@@ -65,20 +72,23 @@ Waiting behavior is the most important part of this skill.
 3. Wait for the user to click `Start Game`, or run `--start-game` only when the user explicitly wants to begin with the current settings.
 4. Run `--wait-for-codex-turn` and leave it blocking while the user plays on the GUI. Waiting only wakes after the game has started.
 5. When the wait command returns JSON, choose Codex's move from that 1-based Codex view. Do not open or parse the backing JSON.
-6. Run `--codex-move <row> <col>` with the chosen 1-based coordinate.
-7. Run `--wait-for-codex-turn` again and repeat until `winner` or `draw` is set in the state.
+6. Before applying the move, Codex may use `--threat-view` and explicit reasoning across turns to verify tactics.
+7. Run `--codex-move <row> <col>` with the chosen 1-based coordinate.
+8. Run `--wait-for-codex-turn` again and repeat until `winner` or `draw` is set in the state.
 
 If the GUI is already running, it refreshes after Codex applies a move.
 
 ## Move Selection Guidance
 
-During an active game, do not write or run custom Gomoku AI, search, or scoring code to choose a move. Read the Codex view JSON and choose the move directly from these priorities.
+During an active game, do not write or run custom Gomoku AI, search, or scoring code to choose a move. Read the Codex view JSON, then run `--threat-view` and choose the move from the visible board plus the tactical facts.
+
+The threat view is a checklist, not a recommendation engine. It must not be treated as move ordering or scoring. Use it to avoid missing immediate completions, open fours, half-open fours, broken fours, and open threes.
 
 Before considering Codex's attack, scan the human threats:
 
-1. Win immediately if Codex has a legal completing move.
-2. Find every legal human move that would make five next turn, then block one of those squares unless Renju makes it unplayable for the human.
-3. Scan human open fours, half-open fours, open threes, compound threats, and repeated line patterns before considering Codex's own extensions.
+1. Run `--threat-view` and check Codex `completion_points`; win immediately if Codex has a legal completing move.
+2. Check every human `completion_points` entry and block one unless Renju marks it forbidden for the human.
+3. Scan human `lines` for open fours, broken fours, half-open fours, open threes, compound threats, and repeated line patterns before considering Codex's own extensions.
 4. Prefer Codex moves that force a response only after the human threats are covered.
 5. Reject any move that leaves a larger human threat unanswered.
 
@@ -95,6 +105,7 @@ The script validates only board legality and win conditions. Codex is responsibl
 - no action flag: print the current Codex view JSON.
 - `--gui`: launch the Pygame board.
 - `--codex-view`: backward-compatible alias for the default Codex view output.
+- `--threat-view`: print opt-in tactical facts for both players without scores, recommendations, raw board, or move history.
 - `--start-game`: mark setup complete so moves and Codex waiting can begin.
 - `--codex-move ROW COL`: place Codex's configured stone color, save state, and exit.
 - `--wait-for-codex-turn`: block until setup is complete and it is Codex's turn, or until the game ends, then print Codex view JSON and exit.
@@ -111,6 +122,16 @@ Use the default command, `--codex-view`, or `--wait-for-codex-turn` output for m
 - All displayed coordinates are 1-based and match the GUI and `--codex-move`.
 - The JSON output also includes game status metadata such as size, players, turn, winner, draw, and winning line when available.
 - The raw `board` matrix, full legal move list, full move history, threat summaries, line analysis, scores, and move recommendations are intentionally omitted.
+
+## Threat View Contract
+
+Use `--threat-view` only as a non-cheating tactical checklist after reading the normal Codex view. It is opt-in and does not change the default Codex view or wait output.
+
+- `tactical_facts.black` and `tactical_facts.white` contain only visible board facts.
+- `completion_points` lists 1-based coordinates where that player would complete five; Renju-forbidden black completions are marked with `forbidden` and `reason`.
+- `lines` lists existing visible patterns such as `open_four`, `half_open_four`, `closed_four`, `broken_four`, `open_three`, and `existing_five`.
+- Ordering is deterministic for stable reading, not a recommendation or score.
+- The threat view must not include best moves, recommended moves, search depth, scores, full legal move lists, move history, or the raw board matrix.
 
 ## Rules
 

@@ -332,6 +332,235 @@ def codex_view_payload(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def threat_view_payload(state: dict[str, Any]) -> dict[str, Any]:
+    validate_state_shape(state)
+    return {
+        "size": state["size"],
+        "next_player": state["next_player"],
+        "codex_player": state["codex_player"],
+        "human_player": state["human_player"],
+        "renju_rules": state.get("renju_rules", False),
+        "setup_complete": state.get("setup_complete", False),
+        "game_event_id": state.get("game_event_id", 0),
+        "ascii_board": ascii_board(state),
+        "winner": state.get("winner"),
+        "winning_line": [[item["row"], item["col"]] for item in state.get("winning_line", [])],
+        "draw": state.get("draw", False),
+        "tactical_facts": {
+            "black": tactical_facts_for_player(state, "black"),
+            "white": tactical_facts_for_player(state, "white"),
+        },
+    }
+
+
+def tactical_facts_for_player(state: dict[str, Any], player: str) -> dict[str, list[dict[str, Any]]]:
+    value = PLAYER_TO_VALUE[player]
+    return {
+        "completion_points": completion_points_for_player(state, player, value),
+        "lines": tactical_lines_for_player(state["board"], value),
+    }
+
+
+def completion_points_for_player(state: dict[str, Any], player: str, value: int) -> list[dict[str, Any]]:
+    board = state["board"]
+    size = state["size"]
+    facts: list[dict[str, Any]] = []
+    for row in range(size):
+        for col in range(size):
+            if board[row][col] != EMPTY:
+                continue
+            board[row][col] = value
+            try:
+                forbidden_reason = renju_forbidden_reason(state, player, row, col)
+                winning_line = find_winning_line(
+                    board,
+                    row,
+                    col,
+                    value,
+                    5,
+                    player == "white" or not state.get("renju_rules", False),
+                )
+                overline = player == "black" and state.get("renju_rules", False) and has_overline(board, row, col, value)
+                if winning_line or overline:
+                    fact: dict[str, Any] = {
+                        "row": row + 1,
+                        "col": col + 1,
+                        "kind": "five_completion",
+                    }
+                    if forbidden_reason:
+                        fact["forbidden"] = True
+                        fact["reason"] = forbidden_reason
+                    if winning_line:
+                        fact["line"] = coords_payload(winning_line)
+                    facts.append(fact)
+            finally:
+                board[row][col] = EMPTY
+    return sorted(facts, key=lambda item: (item["row"], item["col"], item.get("reason", "")))
+
+
+def renju_forbidden_reason(state: dict[str, Any], player: str, row: int, col: int) -> str | None:
+    if player != "black" or not state.get("renju_rules", False):
+        return None
+    try:
+        validate_renju_black_move(state["board"], row, col)
+    except GomokuError as exc:
+        message = str(exc)
+        if "overline" in message:
+            return "black_overline"
+        if "double-three" in message:
+            return "black_double_three"
+        if "double-four" in message:
+            return "black_double_four"
+        return "renju_forbidden"
+    return None
+
+
+def tactical_lines_for_player(board: list[list[int]], value: int) -> list[dict[str, Any]]:
+    lines: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row_delta, col_delta in DIRECTIONS:
+        for line in board_lines(board, row_delta, col_delta):
+            add_contiguous_line_facts(lines, line, value, row_delta, col_delta)
+            add_broken_four_facts(lines, line, value, row_delta, col_delta)
+    return sorted(lines.values(), key=line_fact_sort_key)
+
+
+def board_lines(board: list[list[int]], row_delta: int, col_delta: int) -> list[list[tuple[int, int, int]]]:
+    size = len(board)
+    lines: list[list[tuple[int, int, int]]] = []
+    for row in range(size):
+        for col in range(size):
+            previous_row = row - row_delta
+            previous_col = col - col_delta
+            if 0 <= previous_row < size and 0 <= previous_col < size:
+                continue
+            line: list[tuple[int, int, int]] = []
+            next_row = row
+            next_col = col
+            while 0 <= next_row < size and 0 <= next_col < size:
+                line.append((next_row, next_col, board[next_row][next_col]))
+                next_row += row_delta
+                next_col += col_delta
+            if len(line) >= 5:
+                lines.append(line)
+    return lines
+
+
+def add_contiguous_line_facts(
+    facts: dict[tuple[Any, ...], dict[str, Any]],
+    line: list[tuple[int, int, int]],
+    value: int,
+    row_delta: int,
+    col_delta: int,
+) -> None:
+    index = 0
+    while index < len(line):
+        row, col, cell_value = line[index]
+        if cell_value != value:
+            index += 1
+            continue
+        start = index
+        while index < len(line) and line[index][2] == value:
+            index += 1
+        run = line[start:index]
+        open_ends = line_open_ends(line, start, index)
+        kind = contiguous_line_kind(len(run), len(open_ends))
+        if kind:
+            add_line_fact(facts, kind, run, open_ends, [], row_delta, col_delta)
+
+
+def contiguous_line_kind(run_length: int, open_end_count: int) -> str | None:
+    if run_length >= 5:
+        return "existing_five"
+    if run_length == 4:
+        if open_end_count == 2:
+            return "open_four"
+        if open_end_count == 1:
+            return "half_open_four"
+        return "closed_four"
+    if run_length == 3 and open_end_count == 2:
+        return "open_three"
+    return None
+
+
+def line_open_ends(line: list[tuple[int, int, int]], start: int, end: int) -> list[tuple[int, int]]:
+    open_ends: list[tuple[int, int]] = []
+    if start > 0 and line[start - 1][2] == EMPTY:
+        open_ends.append((line[start - 1][0], line[start - 1][1]))
+    if end < len(line) and line[end][2] == EMPTY:
+        open_ends.append((line[end][0], line[end][1]))
+    return open_ends
+
+
+def add_broken_four_facts(
+    facts: dict[tuple[Any, ...], dict[str, Any]],
+    line: list[tuple[int, int, int]],
+    value: int,
+    row_delta: int,
+    col_delta: int,
+) -> None:
+    for start in range(0, len(line) - 4):
+        window = line[start : start + 5]
+        values = [cell[2] for cell in window]
+        if values.count(value) != 4 or values.count(EMPTY) != 1:
+            continue
+        if any(cell_value not in {value, EMPTY} for cell_value in values):
+            continue
+        if values.index(EMPTY) in {0, 4}:
+            continue
+        stones = [(row, col) for row, col, cell_value in window if cell_value == value]
+        completion = [(row, col) for row, col, cell_value in window if cell_value == EMPTY]
+        add_line_fact(facts, "broken_four", stones, [], completion, row_delta, col_delta)
+
+
+def add_line_fact(
+    facts: dict[tuple[Any, ...], dict[str, Any]],
+    kind: str,
+    stones: list[tuple[int, int, int]] | list[tuple[int, int]],
+    open_ends: list[tuple[int, int]],
+    completion_points: list[tuple[int, int]],
+    row_delta: int,
+    col_delta: int,
+) -> None:
+    stone_coords = [(stone[0], stone[1]) for stone in stones]
+    key = (
+        kind,
+        tuple(stone_coords),
+        tuple(open_ends),
+        tuple(completion_points),
+        row_delta,
+        col_delta,
+    )
+    if key in facts:
+        return
+    fact: dict[str, Any] = {
+        "kind": kind,
+        "stones": coords_payload(stone_coords),
+        "direction": [row_delta, col_delta],
+    }
+    if open_ends:
+        fact["open_ends"] = coords_payload(open_ends)
+    if completion_points:
+        fact["completion_points"] = coords_payload(completion_points)
+    facts[key] = fact
+
+
+def line_fact_sort_key(fact: dict[str, Any]) -> tuple[Any, ...]:
+    kind_order = {
+        "existing_five": 0,
+        "open_four": 1,
+        "broken_four": 2,
+        "half_open_four": 3,
+        "open_three": 4,
+        "closed_four": 5,
+    }
+    first_stone = fact["stones"][0] if fact.get("stones") else [0, 0]
+    return (kind_order.get(fact["kind"], 99), first_stone[0], first_stone[1], fact["direction"])
+
+
+def coords_payload(coords: list[tuple[int, int]]) -> list[list[int]]:
+    return [[row + 1, col + 1] for row, col in coords]
+
+
 def is_codex_wait_ready(state: dict[str, Any]) -> bool:
     return bool(
         state.get("winner")
@@ -410,7 +639,7 @@ def run_gui(state_path: pathlib.Path, size: int, human_player: str, renju_rules:
     title_font = pygame.font.SysFont("arial", 28)
     clock = pygame.time.Clock()
     last_mtime = state_path.stat().st_mtime if state_path.exists() else 0.0
-    screen_mode = "game" if state.get("setup_complete", False) else "settings"
+    screen_mode = screen_mode_for_state(state)
 
     running = True
     while running:
@@ -428,6 +657,7 @@ def run_gui(state_path: pathlib.Path, size: int, human_player: str, renju_rules:
                 last_mtime = state_path.stat().st_mtime
             elif event.type == pygame.KEYDOWN and settings_editable(state):
                 state = handle_settings_key(event.key, state)
+                screen_mode = screen_mode_for_state(state)
                 board_size = state["size"]
                 save_state(state_path, state)
                 width, height = window_size(board_size, cell, margin, status_height)
@@ -472,8 +702,7 @@ def run_gui(state_path: pathlib.Path, size: int, human_player: str, renju_rules:
                     renju_rules=renju_rules,
                 )
                 board_size = state["size"]
-                if not state.get("setup_complete", False):
-                    screen_mode = "settings"
+                screen_mode = screen_mode_for_state(state)
                 last_mtime = mtime
 
         if screen_mode == "settings":
@@ -484,6 +713,10 @@ def run_gui(state_path: pathlib.Path, size: int, human_player: str, renju_rules:
         clock.tick(30)
 
     pygame.quit()
+
+
+def screen_mode_for_state(state: dict[str, Any]) -> str:
+    return "game" if state.get("setup_complete", False) else "settings"
 
 
 def window_size(board_size: int, cell: int, margin: int, status_height: int) -> tuple[int, int]:
@@ -754,6 +987,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "This is the default when no action flag is provided."
         ),
     )
+    parser.add_argument(
+        "--threat-view",
+        action="store_true",
+        help="Print opt-in tactical facts without scores, recommendations, raw board, or move history.",
+    )
     parser.add_argument("--reset", action="store_true", help="Reset the game and exit.")
     parser.add_argument("--start-game", action="store_true", help="Mark setup complete and start the current game.")
     parser.add_argument("--codex-move", nargs=2, type=int, metavar=("ROW", "COL"), help="Apply Codex's configured move using 1-based coordinates.")
@@ -805,6 +1043,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.gui:
             run_gui(state_path, args.size, args.human, args.renju)
+            return 0
+
+        if args.threat_view:
+            print(json.dumps(threat_view_payload(state), indent=2, sort_keys=True))
             return 0
 
         print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
