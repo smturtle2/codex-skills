@@ -321,6 +321,45 @@ def coordinate_list(state: dict[str, Any], value: int) -> list[list[int]]:
     ]
 
 
+def recent_moves(state: dict[str, Any], limit: int = 8) -> list[dict[str, Any]]:
+    moves = state.get("moves", [])
+    if not isinstance(moves, list):
+        return []
+    return [
+        {"row": move["row"], "col": move["col"], "player": move["player"]}
+        for move in moves[-limit:]
+        if isinstance(move, dict) and {"row", "col", "player"} <= move.keys()
+    ]
+
+
+def ascii_board(state: dict[str, Any]) -> str:
+    size = state["size"]
+    last_move = state.get("last_move") or {}
+    last_cell = None
+    if isinstance(last_move, dict):
+        last_cell = (last_move.get("row"), last_move.get("col"), last_move.get("player"))
+
+    lines = ["     " + " ".join(f"{col:02d}" for col in range(1, size + 1))]
+    for row_index, board_row in enumerate(state["board"]):
+        row = row_index + 1
+        cells = []
+        for col_index, value in enumerate(board_row):
+            col = col_index + 1
+            if last_cell == (row, col, "black"):
+                marker = "b"
+            elif last_cell == (row, col, "white"):
+                marker = "w"
+            elif value == BLACK:
+                marker = "B"
+            elif value == WHITE:
+                marker = "W"
+            else:
+                marker = "."
+            cells.append(marker)
+        lines.append(f"{row:02d}   " + "  ".join(cells))
+    return "\n".join(lines)
+
+
 def codex_view_payload(state: dict[str, Any]) -> dict[str, Any]:
     status = status_payload(state)
     return {
@@ -332,6 +371,8 @@ def codex_view_payload(state: dict[str, Any]) -> dict[str, Any]:
         "setup_complete": status.get("setup_complete", False),
         "game_event_id": status.get("game_event_id", 0),
         "last_move": status.get("last_move"),
+        "recent_moves": recent_moves(status),
+        "ascii_board": ascii_board(status),
         "black": coordinate_list(status, BLACK),
         "white": coordinate_list(status, WHITE),
         "forbidden_moves": status["forbidden_moves"],
