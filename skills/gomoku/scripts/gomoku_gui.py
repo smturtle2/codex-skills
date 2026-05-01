@@ -321,17 +321,6 @@ def coordinate_list(state: dict[str, Any], value: int) -> list[list[int]]:
     ]
 
 
-def recent_moves(state: dict[str, Any], limit: int = 8) -> list[dict[str, Any]]:
-    moves = state.get("moves", [])
-    if not isinstance(moves, list):
-        return []
-    return [
-        {"row": move["row"], "col": move["col"], "player": move["player"]}
-        for move in moves[-limit:]
-        if isinstance(move, dict) and {"row", "col", "player"} <= move.keys()
-    ]
-
-
 def ascii_board(state: dict[str, Any]) -> str:
     size = state["size"]
     last_move = state.get("last_move") or {}
@@ -371,7 +360,6 @@ def codex_view_payload(state: dict[str, Any]) -> dict[str, Any]:
         "setup_complete": status.get("setup_complete", False),
         "game_event_id": status.get("game_event_id", 0),
         "last_move": status.get("last_move"),
-        "recent_moves": recent_moves(status),
         "ascii_board": ascii_board(status),
         "black": coordinate_list(status, BLACK),
         "white": coordinate_list(status, WHITE),

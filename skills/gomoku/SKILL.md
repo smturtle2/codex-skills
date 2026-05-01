@@ -113,9 +113,8 @@ Use the default command, `--codex-view`, or `--wait-for-codex-turn` output for m
 - `white`: white stones as `[[row, col], ...]`.
 - `forbidden_moves`: empty intersections that current `next_player` cannot play, as `[[row, col], ...]`.
 - `last_move`: last move object with 1-based `row`, `col`, and `player`.
-- `recent_moves`: the last 8 moves from oldest to newest, with 1-based `row`, `col`, and `player`.
 - `ascii_board`: a 1-based coordinate board for visual reading. `B` is black, `W` is white, `b` is the last black move, `w` is the last white move, and `.` is empty.
-- Read `ascii_board` and `recent_moves` first when choosing a move. They are raw board presentation only; they do not identify threats, rank moves, or recommend candidates.
+- Read `ascii_board` first when choosing a move. It is raw board presentation only; it does not identify threats, rank moves, or recommend candidates.
 - The raw `board` matrix, full legal move list, full move history, threat summaries, line analysis, scores, and move recommendations are intentionally omitted to avoid duplicate, noisy, or unfair inputs.
 
 ## Rules
