@@ -758,7 +758,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--size", type=int, default=15)
     parser.add_argument("--human", choices=("black", "white"), default="black", help="Human player color for new games.")
     parser.add_argument("--renju", action="store_true", help="Enable Renju restrictions for black.")
-    parser.add_argument("--codex-view", action="store_true", help="Print a compact 1-based coordinate summary for Codex move selection.")
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Launch the Pygame board instead of printing Codex view JSON.",
+    )
+    parser.add_argument(
+        "--codex-view",
+        action="store_true",
+        help=(
+            "Print a compact 1-based coordinate summary for Codex move selection. "
+            "This is the default when no action flag is provided."
+        ),
+    )
     parser.add_argument("--reset", action="store_true", help="Reset the game and exit.")
     parser.add_argument("--start-game", action="store_true", help="Mark setup complete and start the current game.")
     parser.add_argument("--codex-move", nargs=2, type=int, metavar=("ROW", "COL"), help="Apply Codex's configured move using 1-based coordinates.")
@@ -808,11 +820,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
             return 0
 
-        if args.codex_view:
-            print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
+        if args.gui:
+            run_gui(state_path, args.size, args.human, args.renju)
             return 0
 
-        run_gui(state_path, args.size, args.human, args.renju)
+        print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
         return 0
     except GomokuError as exc:
         print(f"error: {exc}", file=sys.stderr)

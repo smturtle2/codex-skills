@@ -7,7 +7,7 @@ description: Play Gomoku with a human user through a Python/Pygame board while C
 
 Run a local Python/Pygame Gomoku board for the user while Codex waits through the bundled script, reads the script's 1-based Codex view, and applies its next move through the bundled script.
 
-Do not read, choose, or mention the backing storage during normal play. Use `--codex-view` or `--wait-for-codex-turn` output.
+Do not read, choose, or mention the backing storage during normal play. Use the default Codex view JSON or `--wait-for-codex-turn` output.
 
 ## Dependency Handling
 
@@ -18,13 +18,13 @@ The GUI script depends on `pygame>=2.6`. If launching the GUI fails because `pyg
 Start the GUI from the project root:
 
 ```bash
-python3 skills/gomoku/scripts/gomoku_gui.py
+python3 skills/gomoku/scripts/gomoku_gui.py --gui
 ```
 
 Use this command when Codex needs the current position for move selection:
 
 ```bash
-python3 skills/gomoku/scripts/gomoku_gui.py --codex-view
+python3 skills/gomoku/scripts/gomoku_gui.py
 ```
 
 Wait until the board reaches Codex's turn:
@@ -72,20 +72,31 @@ If the GUI is already running, it refreshes after Codex applies a move.
 
 ## Move Selection Guidance
 
-When selecting Codex's move, use normal Gomoku tactical priorities:
+During an active game, do not write or run custom Gomoku AI, search, or scoring code to choose a move. Read the Codex view JSON and choose the move directly from these priorities.
 
-- Win immediately if Codex has a completing move.
-- Block an immediate human win.
-- Create or extend open fours, then block human open fours.
-- Create or block strong open threes.
-- Prefer central, connected moves when no forcing move exists.
-- Avoid isolated edge moves unless they address a concrete threat.
+Before considering Codex's attack, scan the human threats:
+
+1. Win immediately if Codex has a legal completing move.
+2. Find every legal human move that would make five next turn, then block one of those squares unless Renju makes it unplayable for the human.
+3. Scan human open fours, half-open fours, open threes, compound threats, and repeated line patterns before considering Codex's own extensions.
+4. Prefer Codex moves that force a response only after the human threats are covered.
+5. Reject any move that leaves a larger human threat unanswered.
+
+Evaluate fours by both length and open ends. An open four is urgent, a half-open four is situational, and a four with both ends blocked is low value even though four stones are connected.
+
+Scan globally when the human spreads out. If human stones repeat on a row, column, or diagonal with regular spacing, ladder/step geometry, or a wide grid-like pattern, prioritize the middle gaps, connection points, and extension points that would complete that pattern. Do not treat these as ordinary isolated edge moves.
+
+Limit candidates to moves near the last move, all active threat lines, and central connection points. If the human is playing distant repeated patterns or multiple separated lines, make a full row/column/diagonal scan before choosing.
+
+When Renju is enabled and the human is black, use `forbidden_moves` as defensive information. A black-only forbidden square may not need to be blocked, but still inspect nearby intersections for legal follow-up threats.
 
 The script validates only board legality and win conditions. Codex is responsible for strategic choice.
 
 ## Commands
 
-- `--codex-view`: print Codex's preferred 1-based coordinate summary without the raw board matrix.
+- no action flag: print Codex's preferred 1-based coordinate summary without the raw board matrix.
+- `--gui`: launch the Pygame board.
+- `--codex-view`: backward-compatible alias for the default Codex view output.
 - `--start-game`: mark setup complete so moves and Codex waiting can begin.
 - `--codex-move ROW COL`: place Codex's configured stone color, save state, and exit.
 - `--wait-for-codex-turn`: block until setup is complete and it is Codex's turn, or until the game ends, then print Codex view JSON and exit.
@@ -96,7 +107,7 @@ The script validates only board legality and win conditions. Codex is responsibl
 
 ## Codex View Contract
 
-Use `--codex-view` and `--wait-for-codex-turn` output for move selection. This is the required board-reading interface for Codex during normal play. Both use 1-based coordinates matching the GUI and `--codex-move`.
+Use the default command, `--codex-view`, or `--wait-for-codex-turn` output for move selection. This is the required board-reading interface for Codex during normal play. All coordinates are 1-based and match the GUI and `--codex-move`.
 
 - `black`: black stones as `[[row, col], ...]`.
 - `white`: white stones as `[[row, col], ...]`.

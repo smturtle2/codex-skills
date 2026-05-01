@@ -1,4 +1,4 @@
 interface:
   display_name: "Gomoku"
   short_description: "Play Gomoku with Codex in Python"
-  default_prompt: "Use $gomoku to start a Python GUI Gomoku game where I can choose settings and Codex waits for my move, then chooses and applies its own move."
+  default_prompt: "Use $gomoku to start the Python GUI Gomoku game with --gui, wait for my move, then choose from the Codex view output and apply your own move."
