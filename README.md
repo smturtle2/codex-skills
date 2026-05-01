@@ -1,40 +1,44 @@
 # codex-skills
 
-[한국어 README](README.ko.md)
+[![Skills](https://img.shields.io/badge/skills-4-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
 
-Reusable Codex skills collected in one repository. Each skill lives in its own folder and includes a `SKILL.md` plus any bundled references, scripts, or assets it needs.
+A small, installable catalog of Codex skills for image generation, UI blueprints, subagent creation, and Gomoku.
 
-![Codex skills overview](docs/assets/codex-skills-hero.png)
+Each skill is self-contained with a `SKILL.md` trigger contract plus any local scripts, references, assets, and agent metadata it needs.
 
-Use this repository as a small installable catalog: copy a skill into your Codex skills directory with `$skill-installer`, restart Codex, then invoke the skill by name when its trigger matches your work.
+Languages: English | [한국어](README.ko.md)
 
-## Repository Layout
+![Codex skills catalog](docs/assets/codex-skills-hero.png)
 
-- `skills/`: skill folders ready to copy into a Codex skills directory
-- `skills/*/SKILL.md`: the instruction body Codex reads when a skill is triggered
-- `skills/*/scripts/`: helper scripts bundled with a skill
-- `skills/*/references/`: optional supporting references used by a skill
-- `skills/*/agents/`: optional agent/provider metadata for a skill
-- `docs/assets/`: README images and other repository-level documentation assets
+## Why Use This
 
-## Install
+- Self-contained skills that can be copied into a Codex skills directory.
+- Copy-paste install prompts for each skill.
+- Practical workflows, not demos.
+- Small enough to audit before installing.
 
-Use the preinstalled `$skill-installer` system skill. Each skill entry below includes a copy-paste-ready one-line prompt.
+## Skills
 
-After installing a skill, restart Codex to pick it up.
+| Skill | Best for | Output | Install |
+| --- | --- | --- | --- |
+| [`image-creator`](#image-creator) | Generating or editing project-local raster images | Saved image file plus the exact rewritten prompt | [Prompt](#image-creator) |
+| [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
+| [`subagent-creator`](#subagent-creator) | Creating one focused Codex custom subagent | Validated TOML agent definition | [Prompt](#subagent-creator) |
+| [`gomoku`](#gomoku) | Playing Gomoku against Codex in a local GUI | Python board plus JSON state bridge for Codex moves | [Prompt](#gomoku) |
 
-## Choose A Skill
+## Quick Install
 
-| Need | Use | Output |
-| --- | --- | --- |
-| Generate or edit a project-local raster image | `image-creator` | Saved image file plus the exact rewritten prompt |
-| Build or substantially redesign frontend UI | `ui-blueprint` | Generated UI mockup, extracted visual notes, implemented UI |
-| Create or update one custom Codex subagent | `subagent-creator` | One focused TOML agent definition with validation |
-| Play Gomoku against Codex | `gomoku` | Python GUI board plus JSON state bridge for Codex moves |
+Use the preinstalled `$skill-installer` system skill, then restart Codex so the installed skill is picked up.
 
-## Current Skills
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/<skill-name>
+```
+
+## Catalog
 
 ### `image-creator`
+
+Generate or edit raster images and save them into the current project.
 
 ![Image Creator workflow](docs/assets/image-creator-workflow.png)
 
@@ -42,8 +46,8 @@ After installing a skill, restart Codex to pick it up.
 | --- | --- |
 | Folder | `skills/image-creator` |
 | Use when | You need a generated or edited raster image saved into the current project. |
-| Does | Rewrites the user's request into a concise image prompt, preserves exact rendered text and explicit constraints, calls the selected generation path, then saves the output. |
-| Does not | Use `view_image` outside the immediate bridge step for local input images, invent extra creative constraints, or handle code-native SVG/HTML/CSS artwork. |
+| Produces | A saved image file, the exact rewritten prompt, input-image notes when used, and the generation path used. |
+| Avoids | `view_image` outside the immediate local-image bridge step, invented creative constraints, and code-native SVG/HTML/CSS artwork. |
 
 Install:
 
@@ -53,12 +57,16 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 
 ### `ui-blueprint`
 
+Create a generated UI mockup first, then implement frontend work against that visual blueprint.
+
+![UI Blueprint workflow](docs/assets/ui-blueprint-workflow.png)
+
 | Field | Details |
 | --- | --- |
 | Folder | `skills/ui-blueprint` |
 | Use when | You are building new UI, doing a substantial redesign, or working on a visually led screen. |
-| Does | Uses `image-creator` to create a mockup first, extracts layout and visual decisions, then implements against the existing frontend stack. |
-| Does not | Skip the generated blueprint for visually important UI work, or use this workflow for narrow bug fixes and small maintenance edits. |
+| Produces | A generated mockup, extracted layout and visual decisions, and implementation guidance for the existing frontend stack. |
+| Avoids | Skipping the blueprint for visually important UI work, and applying the workflow to narrow bug fixes or small maintenance edits. |
 
 Install:
 
@@ -68,14 +76,16 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 
 ### `subagent-creator`
 
+Turn a natural-language role brief into one focused Codex custom subagent.
+
 ![Subagent Creator workflow](docs/assets/subagent-creator-workflow.png)
 
 | Field | Details |
 | --- | --- |
 | Folder | `skills/subagent-creator` |
 | Use when | You need one focused Codex custom subagent derived from a natural-language brief. |
-| Does | Distills the role contract, writes a TOML agent definition, keeps defaults conservative, and validates the result when possible. |
-| Does not | Create multiple agents by default, invent MCP URLs or credentials, or snap to canned role examples unless the brief requires them. |
+| Produces | A TOML agent definition with a clear role, tool policy, constraints, and validation where possible. |
+| Avoids | Creating multiple agents by default, inventing MCP URLs or credentials, and snapping to canned role examples unless required. |
 
 Install:
 
@@ -83,19 +93,23 @@ Install:
 Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/subagent-creator
 ```
 
-This skill is grounded in the official Codex subagent documentation:
+Docs:
 
 - https://developers.openai.com/codex/subagents
 - https://developers.openai.com/codex/concepts/subagents
 
 ### `gomoku`
 
+Play Gomoku with a local Python GUI while Codex waits, reads Codex view JSON, and applies its own moves.
+
+![Gomoku workflow](docs/assets/gomoku-workflow.png)
+
 | Field | Details |
 | --- | --- |
 | Folder | `skills/gomoku` |
 | Use when | You want to play Gomoku with a local Python GUI while Codex chooses and applies its own moves. |
-| Does | Runs a Pygame board, manages game state internally, validates moves, wins, and optional Renju restrictions, and lets Codex wait before applying its configured color. |
-| Does not | Implement a fixed AI engine or call the OpenAI API from the GUI. |
+| Produces | A Pygame board, internally managed state, move validation, win detection, optional Renju restrictions, and Codex wait/apply commands. |
+| Avoids | A fixed AI engine and OpenAI API calls from the GUI. |
 
 Install:
 
@@ -103,8 +117,29 @@ Install:
 Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/gomoku
 ```
 
+## Repository Layout
+
+- `skills/`: skill folders ready to copy into a Codex skills directory.
+- `skills/*/SKILL.md`: the instruction body Codex reads when a skill is triggered.
+- `skills/*/scripts/`: helper scripts bundled with a skill.
+- `skills/*/references/`: optional supporting references used by a skill.
+- `skills/*/agents/`: optional agent/provider metadata for a skill.
+- `docs/assets/`: README images and repository-level documentation assets.
+
+## Contributing
+
+New skills should include a `SKILL.md`, a clear trigger description, and any required scripts or references inside the skill folder.
+
+Quality bar:
+
+- Clear trigger rules.
+- Minimal bundled context.
+- No hidden credentials.
+- Local, auditable scripts.
+- README entry and install prompt.
+
 ## Notes
 
-- The repository is intentionally small and additive.
 - Root docs describe the catalog.
-- Skill-specific instructions live inside each skill folder instead of separate per-skill READMEs.
+- Skill behavior lives in each skill's `SKILL.md`.
+- Restart Codex after installing or updating a skill.
