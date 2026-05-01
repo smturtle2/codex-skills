@@ -88,13 +88,11 @@ Scan globally when the human spreads out. If human stones repeat on a row, colum
 
 Limit candidates to moves near the last move, all active threat lines, and central connection points. If the human is playing distant repeated patterns or multiple separated lines, make a full row/column/diagonal scan before choosing.
 
-When Renju is enabled and the human is black, use `forbidden_moves` as defensive information. A black-only forbidden square may not need to be blocked, but still inspect nearby intersections for legal follow-up threats.
-
 The script validates only board legality and win conditions. Codex is responsible for strategic choice.
 
 ## Commands
 
-- no action flag: print Codex's preferred 1-based coordinate summary without the raw board matrix.
+- no action flag: print the current Codex view JSON.
 - `--gui`: launch the Pygame board.
 - `--codex-view`: backward-compatible alias for the default Codex view output.
 - `--start-game`: mark setup complete so moves and Codex waiting can begin.
@@ -111,7 +109,7 @@ Use the default command, `--codex-view`, or `--wait-for-codex-turn` output for m
 
 - `ascii_board`: a 1-based coordinate board for visual reading. `B` is black, `W` is white, `b` is the last black move, `w` is the last white move, and `.` is empty.
 - All displayed coordinates are 1-based and match the GUI and `--codex-move`.
-- The JSON output may also include compatibility state fields such as stone coordinate lists, `last_move`, and Renju legality data.
+- The JSON output also includes game status metadata such as size, players, turn, winner, draw, and winning line when available.
 - The raw `board` matrix, full legal move list, full move history, threat summaries, line analysis, scores, and move recommendations are intentionally omitted.
 
 ## Rules

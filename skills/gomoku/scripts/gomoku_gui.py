@@ -287,40 +287,6 @@ def collect_line(
     return list(reversed(before)) + [(row, col)] + after
 
 
-def forbidden_move_list(state: dict[str, Any]) -> list[list[int]]:
-    validate_state_shape(state)
-    forbidden_moves = []
-    if not state.get("setup_complete", False) or state.get("winner") or state.get("draw"):
-        return forbidden_moves
-
-    player = state["next_player"]
-    for row_index, board_row in enumerate(state["board"]):
-        for col_index, cell in enumerate(board_row):
-            if cell != EMPTY:
-                continue
-            row = row_index + 1
-            col = col_index + 1
-            if not is_legal_move(state, row, col, player):
-                forbidden_moves.append([row, col])
-    return forbidden_moves
-
-
-def status_payload(state: dict[str, Any]) -> dict[str, Any]:
-    validate_state_shape(state)
-    payload = deepcopy(state)
-    payload["forbidden_moves"] = forbidden_move_list(state)
-    return payload
-
-
-def coordinate_list(state: dict[str, Any], value: int) -> list[list[int]]:
-    return [
-        [row_index + 1, col_index + 1]
-        for row_index, row in enumerate(state["board"])
-        for col_index, cell in enumerate(row)
-        if cell == value
-    ]
-
-
 def ascii_board(state: dict[str, Any]) -> str:
     size = state["size"]
     last_move = state.get("last_move") or {}
@@ -350,32 +316,20 @@ def ascii_board(state: dict[str, Any]) -> str:
 
 
 def codex_view_payload(state: dict[str, Any]) -> dict[str, Any]:
-    status = status_payload(state)
+    validate_state_shape(state)
     return {
-        "size": status["size"],
-        "next_player": status["next_player"],
-        "codex_player": status["codex_player"],
-        "human_player": status["human_player"],
-        "renju_rules": status.get("renju_rules", False),
-        "setup_complete": status.get("setup_complete", False),
-        "game_event_id": status.get("game_event_id", 0),
-        "last_move": status.get("last_move"),
-        "ascii_board": ascii_board(status),
-        "black": coordinate_list(status, BLACK),
-        "white": coordinate_list(status, WHITE),
-        "forbidden_moves": status["forbidden_moves"],
-        "winner": status.get("winner"),
-        "winning_line": [[item["row"], item["col"]] for item in status.get("winning_line", [])],
-        "draw": status.get("draw", False),
+        "size": state["size"],
+        "next_player": state["next_player"],
+        "codex_player": state["codex_player"],
+        "human_player": state["human_player"],
+        "renju_rules": state.get("renju_rules", False),
+        "setup_complete": state.get("setup_complete", False),
+        "game_event_id": state.get("game_event_id", 0),
+        "ascii_board": ascii_board(state),
+        "winner": state.get("winner"),
+        "winning_line": [[item["row"], item["col"]] for item in state.get("winning_line", [])],
+        "draw": state.get("draw", False),
     }
-
-
-def is_legal_move(state: dict[str, Any], row: int, col: int, player: str) -> bool:
-    try:
-        apply_move(state, row, col, player)
-    except GomokuError:
-        return False
-    return True
 
 
 def is_codex_wait_ready(state: dict[str, Any]) -> bool:
@@ -403,7 +357,7 @@ def wait_for_codex_turn(
     )
     baseline_event_id = int(initial_state.get("game_event_id", 0))
     if is_codex_wait_ready(initial_state):
-        return status_payload(initial_state)
+        return initial_state
     while True:
         state = load_state(
             state_path,
@@ -413,7 +367,7 @@ def wait_for_codex_turn(
         )
         event_advanced = int(state.get("game_event_id", 0)) > baseline_event_id
         if event_advanced and is_codex_wait_ready(state):
-            return status_payload(state)
+            return state
         if timeout is not None and time_monotonic() - start >= timeout:
             raise GomokuError("timed out waiting for Codex turn")
         sleep(poll_interval)
