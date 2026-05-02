@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compose normalized frames into a transparent animation sheet."""
+"""Compose extracted frames into a transparent animation sheet."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from pathlib import Path
 from PIL import Image
 
 from animation_common import (
+    DEFAULT_WORKING_CELL_SIZE,
+    frame_size_from_manifest,
     filter_states,
-    fit_to_frame,
     load_json,
     locate_frame_files,
     manifest_for_run,
@@ -47,19 +48,37 @@ def main() -> None:
     manifest_path = manifest_for_run(args.run_dir, args.manifest)
     manifest = load_json(manifest_path) if manifest_path else {}
     run_dir = Path(manifest["run_dir"]).expanduser().resolve() if manifest.get("run_dir") else Path.cwd()
-    frame_size = parse_size(args.frame_size, (512, 512)) if args.frame_size else None
+    frame_size = parse_size(args.frame_size, DEFAULT_WORKING_CELL_SIZE) if args.frame_size else None
     settings = filter_states(
         manifest_settings(manifest, frame_size=frame_size, frame_count=args.frame_count, fps=args.fps, output_format=args.format),
         args.action_id,
     )
     paths = manifest.get("paths", {}) if isinstance(manifest.get("paths"), dict) else {}
     frames_root = resolve_path(args.frames_root or paths.get("frames_dir", "frames"), run_dir)
-    default_output = f"final/{args.action_id}-frames.png" if args.action_id else paths.get("composed", "final/animation.png")
+    default_output = f"final/{args.action_id}-frames.webp" if args.action_id else paths.get("aggregate_sheet", "final/animation-frames.webp")
     output = resolve_path(args.output or default_output, run_dir)
+
+    frames_manifest_path = frames_root / "frames-manifest.json"
+    frame_manifest_rows = {}
+    if frames_manifest_path.is_file():
+        frames_manifest = load_json(frames_manifest_path)
+        rows_data = frames_manifest.get("rows")
+        if isinstance(rows_data, list):
+            frame_manifest_rows = {
+                str(row["state"]): row
+                for row in rows_data
+                if isinstance(row, dict) and isinstance(row.get("state"), str)
+            }
 
     rows = max(state["row"] for state in settings["states"]) + 1
     columns = max(state["frames"] for state in settings["states"])
-    frame_size_tuple = (settings["frame_width"], settings["frame_height"])
+    frame_size_tuple = None
+    for state in settings["states"]:
+        frame_size_tuple = frame_size_from_manifest(frame_manifest_rows.get(state["name"], {}))
+        if frame_size_tuple:
+            break
+    if frame_size_tuple is None:
+        frame_size_tuple = (settings["frame_width"], settings["frame_height"])
     sheet = Image.new("RGBA", (columns * frame_size_tuple[0], rows * frame_size_tuple[1]), (0, 0, 0, 0))
 
     for state in settings["states"]:
@@ -68,7 +87,12 @@ def main() -> None:
             raise SystemExit(f"{state['name']} needs {state['frames']} frames, found {len(files)} under {frames_root}")
         for column, frame_path in enumerate(files[: state["frames"]]):
             with Image.open(frame_path) as opened:
-                frame = fit_to_frame(opened, frame_size_tuple, padding=args.padding)
+                frame = opened.convert("RGBA")
+                if frame.size != frame_size_tuple:
+                    raise SystemExit(
+                        f"{frame_path} must be {frame_size_tuple[0]}x{frame_size_tuple[1]}; "
+                        f"got {frame.width}x{frame.height}"
+                    )
             sheet.alpha_composite(frame, (column * frame_size_tuple[0], state["row"] * frame_size_tuple[1]))
 
     save_image(sheet, output)

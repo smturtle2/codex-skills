@@ -4,10 +4,11 @@ Do not accept an animation action until the automatic checks and visual review p
 
 ## Geometry
 
-- Final frames match the requested `frame_width x frame_height`.
+- Final frames preserve the generated sheet's actual per-cell size after component or slot extraction.
 - The action has exactly the requested frame count.
 - Each frame contains a non-empty character pose.
 - No important pixels touch the frame edge.
+- Visible character pixels stay inside the extracted frame safe inset.
 - Contact sheets show whole poses inside cells, not cropped tiles from a larger image.
 - The final animation output exists in the requested format.
 
@@ -21,15 +22,19 @@ Do not accept an animation action until the automatic checks and visual review p
 ## Animation Quality
 
 - The requested action is recognizable.
-- Poses progress through a readable motion, not repeated copies of the same still.
+- Poses progress through one readable continuous motion, not repeated copies of the same still or disconnected pose studies.
+- Adjacent frames keep consistent camera distance, character scale, facing direction, rendering density, and body registration.
+- The body center, head, hands, and feet move along plausible arcs without unexplained teleports, pops, flips, or sudden scale changes.
+- Pose spacing feels smooth during playback, with no accidental strobing, frozen duplicates, abrupt timing gaps, or missing in-between beats.
+- Timing uses readable easing, anticipation, follow-through, overshoot, and settle when the motion needs them.
 - Looping actions have compatible first and last frames.
 - Non-looping actions have a clear start and end pose.
 
 ## Extraction Fitness
 
-- Component extraction is preferred over fixed slot slicing.
-- Grid slot slicing is acceptable only after visual review confirms each cell contains a complete, unclipped pose.
-- No visible layout guide pixels appear in extracted frames.
+- Component extraction is preferred, matching the hatch-pet path, because it removes generated layout margins while preserving generated frame scale.
+- Known-layout slot extraction is the fallback when components cannot be separated and must still preserve the generated slot size.
+- No generated cell border, registration-guide, safe-box, or centerline pixels appear in extracted frames.
 - No detached effects create separate components that confuse extraction.
 - No chroma-key-adjacent pixels remain in character-visible regions.
 

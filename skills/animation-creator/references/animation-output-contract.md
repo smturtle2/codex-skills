@@ -6,71 +6,81 @@ All paths are project-local by default. A normal run lives under:
 
 ```text
 <session-project>/animation-runs/<run-id>/
-  animation_request.json
+  animation_manifest.json
   animation-jobs.json
   prompts/
     base-character.md
     actions/<action-id>.md
   references/
     canonical-base.png
-    source-character.*
-    layout-guides/<action-id>.png
+    registration-guides/<action-id>.png
   generated/
-    base-character.png
+    base-character.png  # only when the base is generated
     <action-id>.png
   frames/
-    <action-id>/00.png
-    <action-id>/01.png
+    <action-id>/000.png
+    <action-id>/001.png
     ...
     frames-manifest.json
   final/
     <action-id>.webp
-    <action-id>.gif
-    <action-id>-frames.png
-    validation.json
+    <action-id>-frames.webp
+    <action-id>-validation.json
   qa/
     <action-id>-contact-sheet.png
-    <action-id>-preview.gif
+    <action-id>-review.json
+    previews/<action-id>.webp
     run-summary.json
 ```
 
 The exact final files depend on the requested output format.
 
-`render_preview.py --write-final` writes final animated files under `final/`, including `final/<action-id>.gif` when `gif` is in `--formats`.
+`finalize_animation_run.py` writes WebP outputs by default: a composed frame sheet at `final/<action-id>-frames.webp`, an animated WebP at `final/<action-id>.webp`, and a QA preview at `qa/previews/<action-id>.webp`. It writes frame-review diagnostics to `qa/<action-id>-review.json` before composing and sheet-validation diagnostics to `final/<action-id>-validation.json` after composing.
+
+When `finalize_animation_run.py` runs without `--action-id`, it writes aggregate files for the selected run: `final/animation-frames.webp`, `final/validation.json`, `qa/review.json`, and `qa/contact-sheet.png`.
 
 ## Required Manifest Fields
 
-`animation_request.json` should record:
+`animation_manifest.json` should record:
 
 - `character_id`
 - `character_name`
 - `description`
 - `canonical_base`
-- `frame_width`
-- `frame_height`
-- `default_frame_count`
-- `fps`
+- `frame_width` and `frame_height` as nominal registration-guide cell dimensions
+- `fps` when a playback rate was requested or already exists in the run
 - `loop`
 - `background_mode`
 - `chroma_key`
 - `actions`
+- `action_plans`
 
-`animation-jobs.json` should record each base/action job, source path, output path, prompt file, input images, status, and timestamps.
+Each action state should record:
+
+- `action`
+- `frame_actions`
+- `motion_beats`
+- `frames`
+- `frame_count`
+- `layout`
+
+`animation-jobs.json` should record each base/action job, source path, output path, source prompt file, input images, status, hashes, and timestamps. A complete job records both the source prompt hash and the exact built `$image-creator` prompt hash from `build_generation_prompt.py`. The workflow should not create a duplicate `prompts/image-creator/` prompt directory.
 
 ## Geometry
 
 Defaults:
 
-- frame size: `512x512`
-- safe margin: `28px` per side, leaving a normal safe area of `456x456`
-- frame count: `6`
-- FPS: `8`
-- output format: `webp`
-- final GIF: `final/<action-id>.gif`
+- nominal registration-guide cell size: `512x512`
+- the 16-frame maximum uses a `4x4` registration guide at `2048x2048`
+- registration-guide safe margin: `30px` horizontal and `24px` vertical
+- frame count: finalized from the completed per-frame action plan
+- intermediate frame format: `png`
+- final animation format: `webp`
+- final WebP animation: `final/<action-id>.webp`
 
-Each action image should be a grid sheet with exactly `frame_count` invisible cells read left-to-right, top-to-bottom. Each cell contains one complete centered pose. The generated sheet size may vary, but extraction normalizes every final frame to `512x512`.
+Each action image should be a grid sheet with exactly one cell per planned frame action, read left-to-right, top-to-bottom. Each cell contains one complete pose matching that frame action, with consistent character registration, scale, facing, safe-box placement, and camera distance across adjacent frames. The prompt states the required grid dimensions and aspect ratio in text, uses the registration guide as the placement reference, asks the generator to reproduce the guide's outer cell borders and inner safe-area borders, and treats the inner safe-area border as the drawable boundary for character artwork. Extraction accepts generated sheets that preserve the manifest grid aspect ratio, removes generated guide border pixels, then uses the known grid to group or slice frame content.
 
-Extraction should preserve a transparent safety inset and scale oversized poses down to stay inside the safe area. This mirrors the hatch-pet pattern: avoid edge contact first, then validate for clipping.
+Extraction removes the chroma-key background from the full generated sheet before any cell slicing, then preserves the generated sheet's actual per-cell size. It prefers connected-component grouping into the expected frame slots and falls back to slot slicing when components cannot be separated. Validation checks whether the extracted frames are non-empty, avoid cell edges, and remain visually continuous.
 
 Recommended layouts:
 
@@ -83,12 +93,24 @@ Recommended layouts:
 | 10-12 | `4x3` |
 | 13-16 | `4x4` |
 
-Use `6` frames in a `3x2` grid by default. Treat `12` frames as the normal single-sheet upper bound and `16` as experimental. Split longer animations into multiple action sheets.
+The maximum action length is `16` frames. Do not choose a frame count from an action category. First write the frame actions until the motion is complete; then choose the recommended layout from that finalized count.
+
+Planning should continue one beat at a time. After each planned frame, ask whether the action still needs any of these beats before it will read clearly:
+
+- anticipation or wind-up
+- first contact or launch
+- main key pose
+- passing/in-between pose
+- follow-through or overshoot
+- recovery or settle
+- loop bridge back to the first pose
+
+Only stop when the answer is no. If stopping would remove one of those beats, keep planning instead of forcing a shorter sheet.
 
 ## Background
 
-Default background mode is `chroma-key`, because clean background removal and connected-component extraction are central to reliable frame extraction.
+Default action background mode is `chroma-key`, because clean background removal after known-layout slot extraction is central to reliable frame extraction. Generated base characters use a flat white `#FFFFFF` reference background first; after the base is recorded, the scripts inspect the canonical base colors and select a safe high-saturation chroma key for action sheets.
 
-The chroma key must not appear in the character, outfit, props, highlights, shadows, or effects. Prefer a high-saturation key color far from source image colors. Use green by default, matching the hatch-pet path, because it collides less often with mouths, blushes, and warm character accents. Extraction removes exact chroma-key pixels everywhere, including holes inside a character silhouette. It also removes exposed chroma-family components that touch transparent/erased background, including dark antialias edges and darker/lighter remnants around internal holes or shadows, while preserving chroma-adjacent pixels embedded in the character body. Validation fails frames that still contain too many non-transparent pixels close to the chroma key.
+The chroma key must not appear in the character, outfit, props, highlights, shadows, or effects. Prefer a high-saturation key color far from source image colors. Extraction removes exact chroma-key pixels everywhere, including holes inside a character silhouette. It also removes exposed chroma-family components that touch transparent/erased background, including dark antialias edges and darker/lighter remnants around internal holes or shadows, while preserving chroma-adjacent pixels embedded in the character body. Validation fails frames that still contain too many non-transparent pixels close to the chroma key.
 
-Transparent output is preferred for GIF/WebP frame assets. MP4 previews may use a checkerboard or flat background because MP4 does not carry alpha.
+Transparent output is preferred for WebP frame assets. MP4 previews may use a checkerboard or flat background because MP4 does not carry alpha.

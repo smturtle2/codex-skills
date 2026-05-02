@@ -9,7 +9,10 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from animation_common import (
+    DEFAULT_WORKING_CELL_SIZE,
     checker,
+    frame_manifest_rows,
+    frame_size_from_manifest,
     filter_states,
     load_json,
     locate_frame_files,
@@ -25,8 +28,10 @@ LABEL_HEIGHT = 24
 def load_cells_from_sheet(sheet_path: Path, settings: dict[str, object]) -> dict[str, list[Image.Image]]:
     with Image.open(sheet_path) as opened:
         sheet = opened.convert("RGBA")
-    frame_w = int(settings["frame_width"])
-    frame_h = int(settings["frame_height"])
+    columns = max(int(state["frames"]) for state in settings["states"])
+    rows = max(int(state["row"]) for state in settings["states"]) + 1
+    frame_w = sheet.width // columns
+    frame_h = sheet.height // rows
     cells: dict[str, list[Image.Image]] = {}
     for state in settings["states"]:
         row = int(state["row"])
@@ -46,6 +51,21 @@ def load_cells_from_frames(root: Path, settings: dict[str, object]) -> dict[str,
                 frames.append(opened.convert("RGBA"))
         cells[str(state["name"])] = frames
     return cells
+
+
+def contact_frame_size(root: Path, cells: dict[str, list[Image.Image]], settings: dict[str, object]) -> tuple[int, int]:
+    manifest_rows = frame_manifest_rows(root)
+    sizes: list[tuple[int, int]] = []
+    for state in settings["states"]:
+        state_name = str(state["name"])
+        manifest_size = frame_size_from_manifest(manifest_rows.get(state_name, {}))
+        if manifest_size is not None:
+            sizes.append(manifest_size)
+        for frame in cells.get(state_name, []):
+            sizes.append(frame.size)
+    if not sizes:
+        return (int(settings["frame_width"]), int(settings["frame_height"]))
+    return (max(size[0] for size in sizes), max(size[1] for size in sizes))
 
 
 def main() -> None:
@@ -72,7 +92,7 @@ def main() -> None:
     settings = filter_states(
         manifest_settings(
             manifest,
-            frame_size=parse_size(args.frame_size, (512, 512)) if args.frame_size else None,
+            frame_size=parse_size(args.frame_size, DEFAULT_WORKING_CELL_SIZE) if args.frame_size else None,
             frame_count=args.frame_count,
             fps=args.fps,
             output_format=args.format,
@@ -80,10 +100,12 @@ def main() -> None:
         args.action_id,
     )
     frames_root = args.frames_root or "frames"
-    cells = load_cells_from_sheet(resolve_path(args.sheet, run_dir), settings) if args.sheet else load_cells_from_frames(resolve_path(frames_root, run_dir), settings)
+    resolved_frames_root = resolve_path(frames_root, run_dir)
+    cells = load_cells_from_sheet(resolve_path(args.sheet, run_dir), settings) if args.sheet else load_cells_from_frames(resolved_frames_root, settings)
 
-    frame_w = max(1, round(int(settings["frame_width"]) * args.scale))
-    frame_h = max(1, round(int(settings["frame_height"]) * args.scale))
+    source_frame_w, source_frame_h = contact_frame_size(resolved_frames_root, cells, settings)
+    frame_w = max(1, round(source_frame_w * args.scale))
+    frame_h = max(1, round(source_frame_h * args.scale))
     columns = max(int(state["frames"]) for state in settings["states"])
     rows = len(settings["states"])
     width = columns * frame_w
@@ -96,7 +118,8 @@ def main() -> None:
         state_name = str(state["name"])
         y = visual_row * (frame_h + LABEL_HEIGHT)
         draw.rectangle((0, y, width, y + LABEL_HEIGHT - 1), fill="#111111")
-        draw.text((6, y + 6), f"{state_name} ({state['frames']} frames @ {state['fps']:g} fps)", fill="#ffffff", font=font)
+        timing = f" @ {state['fps']:g} fps" if state.get("fps") is not None else ""
+        draw.text((6, y + 6), f"{state_name} ({state['frames']} frames{timing})", fill="#ffffff", font=font)
         for column in range(columns):
             x = column * frame_w
             bg = checker((frame_w, frame_h), square=max(4, round(16 * args.scale)))

@@ -12,6 +12,8 @@ from pathlib import Path
 from PIL import Image
 
 from animation_common import (
+    DEFAULT_WORKING_CELL_SIZE,
+    DEFAULT_PREVIEW_FRAME_DURATION_MS,
     checker,
     filter_states,
     load_json,
@@ -26,8 +28,10 @@ from animation_common import (
 def frames_from_sheet(sheet_path: Path, state: dict[str, object], settings: dict[str, object]) -> list[Image.Image]:
     with Image.open(sheet_path) as opened:
         sheet = opened.convert("RGBA")
-    frame_w = int(settings["frame_width"])
-    frame_h = int(settings["frame_height"])
+    columns = max(int(item["frames"]) for item in settings["states"])
+    rows = max(int(item["row"]) for item in settings["states"]) + 1
+    frame_w = sheet.width // columns
+    frame_h = sheet.height // rows
     row = int(state["row"])
     return [
         sheet.crop((column * frame_w, row * frame_h, (column + 1) * frame_w, (row + 1) * frame_h))
@@ -57,14 +61,14 @@ def composite_preview_frames(frames: list[Image.Image], scale: int, transparent:
     return output
 
 
-def save_gif(frames: list[Image.Image], output: Path, duration_ms: int) -> None:
+def save_gif(frames: list[Image.Image], output: Path, duration_ms: int, loop_count: int) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    frames[0].save(output, save_all=True, append_images=frames[1:], duration=duration_ms, loop=0, disposal=2)
+    frames[0].save(output, save_all=True, append_images=frames[1:], duration=duration_ms, loop=loop_count, disposal=2)
 
 
-def save_webp(frames: list[Image.Image], output: Path, duration_ms: int) -> None:
+def save_webp(frames: list[Image.Image], output: Path, duration_ms: int, loop_count: int) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    frames[0].save(output, format="WEBP", save_all=True, append_images=frames[1:], duration=duration_ms, loop=0, lossless=True, quality=100, method=6)
+    frames[0].save(output, format="WEBP", save_all=True, append_images=frames[1:], duration=duration_ms, loop=loop_count, lossless=True, quality=100, method=6)
 
 
 def shell_quote_for_concat(path: Path) -> str:
@@ -123,7 +127,7 @@ def main() -> None:
     source.add_argument("--sheet")
     source.add_argument("--frames-root")
     parser.add_argument("--output-dir")
-    parser.add_argument("--formats", default="gif,webp", help="Comma-separated: gif,webp,mp4")
+    parser.add_argument("--formats", default="webp", help="Comma-separated: gif,webp,mp4")
     parser.add_argument(
         "--write-final",
         action="store_true",
@@ -132,6 +136,7 @@ def main() -> None:
     parser.add_argument("--state", help="Render one state only. Alias for --action-id.")
     parser.add_argument("--scale", type=int, default=2)
     parser.add_argument("--loops", type=int, default=1, help="Repeat frames inside each preview.")
+    parser.add_argument("--loop-count", type=int, help="Animated image loop count. Defaults to manifest loop setting: 0 for loop, 1 for no loop.")
     parser.add_argument("--transparent", action="store_true", help="Keep transparency for GIF/WebP instead of checker background.")
     parser.add_argument("--ffmpeg", default=shutil.which("ffmpeg") or "ffmpeg")
     parser.add_argument("--frame-size")
@@ -142,6 +147,8 @@ def main() -> None:
 
     if args.scale <= 0 or args.loops <= 0:
         raise SystemExit("scale and loops must be positive")
+    if args.loop_count is not None and args.loop_count < 0:
+        raise SystemExit("loop-count must be non-negative")
     manifest_path = manifest_for_run(args.run_dir, args.manifest)
     manifest = load_json(manifest_path) if manifest_path else {}
     run_dir = Path(manifest["run_dir"]).expanduser().resolve() if manifest.get("run_dir") else Path.cwd()
@@ -149,7 +156,7 @@ def main() -> None:
     settings = filter_states(
         manifest_settings(
             manifest,
-            frame_size=parse_size(args.frame_size, (512, 512)) if args.frame_size else None,
+            frame_size=parse_size(args.frame_size, DEFAULT_WORKING_CELL_SIZE) if args.frame_size else None,
             frame_count=args.frame_count,
             fps=args.fps,
             output_format=args.format,
@@ -162,6 +169,8 @@ def main() -> None:
     unknown = requested_formats - {"gif", "webp", "mp4"}
     if unknown:
         raise SystemExit(f"unknown preview format(s): {', '.join(sorted(unknown))}")
+    manifest_loop = bool(manifest.get("loop", manifest.get("animation", {}).get("loop", True) if isinstance(manifest.get("animation"), dict) else True))
+    loop_count = args.loop_count if args.loop_count is not None else (0 if manifest_loop else 1)
 
     rendered = []
     for state in settings["states"]:
@@ -169,14 +178,18 @@ def main() -> None:
         if len(raw_frames) < int(state["frames"]):
             raise SystemExit(f"{state['name']} needs {state['frames']} frames, found {len(raw_frames)}")
         raw_frames = raw_frames * args.loops
-        duration_ms = max(1, round(1000 / float(state["fps"])))
+        duration_ms = (
+            max(1, round(1000 / float(state["fps"])))
+            if state.get("fps") is not None
+            else DEFAULT_PREVIEW_FRAME_DURATION_MS
+        )
         preview_frames = composite_preview_frames(raw_frames, args.scale, args.transparent)
         stem = output_dir / str(state["name"])
         if "gif" in requested_formats:
-            save_gif(preview_frames, stem.with_suffix(".gif"), duration_ms)
+            save_gif(preview_frames, stem.with_suffix(".gif"), duration_ms, loop_count)
             rendered.append(str(stem.with_suffix(".gif")))
         if "webp" in requested_formats:
-            save_webp(preview_frames, stem.with_suffix(".webp"), duration_ms)
+            save_webp(preview_frames, stem.with_suffix(".webp"), duration_ms, loop_count)
             rendered.append(str(stem.with_suffix(".webp")))
         if "mp4" in requested_formats:
             mp4_path = stem.with_suffix(".mp4")
@@ -189,10 +202,10 @@ def main() -> None:
             final_stem = run_dir / "final" / str(state["name"])
             final_frames = composite_preview_frames(raw_frames, 1, transparent=True)
             if "gif" in requested_formats:
-                save_gif(final_frames, final_stem.with_suffix(".gif"), duration_ms)
+                save_gif(final_frames, final_stem.with_suffix(".gif"), duration_ms, loop_count)
                 rendered.append(str(final_stem.with_suffix(".gif")))
             if "webp" in requested_formats:
-                save_webp(final_frames, final_stem.with_suffix(".webp"), duration_ms)
+                save_webp(final_frames, final_stem.with_suffix(".webp"), duration_ms, loop_count)
                 rendered.append(str(final_stem.with_suffix(".webp")))
     print("\n".join(rendered))
 

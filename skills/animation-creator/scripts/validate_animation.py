@@ -11,10 +11,13 @@ from statistics import median
 from PIL import Image
 
 from animation_common import (
+    DEFAULT_WORKING_CELL_SIZE,
     alpha_nonzero_count,
     chroma_adjacent_count,
     chroma_settings,
     edge_alpha_count,
+    frame_manifest_rows,
+    frame_size_from_manifest,
     filter_states,
     load_json,
     locate_frame_files,
@@ -25,24 +28,6 @@ from animation_common import (
     resolve_path,
     write_json,
 )
-
-
-def load_frame_manifest_rows(root: Path) -> dict[str, dict[str, object]]:
-    manifest_path = root / "frames-manifest.json"
-    if not manifest_path.is_file():
-        return {}
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    rows = manifest.get("rows", [])
-    if not isinstance(rows, list):
-        return {}
-    return {
-        str(row["state"]): row
-        for row in rows
-        if isinstance(row, dict) and isinstance(row.get("state"), str)
-    }
 
 
 def validate_sheet(
@@ -69,13 +54,12 @@ def validate_sheet(
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "file": str(path), "errors": [f"could not open image: {exc}"], "warnings": []}
 
-    frame_w = int(settings["frame_width"])
-    frame_h = int(settings["frame_height"])
     rows = max(int(state["row"]) for state in settings["states"]) + 1
     columns = max(int(state["frames"]) for state in settings["states"])
-    expected_size = (columns * frame_w, rows * frame_h)
-    if image.size != expected_size:
-        errors.append(f"expected {expected_size[0]}x{expected_size[1]}, got {image.width}x{image.height}")
+    if image.width % columns or image.height % rows:
+        errors.append(f"sheet size {image.width}x{image.height} is not divisible by layout {columns}x{rows}")
+    frame_w = image.width // columns
+    frame_h = image.height // rows
     if source_format not in {"PNG", "WEBP"}:
         errors.append(f"expected PNG or WebP, got {source_format}")
     if "A" not in source_mode and not allow_opaque:
@@ -135,20 +119,30 @@ def validate_frames(
     errors: list[str] = []
     warnings: list[str] = []
     frames: list[dict[str, object]] = []
-    expected_size = (int(settings["frame_width"]), int(settings["frame_height"]))
-    manifest_rows = load_frame_manifest_rows(root)
+    manifest_rows = frame_manifest_rows(root)
     for state in settings["states"]:
         state_name = str(state["name"])
         manifest_row = manifest_rows.get(state_name, {})
         method = manifest_row.get("method")
+        crop_boxes = manifest_row.get("crop_boxes")
+        safe_boxes: dict[int, list[int]] = {}
+        if isinstance(crop_boxes, list):
+            for item in crop_boxes:
+                if not isinstance(item, dict):
+                    continue
+                raw_index = item.get("index")
+                raw_safe = item.get("safe_box_in_frame")
+                if isinstance(raw_index, int) and isinstance(raw_safe, list) and len(raw_safe) == 4:
+                    safe_boxes[raw_index] = [int(value) for value in raw_safe]
         if require_components and method and method != "components":
             errors.append(f"{state_name} used extraction method {method}; regenerate the action or inspect slot slicing")
-        elif method and method != "components":
-            warnings.append(f"{state_name} used extraction method {method}; component extraction is preferred")
+        elif method and method not in {"components", "slots"}:
+            warnings.append(f"{state_name} used extraction method {method}; inspect extraction output")
         files = locate_frame_files(root, str(state["name"]))
         if len(files) != int(state["frames"]):
             errors.append(f"{state['name']} needs exactly {state['frames']} frames, found {len(files)}")
         areas: list[int] = []
+        expected_size = frame_size_from_manifest(manifest_row)
         for index, path in enumerate(files[: int(state["frames"])]):
             try:
                 with Image.open(path) as opened:
@@ -158,6 +152,7 @@ def validate_frames(
                 errors.append(f"could not open {path}: {exc}")
                 continue
             nontransparent = alpha_nonzero_count(image)
+            bbox = image.getbbox()
             areas.append(nontransparent)
             edge_pixels = edge_alpha_count(image, edge_margin)
             chroma_adjacent_pixels = chroma_adjacent_count(image, chroma_key, chroma_adjacent_threshold)
@@ -170,11 +165,14 @@ def validate_frames(
                     "height": image.height,
                     "mode": mode,
                     "nontransparent_pixels": nontransparent,
+                    "bbox": list(bbox) if bbox else None,
                     "edge_pixels": edge_pixels,
                     "chroma_adjacent_pixels": chroma_adjacent_pixels,
                 }
             )
-            if image.size != expected_size:
+            if expected_size is None:
+                expected_size = image.size
+            elif image.size != expected_size:
                 errors.append(f"{path} expected {expected_size[0]}x{expected_size[1]}, got {image.width}x{image.height}")
             if nontransparent < min_used_pixels:
                 errors.append(f"{path} is empty or too sparse ({nontransparent} pixels)")
@@ -182,6 +180,10 @@ def validate_frames(
                 warnings.append(f"{path} has no alpha channel")
             if edge_pixels > edge_pixel_threshold:
                 warnings.append(f"{path} has {edge_pixels} non-transparent pixels near the cell edge")
+            safe_box = safe_boxes.get(index)
+            if bbox and safe_box:
+                if bbox[0] < safe_box[0] or bbox[1] < safe_box[1] or bbox[2] > safe_box[2] or bbox[3] > safe_box[3]:
+                    warnings.append(f"{path} visible pixels extend outside the scaled layout safe box")
             if chroma_adjacent_pixels > chroma_adjacent_pixel_threshold:
                 errors.append(f"{path} has {chroma_adjacent_pixels} non-transparent pixels close to the chroma key")
         if areas:
@@ -215,7 +217,7 @@ def main() -> None:
     parser.add_argument("--chroma-adjacent-pixel-threshold", type=int, default=800)
     parser.add_argument("--small-outlier-ratio", type=float, default=0.35)
     parser.add_argument("--large-outlier-ratio", type=float, default=2.75)
-    parser.add_argument("--require-components", action="store_true", help="Fail actions that fell back to equal-slot extraction.")
+    parser.add_argument("--require-components", action="store_true", help="Fail actions that used layout slot extraction.")
     parser.add_argument("--allow-opaque", action="store_true")
     args = parser.parse_args()
 
@@ -225,7 +227,7 @@ def main() -> None:
     settings = filter_states(
         manifest_settings(
             manifest,
-            frame_size=parse_size(args.frame_size, (512, 512)) if args.frame_size else None,
+            frame_size=parse_size(args.frame_size, DEFAULT_WORKING_CELL_SIZE) if args.frame_size else None,
             frame_count=args.frame_count,
             fps=args.fps,
             output_format=args.format,
