@@ -1,0 +1,4 @@
+interface:
+  display_name: "Animation Creator"
+  short_description: "Create character animation assets"
+  default_prompt: "Use $animation-creator to create character animation assets in the current session project from my source character image or from a generated base character prompt, ask for the required animation action when missing, use $image-creator for all base and action image generation, attach the canonical base and a grid layout guide to each action generation, extract clean 512x512 frames with safe padding, validate for clipping and frame count, and produce project-local contact sheets, preview outputs, and final GIF animation files."
