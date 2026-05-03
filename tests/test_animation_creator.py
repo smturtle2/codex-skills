@@ -1101,11 +1101,12 @@ class AnimationCreatorTests(unittest.TestCase):
 
         self.assertEqual(bbox, (5, 5, 59, 59))
 
-    def test_chroma_cleanup_suppresses_spill_without_deleting_pixels(self) -> None:
+    def test_chroma_cleanup_uses_connected_background_without_deleting_pixels(self) -> None:
         source = Image.new("RGB", (96, 96), DEFAULT_TEST_CHROMA)
         draw = ImageDraw.Draw(source)
         draw.rectangle((28, 24, 68, 68), fill=(40, 120, 220))
         draw.rectangle((44, 30, 48, 34), fill=(0, 150, 0))
+        draw.rectangle((52, 30, 56, 34), fill=(0, 190, 190))
         draw.rectangle((34, 56, 62, 64), fill=(0, 150, 0))
         draw.rectangle((42, 58, 54, 62), fill=DEFAULT_TEST_CHROMA)
         draw.rectangle((42, 44, 54, 50), fill=(180, 0, 90))
@@ -1115,13 +1116,36 @@ class AnimationCreatorTests(unittest.TestCase):
         cleaned = remove_chroma_background(source, (0, 255, 0), 96)
 
         self.assertEqual(cleaned.getpixel((4, 4))[3], 0)
-        self.assertEqual(cleaned.getpixel((46, 32))[3], 0)
+        self.assertEqual(cleaned.getpixel((46, 32)), (0, 150, 0, 255))
+        self.assertEqual(cleaned.getpixel((54, 32)), (0, 190, 190, 255))
         self.assertEqual(cleaned.getpixel((48, 47)), (180, 0, 90, 255))
         self.assertEqual(cleaned.getpixel((48, 60))[3], 0)
-        self.assertEqual(cleaned.getpixel((36, 60)), (0, 0, 0, 255))
-        self.assertEqual(cleaned.getpixel((48, 80)), (0, 0, 0, 255))
+        self.assertEqual(cleaned.getpixel((36, 60)), (0, 150, 0, 255))
+        self.assertGreater(cleaned.getpixel((48, 80))[3], 0)
+        self.assertLess(cleaned.getpixel((48, 80))[1], 40)
         self.assertEqual(cleaned.getpixel((48, 85)), (14, 14, 14, 255))
         self.assertEqual(chroma_adjacent_count(cleaned, (0, 255, 0), 190), 0)
+
+    def test_chroma_cleanup_uses_per_component_background_color(self) -> None:
+        source = Image.new("RGB", (128, 64), (0, 0, 0))
+        draw = ImageDraw.Draw(source)
+        draw.rectangle((0, 0, 61, 63), fill=(0, 255, 0))
+        draw.rectangle((66, 0, 127, 63), fill=(12, 242, 8))
+        draw.rectangle((18, 18, 43, 47), fill=(40, 120, 220))
+        draw.rectangle((84, 18, 109, 47), fill=(40, 120, 220))
+        draw.rectangle((30, 30, 35, 35), fill=(0, 190, 190))
+        draw.rectangle((96, 30, 101, 35), fill=(0, 190, 190))
+        draw.rectangle((22, 24, 23, 41), fill=(40, 190, 80))
+        draw.rectangle((104, 24, 105, 41), fill=(50, 180, 70))
+
+        cleaned = remove_chroma_background(source, (0, 255, 0), 96)
+
+        self.assertEqual(cleaned.getpixel((4, 4))[3], 0)
+        self.assertEqual(cleaned.getpixel((124, 4))[3], 0)
+        self.assertEqual(cleaned.getpixel((32, 32)), (0, 190, 190, 255))
+        self.assertEqual(cleaned.getpixel((98, 32)), (0, 190, 190, 255))
+        self.assertEqual(cleaned.getpixel((22, 32)), (40, 190, 80, 255))
+        self.assertEqual(cleaned.getpixel((104, 32)), (50, 180, 70, 255))
 
     def test_validate_flags_chroma_adjacent_and_edge_pixels(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

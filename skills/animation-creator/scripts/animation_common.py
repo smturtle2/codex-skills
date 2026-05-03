@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 IMAGE_SUFFIXES = {".png", ".webp", ".jpg", ".jpeg"}
 DEFAULT_FORMAT = "webp"
@@ -24,6 +24,9 @@ MIN_FRAME_INSET = 5
 CHROMA_ARTIFACT_THRESHOLD = 190.0
 INTERNAL_CHROMA_HOLE_MAX_PIXELS = 128
 CODEX_IMAGEGEN_MAX_ASPECT_RATIO = 3.0
+CONNECTED_CHROMA_MIN_COMPONENT_AREA_RATIO = 0.05
+CONNECTED_CHROMA_MIN_RECT_FILL = 0.35
+CONNECTED_CHROMA_EDGE_BAND_RADIUS = 2
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -427,20 +430,371 @@ def remove_chroma_background(
     threshold: float,
 ) -> Image.Image:
     rgba = image.convert("RGBA")
+    width, height = rgba.size
     pixels = rgba.load()
-    for y in range(rgba.height):
-        for x in range(rgba.width):
+    key_channels, non_key_channels = chroma_channel_groups(chroma_key)
+    strong_mask = bytearray(width * height)
+    exact_mask = bytearray(width * height)
+    for y in range(height):
+        for x in range(width):
             red, green, blue, alpha = pixels[x, y]
-            if alpha and color_distance(red, green, blue, chroma_key) <= threshold:
+            if alpha <= 16:
+                continue
+            dist = color_distance(red, green, blue, chroma_key)
+            excess = chroma_excess(red, green, blue, key_channels, non_key_channels)
+            key_value = min((red, green, blue)[index] for index in key_channels)
+            index = y * width + x
+            if dist <= max(threshold, 72.0) or (key_value > 150 and excess > 45 and dist < 130):
+                strong_mask[index] = 1
+            if dist < 55 and key_value > 110 and excess > 60:
+                exact_mask[index] = 1
+
+    sure_background = connected_chroma_background_mask(strong_mask, exact_mask, width, height)
+    background_labels, background_colors = label_background_components(rgba, sure_background)
+    fallback_background_color = median_mask_color(rgba, sure_background) or chroma_key
+    alpha_values = build_connected_chroma_alpha(
+        rgba,
+        sure_background,
+        background_labels,
+        background_colors,
+        fallback_background_color,
+        key_channels,
+        non_key_channels,
+        threshold,
+    )
+    for y in range(height):
+        for x in range(width):
+            index = y * width + x
+            red, green, blue, alpha = pixels[x, y]
+            new_alpha = alpha_values[index]
+            if new_alpha <= 0:
                 pixels[x, y] = (0, 0, 0, 0)
-    suppress_chroma_spill_components(rgba, chroma_key, CHROMA_ARTIFACT_THRESHOLD)
+                continue
+            new_red, new_green, new_blue = red, green, blue
+            if 10 < new_alpha < 250:
+                background_color = nearest_background_color(
+                    background_labels,
+                    background_colors,
+                    width,
+                    height,
+                    x,
+                    y,
+                    fallback_background_color,
+                )
+                new_red, new_green, new_blue = restore_foreground_color((red, green, blue), background_color, new_alpha)
+                new_red, new_green, new_blue = despill_chroma_edge(
+                    new_red,
+                    new_green,
+                    new_blue,
+                    key_channels,
+                    non_key_channels,
+                    allowance=18,
+                )
+            pixels[x, y] = (new_red, new_green, new_blue, new_alpha)
+    suppress_chroma_spill_components(rgba, chroma_key, CHROMA_ARTIFACT_THRESHOLD, remove_internal_holes=False)
     return rgba
+
+
+def chroma_channel_groups(chroma_key: tuple[int, int, int]) -> tuple[list[int], list[int]]:
+    key_max = max(chroma_key)
+    if key_max <= 0:
+        return [1], [0, 2]
+    key_channels = [index for index, value in enumerate(chroma_key) if value >= key_max * 0.75]
+    if not key_channels:
+        key_channels = [max(range(3), key=lambda index: chroma_key[index])]
+    non_key_channels = [index for index in range(3) if index not in key_channels]
+    return key_channels, non_key_channels
+
+
+def chroma_excess(
+    red: int,
+    green: int,
+    blue: int,
+    key_channels: list[int],
+    non_key_channels: list[int],
+) -> int:
+    channels = (red, green, blue)
+    key_value = min(channels[index] for index in key_channels)
+    non_key_value = max([channels[index] for index in non_key_channels] or [0])
+    return key_value - non_key_value
+
+
+def connected_chroma_background_mask(
+    strong_mask: bytearray,
+    exact_mask: bytearray,
+    width: int,
+    height: int,
+) -> bytearray:
+    visited = bytearray(width * height)
+    sure = bytearray(width * height)
+    min_large_area = max(64, round(width * height * CONNECTED_CHROMA_MIN_COMPONENT_AREA_RATIO))
+    for start, value in enumerate(strong_mask):
+        if visited[start]:
+            continue
+        if not value:
+            visited[start] = 1
+            continue
+        stack = [start]
+        visited[start] = 1
+        component: list[int] = []
+        touches_edge = False
+        min_x = width
+        min_y = height
+        max_x = 0
+        max_y = 0
+        exact_count = 0
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            x = current % width
+            y = current // width
+            touches_edge = touches_edge or x == 0 or y == 0 or x == width - 1 or y == height - 1
+            min_x = min(min_x, x)
+            min_y = min(min_y, y)
+            max_x = max(max_x, x)
+            max_y = max(max_y, y)
+            exact_count += 1 if exact_mask[current] else 0
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                    continue
+                neighbor = ny * width + nx
+                if visited[neighbor] or not strong_mask[neighbor]:
+                    continue
+                visited[neighbor] = 1
+                stack.append(neighbor)
+        bbox_area = max(1, (max_x - min_x + 1) * (max_y - min_y + 1))
+        fill_ratio = len(component) / bbox_area
+        is_large_rect = len(component) >= min_large_area and fill_ratio >= CONNECTED_CHROMA_MIN_RECT_FILL
+        is_exact_hole = exact_count >= max(1, len(component) * 0.75) and len(component) <= max(INTERNAL_CHROMA_HOLE_MAX_PIXELS, min_large_area)
+        if touches_edge or is_large_rect or is_exact_hole:
+            for index in component:
+                sure[index] = 1
+    mark_small_exact_chroma_holes(exact_mask, sure, width, height)
+    return sure
+
+
+def mark_small_exact_chroma_holes(exact_mask: bytearray, sure: bytearray, width: int, height: int) -> None:
+    visited = bytearray(width * height)
+    max_hole_area = max(1, min(INTERNAL_CHROMA_HOLE_MAX_PIXELS, round(width * height * 0.02)))
+    for start, value in enumerate(exact_mask):
+        if visited[start]:
+            continue
+        if not value or sure[start]:
+            visited[start] = 1
+            continue
+        stack = [start]
+        visited[start] = 1
+        component: list[int] = []
+        touches_edge = False
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            x = current % width
+            y = current // width
+            touches_edge = touches_edge or x == 0 or y == 0 or x == width - 1 or y == height - 1
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                    continue
+                neighbor = ny * width + nx
+                if visited[neighbor] or not exact_mask[neighbor] or sure[neighbor]:
+                    continue
+                visited[neighbor] = 1
+                stack.append(neighbor)
+        if not touches_edge and len(component) <= max_hole_area:
+            for index in component:
+                sure[index] = 1
+
+
+def median_mask_color(image: Image.Image, mask: bytearray) -> tuple[int, int, int] | None:
+    pixels = image.load()
+    reds: list[int] = []
+    greens: list[int] = []
+    blues: list[int] = []
+    width, height = image.size
+    step = max(1, round(math.sqrt(max(1, sum(mask))) / 96))
+    for y in range(0, height, step):
+        for x in range(0, width, step):
+            if not mask[y * width + x]:
+                continue
+            red, green, blue, alpha = pixels[x, y]
+            if alpha <= 16:
+                continue
+            reds.append(red)
+            greens.append(green)
+            blues.append(blue)
+    if not reds:
+        return None
+    mid = len(reds) // 2
+    return sorted(reds)[mid], sorted(greens)[mid], sorted(blues)[mid]
+
+
+def label_background_components(
+    image: Image.Image,
+    mask: bytearray,
+) -> tuple[list[int], list[tuple[int, int, int]]]:
+    width, height = image.size
+    pixels = image.load()
+    labels = [-1] * (width * height)
+    colors: list[tuple[int, int, int]] = []
+    for start, value in enumerate(mask):
+        if not value or labels[start] != -1:
+            continue
+        label = len(colors)
+        stack = [start]
+        labels[start] = label
+        component: list[int] = []
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            x = current % width
+            y = current // width
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                    continue
+                neighbor = ny * width + nx
+                if not mask[neighbor] or labels[neighbor] != -1:
+                    continue
+                labels[neighbor] = label
+                stack.append(neighbor)
+        reds: list[int] = []
+        greens: list[int] = []
+        blues: list[int] = []
+        step = max(1, round(math.sqrt(len(component)) / 96))
+        for pixel_index in component[::step]:
+            x = pixel_index % width
+            y = pixel_index // width
+            red, green, blue, alpha = pixels[x, y]
+            if alpha <= 16:
+                continue
+            reds.append(red)
+            greens.append(green)
+            blues.append(blue)
+        if reds:
+            mid = len(reds) // 2
+            colors.append((sorted(reds)[mid], sorted(greens)[mid], sorted(blues)[mid]))
+        else:
+            colors.append(DEFAULT_CHROMA_RGB)
+    return labels, colors
+
+
+def build_connected_chroma_alpha(
+    image: Image.Image,
+    sure_background: bytearray,
+    background_labels: list[int],
+    background_colors: list[tuple[int, int, int]],
+    fallback_background_color: tuple[int, int, int],
+    key_channels: list[int],
+    non_key_channels: list[int],
+    threshold: float,
+) -> bytearray:
+    width, height = image.size
+    alpha = bytearray([255]) * (width * height)
+    for index, value in enumerate(sure_background):
+        if value:
+            alpha[index] = 0
+    sure_image = Image.frombytes("L", (width, height), bytes(255 if value else 0 for value in sure_background))
+    dilated = sure_image.filter(ImageFilter.MaxFilter(CONNECTED_CHROMA_EDGE_BAND_RADIUS * 2 + 1))
+    edge_band = dilated.tobytes()
+    pixels = image.load()
+    for y in range(height):
+        for x in range(width):
+            index = y * width + x
+            if sure_background[index] or not edge_band[index]:
+                continue
+            red, green, blue, source_alpha = pixels[x, y]
+            if source_alpha <= 16:
+                alpha[index] = 0
+                continue
+            background_color = nearest_background_color(
+                background_labels,
+                background_colors,
+                width,
+                height,
+                x,
+                y,
+                fallback_background_color,
+            )
+            dist = color_distance(red, green, blue, background_color)
+            excess = chroma_excess(red, green, blue, key_channels, non_key_channels)
+            bg_t = 1.0 - smoothstep(45.0, max(90.0, threshold * 1.35), dist)
+            excess_t = smoothstep(20.0, 80.0, excess)
+            remove_t = max(0.0, min(1.0, bg_t * excess_t))
+            alpha[index] = min(255, max(0, round(255 * (1.0 - remove_t))))
+    alpha_image = Image.frombytes("L", (width, height), bytes(alpha))
+    alpha_image = alpha_image.filter(ImageFilter.MedianFilter(3)).filter(ImageFilter.GaussianBlur(0.35))
+    alpha = bytearray(alpha_image.tobytes())
+    for index, value in enumerate(sure_background):
+        if value:
+            alpha[index] = 0
+    return alpha
+
+
+DEFAULT_CHROMA_RGB = parse_hex_color(DEFAULT_CHROMA_KEY)
+
+
+def nearest_background_color(
+    background_labels: list[int],
+    background_colors: list[tuple[int, int, int]],
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+    fallback: tuple[int, int, int],
+) -> tuple[int, int, int]:
+    for radius in (1, 2, 4):
+        left = max(0, x - radius)
+        right = min(width, x + radius + 1)
+        top = max(0, y - radius)
+        bottom = min(height, y + radius + 1)
+        for yy in range(top, bottom):
+            for xx in range(left, right):
+                label = background_labels[yy * width + xx]
+                if 0 <= label < len(background_colors):
+                    return background_colors[label]
+    return fallback
+
+
+def smoothstep(edge0: float, edge1: float, value: float) -> float:
+    if edge0 == edge1:
+        return 1.0 if value >= edge1 else 0.0
+    t = max(0.0, min(1.0, (value - edge0) / (edge1 - edge0)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def restore_foreground_color(
+    color: tuple[int, int, int],
+    background_color: tuple[int, int, int],
+    alpha: int,
+) -> tuple[int, int, int]:
+    alpha_f = max(0.04, min(0.98, alpha / 255.0))
+    return tuple(
+        max(0, min(255, round((color[index] - (1.0 - alpha_f) * background_color[index]) / alpha_f)))
+        for index in range(3)
+    )
+
+
+def despill_chroma_edge(
+    red: int,
+    green: int,
+    blue: int,
+    key_channels: list[int],
+    non_key_channels: list[int],
+    allowance: int,
+) -> tuple[int, int, int]:
+    channels = [red, green, blue]
+    non_key_value = max([channels[index] for index in non_key_channels] or [0])
+    limit = min(255, non_key_value + allowance)
+    for index in key_channels:
+        channels[index] = min(channels[index], limit)
+    return tuple(channels)
 
 
 def suppress_chroma_spill_components(
     image: Image.Image,
     chroma_key: tuple[int, int, int],
     threshold: float,
+    *,
+    remove_internal_holes: bool = True,
 ) -> None:
     width, height = image.size
     pixels = image.load()
@@ -482,7 +836,7 @@ def suppress_chroma_spill_components(
                 px = pixel_index % width
                 py = pixel_index // width
                 pixels[px, py] = suppress_chroma_spill_pixel(*pixels[px, py], chroma_key)
-        elif len(component) <= INTERNAL_CHROMA_HOLE_MAX_PIXELS:
+        elif remove_internal_holes and len(component) <= INTERNAL_CHROMA_HOLE_MAX_PIXELS:
             for pixel_index in component:
                 px = pixel_index % width
                 py = pixel_index // width
