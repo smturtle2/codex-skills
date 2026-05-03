@@ -144,6 +144,7 @@ Animation continuity contract:
 - Keep the same camera distance, character scale, line weight, rendering detail, and facing direction across all frames.
 - Keep the character's full-body height, head size, torso size, and limb thickness visually identical in every slot; do not shrink or enlarge any frame to fit the pose.
 - Preserve a smooth visual motion path from frame to frame; the character must not teleport, suddenly grow, shrink, flip direction, or jump to a new camera framing.
+- Anchor the character to the same registration point in every slot: keep the midpoint between the feet at the same x/y position, and keep the pelvis and torso center aligned to the same vertical centerline unless the listed motion explicitly requires body travel.
 - Make every frame a natural in-between or key pose between the previous and next listed frame actions, with consistent limb arcs, balance, weight shift, and follow-through.
 - Space the poses so playback feels smooth when played in sequence: avoid abrupt pose gaps, strobing changes, frozen duplicate frames, or uneven timing unless the action explicitly requires a sharp accent.
 - Avoid redundant pose copies: adjacent frames should not be visually identical unless the listed motion beat explicitly calls for a hold.

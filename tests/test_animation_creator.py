@@ -206,6 +206,7 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertIn("Edit the attached registration guide into the animation action sheet", prompt_result.stdout)
             self.assertIn("Keep unchanged: canvas size, grid layout, black cell borders, blue safe-area rectangles", prompt_result.stdout)
             self.assertIn("Remove from the generated result: gray dashed centerlines and faint guide characters", prompt_result.stdout)
+            self.assertIn("Anchor the character to the same registration point in every slot", prompt_result.stdout)
             self.assertIn("Fill only the inside of each blue safe-area rectangle", prompt_result.stdout)
             self.assertNotIn("placement reference only, not as the output canvas", prompt_result.stdout)
             self.assertNotIn("Preserve/recreate the registration guide's visible outer cell borders", prompt_result.stdout)
