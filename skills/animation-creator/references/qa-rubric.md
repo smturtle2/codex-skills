@@ -4,7 +4,7 @@ Do not accept an animation action until the automatic checks and visual review p
 
 ## Geometry
 
-- Final frames preserve the generated sheet's actual per-cell size after component or slot extraction.
+- Final frames preserve the generated sheet's actual per-cell size after chroma removal, guide-canvas cleanup, and component extraction.
 - The action has exactly the requested frame count.
 - Each frame contains a non-empty character pose.
 - No important pixels touch the frame edge.
@@ -21,6 +21,9 @@ Do not accept an animation action until the automatic checks and visual review p
 
 ## Animation Quality
 
+- The frame action list was built sequentially, then audited and revised before generation.
+- The action has neither missing transition beats nor redundant duplicate beats.
+- Each planned beat states a visible change from the previous beat while preserving scale, facing, body-center path, contact, balance, and weight transfer.
 - The requested action is recognizable.
 - Poses progress through one readable continuous motion, not repeated copies of the same still or disconnected pose studies.
 - Adjacent frames keep consistent camera distance, character scale, facing direction, rendering density, and body registration.
@@ -32,8 +35,9 @@ Do not accept an animation action until the automatic checks and visual review p
 
 ## Extraction Fitness
 
-- Component extraction is preferred, matching the hatch-pet path, because it removes generated layout margins while preserving generated frame scale.
-- Known-layout slot extraction is the fallback when components cannot be separated and must still preserve the generated slot size.
+- Component extraction is required in the default finalize path, matching the hatch-pet path, because it removes generated layout margins while preserving generated frame scale.
+- Known-layout slot extraction is only a manual diagnostic fallback. If the default finalize path used slot extraction, treat the action as failed and regenerate the action sheet.
+- Raw generated sheets are expected to keep black cell borders and blue safe-area rectangles, remove gray dashed centerlines and faint guide characters, and use chroma-key background only inside each inner safe area.
 - No generated cell border, registration-guide, safe-box, or centerline pixels appear in extracted frames.
 - No detached effects create separate components that confuse extraction.
 - No chroma-key-adjacent pixels remain in character-visible regions.

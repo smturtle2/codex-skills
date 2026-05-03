@@ -169,7 +169,7 @@ def common_slot_size(boxes: list[tuple[int, int, int, int]]) -> tuple[int, int]:
 
 
 def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> Image.Image:
-    """Remove prompt-requested registration-guide borders before extraction."""
+    """Remove visible registration-guide lines before component extraction."""
     image = sheet.convert("RGBA")
     pixels = image.load()
     columns = int(layout["columns"])
@@ -192,6 +192,29 @@ def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> 
             for xx in range(image.width):
                 pixels[xx, yy] = (0, 0, 0, 0)
 
+    def is_neutral_guide_pixel(pixel: tuple[int, int, int, int]) -> bool:
+        red, green, blue, alpha = pixel
+        if alpha <= 16:
+            return False
+        average = (red + green + blue) / 3
+        return 95 <= average <= 230 and max(red, green, blue) - min(red, green, blue) <= 45
+
+    def clear_neutral_column(x: int, top: int, bottom: int) -> None:
+        left = max(0, x - pad)
+        right = min(image.width, x + pad + 1)
+        for yy in range(max(0, top), min(image.height, bottom)):
+            for xx in range(left, right):
+                if is_neutral_guide_pixel(pixels[xx, yy]):
+                    pixels[xx, yy] = (0, 0, 0, 0)
+
+    def clear_neutral_row(y: int, left: int, right: int) -> None:
+        top = max(0, y - pad)
+        bottom = min(image.height, y + pad + 1)
+        for yy in range(top, bottom):
+            for xx in range(max(0, left), min(image.width, right)):
+                if is_neutral_guide_pixel(pixels[xx, yy]):
+                    pixels[xx, yy] = (0, 0, 0, 0)
+
     for column in range(columns + 1):
         clear_column(round(column * image.width / columns))
     for row in range(rows + 1):
@@ -211,12 +234,49 @@ def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> 
         right = round((column + 1) * image.width / columns)
         for x in (left + safe_x_px, right - safe_x_px):
             clear_column(x)
+        center_x = (left + right) // 2
+        clear_neutral_column(center_x, 0, image.height)
     for row in range(rows):
         top = round(row * image.height / rows)
         bottom = round((row + 1) * image.height / rows)
         for y in (top + safe_y_px, bottom - safe_y_px):
             clear_row(y)
+        center_y = (top + bottom) // 2
+        clear_neutral_row(center_y, 0, image.width)
     return image
+
+
+def erase_outside_safe_areas(image: Image.Image, layout: dict[str, int]) -> Image.Image:
+    """Discard visible guide canvas outside each chroma-key inner safe area."""
+    rgba = image.convert("RGBA")
+    pixels = rgba.load()
+    columns = int(layout["columns"])
+    rows = int(layout["rows"])
+    slot_w = rgba.width / columns
+    slot_h = rgba.height / rows
+    safe_x = layout.get("safe_margin_x")
+    safe_y = layout.get("safe_margin_y")
+    if safe_x is None or safe_y is None:
+        return rgba
+    scale_x = slot_w / max(1, int(layout.get("cell_width") or round(slot_w)))
+    scale_y = slot_h / max(1, int(layout.get("cell_height") or round(slot_h)))
+    safe_x_px = round(int(safe_x) * scale_x)
+    safe_y_px = round(int(safe_y) * scale_y)
+    for row in range(rows):
+        top = round(row * rgba.height / rows)
+        bottom = round((row + 1) * rgba.height / rows)
+        safe_top = top + safe_y_px
+        safe_bottom = bottom - safe_y_px
+        for column in range(columns):
+            left = round(column * rgba.width / columns)
+            right = round((column + 1) * rgba.width / columns)
+            safe_left = left + safe_x_px
+            safe_right = right - safe_x_px
+            for yy in range(top, bottom):
+                for xx in range(left, right):
+                    if not (safe_left <= xx < safe_right and safe_top <= yy < safe_bottom):
+                        pixels[xx, yy] = (0, 0, 0, 0)
+    return rgba
 
 
 def pad_to_size(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -454,6 +514,7 @@ def main() -> None:
         layout = add_guide_safe_margins(state_layout(state, int(state["frames"])), guides_by_state.get(str(state["name"])))
         validate_sheet_aspect(sheet, layout, str(state["name"]))
         sheet = erase_generated_cell_borders(sheet, layout)
+        sheet = erase_outside_safe_areas(sheet, layout)
         crop_box_values = slot_boxes(sheet, layout, int(state["frames"]))
         generated_frame_size = common_slot_size(crop_box_values)
         if args.method in {"auto", "components"}:

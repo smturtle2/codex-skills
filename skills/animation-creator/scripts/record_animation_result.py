@@ -83,10 +83,11 @@ def main() -> None:
     if not isinstance(output_raw, str):
         raise SystemExit(f"job {args.job_id} has no output_path")
     output = run_dir / output_raw
-    if output.exists() and not args.force:
+    same_output_path = source.resolve() == output.resolve()
+    if output.exists() and not same_output_path and not args.force:
         raise SystemExit(f"{output} already exists; pass --force to replace it")
     output.parent.mkdir(parents=True, exist_ok=True)
-    if source.resolve() != output.resolve():
+    if not same_output_path:
         shutil.copy2(source, output)
 
     if args.job_id == "base-character":
@@ -174,9 +175,11 @@ def main() -> None:
                         registration_item = (
                             {
                                 "path": registration_path,
-                                "role": "registration guide showing the canonical base placement in each frame slot",
+                                "role": "registration guide edit template; keep black cell borders, blue safe-area rectangles, and neutral outside background, remove gray dashed centerlines and faint guide characters, and fill only safe-area interiors with chroma-key",
                             }
                         )
+                    else:
+                        registration_item["role"] = "registration guide edit template; keep black cell borders, blue safe-area rectangles, and neutral outside background, remove gray dashed centerlines and faint guide characters, and fill only safe-area interiors with chroma-key"
                     inputs[:] = [
                         item
                         for item in inputs

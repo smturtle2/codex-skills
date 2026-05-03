@@ -15,6 +15,7 @@ from animation_common import (
     DEFAULT_SAFE_MARGIN_X,
     DEFAULT_SAFE_MARGIN_Y,
     DEFAULT_WORKING_CELL_SIZE,
+    MAX_RECOMMENDED_GRID_FRAMES,
     choose_chroma_key_for_image,
     chroma_settings,
     draw_dashed_line,
@@ -107,17 +108,17 @@ def action_prompt(
     guide_height = rows * cell_height
     aspect = guide_width / guide_height
     chroma_background_requirement = (
-        f"- Use a perfectly flat chroma-key background using {chroma_hex} across the whole image."
+        f"- Fill only the inside of each blue safe-area rectangle with chroma key {chroma_hex}, then draw the character pose on that chroma background."
         if chroma_ready
         else "- This is a pre-base planning prompt. Do not use it for final action generation until the canonical base is recorded and this prompt is regenerated with the selected chroma-key background."
     )
     registration_guide_instruction = (
         "\n".join(
             [
-                "- First read the attached registration guide as the placement map for the whole sheet.",
-                "- The registration guide's outer cell border defines each frame slot. The inner safe-area border defines the only drawable area for character artwork. Reproduce those outer cell and inner safe-area border guidelines in the generated sheet so post-processing can remove them deterministically.",
-                "- In every slot, draw the animated character fully inside the inner safe-area border, on the same slot-relative footprint as the faint guide character: keep the head center, torso center, hip center, standing foot positions, full-body height, scale, safe padding, and centerline relationship aligned to that guide placement.",
-                "- Change only the pose details needed for the action. Do not let the character drift, slide, float, resize, or use a different camera framing from the guide placement unless the frame action explicitly describes body travel.",
+                "- Edit the attached registration guide into the animation action sheet.",
+                "- Keep unchanged: canvas size, grid layout, black cell borders, blue safe-area rectangles, and neutral background outside the blue rectangles.",
+                "- Remove from the generated result: gray dashed centerlines and faint guide characters.",
+                "- Use the attached canonical base only for character identity.",
             ]
         )
         if registration_guide_ready
@@ -134,32 +135,32 @@ Identity lock:
 - Change pose, expression, and action timing for this action: {action}.
 
 Motion sequence instructions:
-Frame labels below are text-only ordering instructions for the generator. Use them to map each pose to the correct slot, but never draw frame numbers or frame labels in the image.
+Frame labels below are text-only ordering instructions for the generator. They are the final audited result of a sequential one-beat-at-a-time planning pass: missing transition beats were added, redundant duplicate beats were removed, and the remaining beats are intended to play as one continuous motion. Use them to map each pose to the correct slot, but never draw frame numbers or frame labels in the image.
 {format_frame_actions(frame_actions)}
 
 Animation continuity contract:
 - Treat these as consecutive animation frames, not separate pose studies or unrelated character variations.
+- Each frame must visibly continue from the immediately previous frame and lead into the immediately next frame. Do not skip the physical transition implied by adjacent frame notes.
 - Keep the same camera distance, character scale, line weight, rendering detail, and facing direction across all frames.
 - Keep the character's full-body height, head size, torso size, and limb thickness visually identical in every slot; do not shrink or enlarge any frame to fit the pose.
 - Preserve a smooth visual motion path from frame to frame; the character must not teleport, suddenly grow, shrink, flip direction, or jump to a new camera framing.
 - Make every frame a natural in-between or key pose between the previous and next listed frame actions, with consistent limb arcs, balance, weight shift, and follow-through.
 - Space the poses so playback feels smooth when played in sequence: avoid abrupt pose gaps, strobing changes, frozen duplicate frames, or uneven timing unless the action explicitly requires a sharp accent.
+- Avoid redundant pose copies: adjacent frames should not be visually identical unless the listed motion beat explicitly calls for a hold.
 - Use subtle easing through anticipation, acceleration, deceleration, overshoot, and settle so the motion reads as animated rather than as unrelated snapshots.
 - For any action with body travel or vertical motion, follow one invisible motion arc inside the slots. Show the motion only through pose and body position; do not draw floor cues.
 - Keep the final frame close enough to the first frame for a clean loop when this action loops, with consistent scale, facing, and slot placement.
 
 Output exactly {frames} separate full-body animation frames as a {columns}x{rows} animation frame grid. Read and fill frames left-to-right across each row, then top-to-bottom. Preserve a {aspect:.4g}:1 overall grid aspect ratio with equal-size {columns}x{rows} slot proportions.
 
-Layout requirements:
-- Treat the image as {columns} columns by {rows} rows of equal-size invisible frame slots.
-- Reproduce the registration guide's visible outer cell borders and inner safe-area borders in the generated output. Use the inner safe-area borders as no-crossing margins for the character artwork. Do not let any pose overlap either border.
-- Fill each requested slot with exactly one complete full-body pose matching the corresponding numbered motion instruction above.
-- Spread the {frames} poses evenly across the whole grid in left-to-right, top-to-bottom frame order. Do not leave any requested slot blank or create large empty gaps between poses.
-- Center one complete pose in each requested slot. No pose may cross into a neighboring slot.
-- Leave any unused trailing grid slots empty with only the flat chroma-key background.
-- Keep every frame self-contained with safe padding. No body part should be clipped by the frame slot.
+Edit instructions:
+- Keep the output as a {columns}x{rows} registration-guide sheet, read left-to-right then top-to-bottom.
+- Keep black cell borders and blue safe-area rectangles visible.
+- Remove gray dashed centerlines and faint guide characters from the generated result.
+- Fill each requested slot with exactly one full-body pose matching the corresponding numbered motion instruction above.
+- Keep each pose fully inside its blue safe-area rectangle.
 {chroma_background_requirement}
-- The output must contain character artwork plus the required registration-guide outer cell borders and inner safe-area borders only. The words "Frame 1", "Frame 2", and other frame labels are prompt instructions only and must not appear visually. Do not draw sequence numbers, circles, labels, captions, markers, UI badges, text, center dashed lines, center marks, or watermarks in any slot.
+- The output must contain only the edited registration guide layout, chroma-key safe-area backgrounds, and character artwork. The words "Frame 1", "Frame 2", and other frame labels are prompt instructions only and must not appear visually. Do not draw sequence numbers, circles, labels, captions, markers, UI badges, text, extra guide marks, center dashed lines, center marks, ghost characters, or watermarks in any slot.
 - Do not include any ground plane, floor line, cast shadow, contact shadow, oval floor shadow, landing mark, dust, glow, speed line, motion trail, motion mark, wave arc, sound-wave curve, action line, smear, detached symbol, loose effect, or scenery.
 - Show contact, weight, or travel only through the character pose. Do not draw floor cues.
 - Keep the first and last frames compatible for a clean loop when possible."""
@@ -177,7 +178,7 @@ def split_frame_actions(raw: str | None) -> list[str]:
 
 
 def format_frame_actions(frame_actions: list[str]) -> str:
-    return "\n".join(f"Frame {index} ordering note: {beat}" for index, beat in enumerate(frame_actions, start=1))
+    return "\n".join(f"Frame {index} consecutive motion beat: {beat}" for index, beat in enumerate(frame_actions, start=1))
 
 
 def normalize_frame_actions(action_id: str, action: str, explicit: list[str] | None = None) -> list[str]:
@@ -186,6 +187,12 @@ def normalize_frame_actions(action_id: str, action: str, explicit: list[str] | N
         raise SystemExit(
             f"frame actions must be planned before layout generation for {action_id}; "
             "pass --frame-action repeatedly, --frame-actions, or provide action_plans in the manifest"
+        )
+    if len(frame_actions) > MAX_RECOMMENDED_GRID_FRAMES:
+        raise SystemExit(
+            f"frame actions for {action_id} contain {len(frame_actions)} beats; "
+            f"review the sequential plan and delete or merge excessive duplicate beats before layout generation "
+            f"({MAX_RECOMMENDED_GRID_FRAMES} frames maximum)"
         )
     return frame_actions
 
@@ -266,7 +273,7 @@ def action_job_for_state(
         base_job["input_images"].append(
             {
                 "path": registration_path,
-                "role": "registration guide showing the canonical base placement in each frame slot",
+                "role": "registration guide edit template; keep black cell borders, blue safe-area rectangles, and neutral outside background, remove gray dashed centerlines and faint guide characters, and fill only safe-area interiors with chroma-key",
             }
         )
     base_job["input_images"].append({"path": "references/canonical-base.png", "role": "canonical base character"})
@@ -426,7 +433,7 @@ def create_registration_guide(
         "cell_height": cell_height,
         "safe_margin_x": safe_margin[0],
         "safe_margin_y": safe_margin[1],
-        "usage": "registration guide; use the overlaid canonical base, cell borders, safe box, and centerlines for consistent placement",
+        "usage": "registration guide edit template; generated action sheet keeps black cell borders and blue safe-area rectangles, removes gray dashed centerlines and faint guide characters, and replaces only safe-area interiors with chroma-key",
     }
 
 
@@ -612,16 +619,16 @@ def main() -> None:
         state["layout"]["safe_margin_x"] = safe_margin[0]
         state["layout"]["safe_margin_y"] = safe_margin[1]
         if canonical_base.exists():
-            registration_guides.append(
-                create_registration_guide(
-                    references_dir / "registration-guides" / f"{state['name']}.png",
-                    canonical_base=canonical_base,
-                    frames=int(state["frames"]),
-                    frame_size=frame_size_tuple,
-                    safe_margin=safe_margin,
-                    layout=state["layout"],
-                )
+            registration_guide = create_registration_guide(
+                references_dir / "registration-guides" / f"{state['name']}.png",
+                canonical_base=canonical_base,
+                frames=int(state["frames"]),
+                frame_size=frame_size_tuple,
+                safe_margin=safe_margin,
+                layout=state["layout"],
             )
+            registration_guide["state"] = str(state["name"])
+            registration_guides.append(registration_guide)
 
     write_text(
         prompts_dir / "base-character.md",

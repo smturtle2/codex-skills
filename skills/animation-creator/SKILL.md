@@ -5,7 +5,7 @@ description: Create character animation runs from one canonical base character. 
 
 # Animation Creator
 
-Create character animation assets from one canonical base character. Codex does not fix the frame count or layout up front. It starts from the first pose of the requested motion, adds the next pose one at a time, and after each pose checks whether another anticipation, contact, follow-through, overshoot, settle, or loop-bridge pose is needed for the motion to read. When the motion is complete, Codex finalizes the frame action list and uses that list length to decide the frame count and layout. It then passes the canonical base and registration guide to `$image-creator` to generate the action sheet, while local scripts use the manifest grid and registration guide metadata for deterministic post-processing: border removal, extraction, validation, WebP composition, contact sheets, previews, and run summaries.
+Create character animation assets from one canonical base character. Codex does not fix the frame count or layout up front. It starts from the first pose of the requested motion, adds the next pose one at a time, and after each pose checks whether another anticipation, contact, follow-through, overshoot, settle, or loop-bridge pose is needed for the motion to read. When the motion is complete, Codex finalizes the frame action list and uses that list length to decide the frame count and layout. It then passes the canonical base and registration guide to `$image-creator` to generate the action sheet, while local scripts use the manifest grid and registration guide metadata for deterministic post-processing: extraction, validation, WebP composition, contact sheets, previews, and run summaries.
 
 This skill saves runs and final assets into the current session project by default.
 
@@ -17,10 +17,11 @@ Every run has one canonical base character and one or more action jobs.
 - If the user does not provide a source character image, ask for or infer a concise character prompt, then use `$image-creator` to create the base character image first.
 - Ask for the animation action when it is missing. The action is required.
 - When the user later asks for additional actions, reuse the existing canonical base. Do not redesign or regenerate the character unless the user explicitly asks for a new base.
-- Before creating any layout guide, write the per-frame action plan for the requested action. Do not start by choosing a frame count. Each frame action must be a concrete consecutive animation beat, not a vague pose label: describe what changes from the prior frame and how scale, facing, spacing, balance, and weight shift remain continuous. The final frame count is the number of planned frame actions after the action reaches a readable ending or loop point.
-- Do not choose frame count from an action category. Keep adding only the beats needed for the requested motion to read clearly, then derive the frame count from that completed list.
+- Before creating any layout guide, build the per-frame action plan sequentially. Do not draft the full list in one pass and do not start by choosing a frame count. Add one concrete beat at a time, compare it to the immediately previous beat, and describe what changes while scale, facing, spacing, balance, body center, height, contact points, and weight shift remain continuous.
+- After the first pass, audit the frame action list before preparing the run. Mark any missing anticipation, contact, passing pose, follow-through, settle, or loop bridge. Remove redundant beats, frozen duplicates, or micro-steps that do not change the silhouette, balance, contact, or timing enough to help playback. Add only the missing beats needed for the action to read. The final frame count is the number of audited frame actions after additions and deletions.
+- Do not use few-shot examples, canned action templates, or action-category frame counts. Plan from the requested action itself, then derive the frame count from the completed audited list.
 
-Use the manifest grid and registration guide for deterministic extraction, require complete poses inside safe grid cells, and reject frames that show clipping, cell crossing, guide artifacts, weak identity consistency, or disconnected frame-to-frame motion. Do not create or attach a separate layout guide for image generation; attach only the canonical base and the registration guide when available.
+Use the manifest grid and registration guide for deterministic extraction, require complete poses inside safe grid cells, and reject frames that show clipping, cell crossing, weak identity consistency, or disconnected frame-to-frame motion. The registration guide is an edit template: it shows slot spacing, safe margins, center dashed lines, scale, and the base character footprint. The generated action sheet should keep the canvas, black cell borders, blue safe-area rectangles, and neutral background outside the blue rectangles, remove gray dashed centerlines and faint guide characters, replace only each inner safe-area background with the selected chroma key, and draw the animated poses on top. Do not create or attach a separate layout guide for image generation; attach only the canonical base and the registration guide when available.
 
 ## Hard Rules
 
@@ -33,7 +34,7 @@ Use the manifest grid and registration guide for deterministic extraction, requi
 - Every action generation must attach the canonical base image as an input image. After the canonical base is recorded, also attach that action's registration guide. Do not attach the raw layout guide as an input image.
 - Keep action prompts identity-locked and continuity-locked: same character, same proportions, same face, same markings, same palette, same outfit/props, same camera distance, same scale, same facing, smooth motion, and consistent registration-guide slot spacing unless the requested action logically moves them.
 - Use complete full-body poses by default. If the user wants a cropped bust, hand, icon, or partial-body animation, record that as an explicit output contract.
-- Treat ground planes, floor lines, cast shadows, contact shadows, oval floor shadows, landing marks, dust, detached effects, glow, motion streaks, guide lines, outer borders, safe-area borders, repeated still images, clipped body parts, and poses crossing into neighboring grid cells as failures unless explicitly accepted by the user. The registration guide defines slot boundaries and drawable safe areas; those guide marks should not appear in generated art.
+- Treat ground planes, floor lines, cast shadows, contact shadows, oval floor shadows, landing marks, dust, detached effects, glow, motion streaks, repeated still images, clipped body parts, poses crossing into neighboring grid cells, extra labels, extra guide marks, center dashed lines in the generated result, and ghost characters as failures unless explicitly accepted by the user. The raw generated action sheet should keep black cell borders and blue safe-area rectangles, remove gray dashed centerlines and faint guide characters, and use chroma-key background only inside each inner safe area. Extracted final frames must not retain guide lines, borders, safe-area boxes, center dashed lines, or guide background.
 - Remove exact chroma-key pixels everywhere, including holes inside the character silhouette. Remove exposed chroma-family components when they touch transparent/erased background so dark antialias edges and internal background rims are cleaned, while preserving embedded character colors such as mouths or blushes. Reject large remaining chroma-colored shadows, smears, halos, or landing marks during validation.
 - Do not accept deterministic validation alone as final proof. Review the contact sheet or preview for identity drift and visible clipping.
 
@@ -46,7 +47,14 @@ Use the manifest grid and registration guide for deterministic extraction, requi
    - per-frame action plan, written specifically for this action
    - output destination, if requested
    - project root, defaulting to the current working directory
-2. As Codex, decide the action one frame at a time until the motion is complete. Do not use canned action templates, do not ask the user for a frame list unless the action itself is ambiguous, and do not choose a frame count before the motion is planned. Keep adding concrete pose beats until the action has enough anticipation, key poses, in-betweens, follow-through, settle, and loop-bridge frames. Write beats as adjacent moments in one motion, including what changed from the previous frame and how scale, facing, body center, height, balance, spacing, easing, and weight transfer remain continuous and smooth during playback. Keep the concrete frame actions ready for the run setup, then use the number of planned frame actions as the frame count.
+2. As Codex, plan the frame actions with this sequential draft-and-audit loop:
+   - Start with the first readable pose for the requested action, then add the next adjacent beat only after checking how it connects to the prior beat.
+   - For every new beat, state the visible change from the previous beat and the continuity constraints that stay stable: scale, facing, body center path, height, balance, contact points, spacing, easing, and weight transfer.
+   - Continue until the action has the needed anticipation, contact or launch, key pose, passing or in-between poses, follow-through or overshoot, settle, and loop bridge or clear end pose.
+   - Audit the completed list for too few frames: missing key poses, abrupt jumps, unclear contact, no readable follow-through, or a bad first-to-last loop bridge.
+   - Audit the completed list for too many frames: repeated stills, duplicate silhouettes, tiny non-animated micro-changes, timing stalls, or extra beats that do not improve readability.
+   - Revise the list by adding missing beats and deleting redundant beats. Only after this audit is clean may the list become `--frame-actions`.
+   - Do not use few-shot examples or canned templates for this planning. Keep the concrete audited frame actions ready for the run setup, then use the number of audited frame actions as the frame count.
 3. Prepare a run folder and manifest:
 
    ```bash
@@ -61,7 +69,7 @@ Use the manifest grid and registration guide for deterministic extraction, requi
      --output-dir /absolute/path/to/run
    ```
 
-   The `--frame-actions` value is the concrete list Codex prepared in step 2; it is not a user-provided template.
+   Run this command only after the sequential planning audit is complete. The `--frame-actions` value is the concrete final list Codex prepared, reviewed, and revised in step 2; it is not a user-provided template, a few-shot example, or a first-draft list.
 
    If `--output-dir` is omitted, the run directory is created under `/absolute/path/to/session/project/animation-runs/`. If a source image exists, pass it with `--source-character /absolute/path/to/image.png`.
 
@@ -154,7 +162,7 @@ Use these when the user does not specify otherwise:
 - nominal layout-guide cell size: `512x512`
 - the 16-frame maximum uses a `4x4` guide at `2048x2048`
 - layout-guide safe margin: `30px` horizontal and `24px` vertical inside each nominal cell
-- final frame size: preserves the generated sheet's actual per-cell size after chroma removal and slot extraction
+- final frame size: preserves the generated sheet's actual per-cell size after chroma removal, guide-canvas cleanup, and component extraction
 - frame count: derived from the completed per-frame action plan
 - default layout: derived from the finalized frame count
 - maximum frame count: `16`

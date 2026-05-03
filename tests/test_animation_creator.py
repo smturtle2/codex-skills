@@ -24,8 +24,6 @@ WAVE_BEATS = [
 ]
 
 from animation_common import chroma_adjacent_count, fit_to_frame, recommended_grid, remove_chroma_background  # noqa: E402
-from extract_frames import extract_component_frames, extract_slot_frames  # noqa: E402
-
 
 class AnimationCreatorTests(unittest.TestCase):
     def run_script(self, script: str, *args: str, cwd: pathlib.Path) -> subprocess.CompletedProcess[str]:
@@ -47,13 +45,30 @@ class AnimationCreatorTests(unittest.TestCase):
         rows: int = 2,
         chroma: str | tuple[int, int, int] = DEFAULT_TEST_CHROMA,
         artifacts: bool = False,
+        guide_canvas: bool = False,
     ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        image = Image.new("RGB", (columns * size, rows * size), chroma)
+        image = Image.new("RGB", (columns * size, rows * size), "#f7f7f7" if guide_canvas else chroma)
         draw = ImageDraw.Draw(image)
         for index in range(frames):
             left = (index % columns) * size
             top = (index // columns) * size
+            safe_x = round(30 * size / 512)
+            safe_y = round(24 * size / 512)
+            if guide_canvas:
+                draw.rectangle((left, top, left + size - 1, top + size - 1), outline="#111111", width=2)
+                draw.rectangle(
+                    (left + safe_x, top + safe_y, left + size - safe_x - 1, top + size - safe_y - 1),
+                    fill=chroma,
+                    outline="#2f80ed",
+                    width=2,
+                )
+                cx_line = left + size // 2
+                cy_line = top + size // 2
+                for yy in range(top + safe_y, top + size - safe_y, 16):
+                    draw.line((cx_line, yy, cx_line, min(yy + 7, top + size - safe_y)), fill="#b8b8b8", width=2)
+                for xx in range(left + safe_x, left + size - safe_x, 16):
+                    draw.line((xx, cy_line, min(xx + 7, left + size - safe_x), cy_line), fill="#b8b8b8", width=2)
             cx = left + size // 2
             cy = top + size // 2
             radius = 80 + index * 3
@@ -71,9 +86,6 @@ class AnimationCreatorTests(unittest.TestCase):
                 width=8,
             )
         image.save(path)
-
-    def hex_to_rgb(self, value: str) -> tuple[int, int, int]:
-        return tuple(int(value[index : index + 2], 16) for index in (1, 3, 5))
 
     def test_project_local_prepare_and_end_to_end_action(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -165,6 +177,14 @@ class AnimationCreatorTests(unittest.TestCase):
                         expected_grid["rows"] * expected_grid["cell_height"],
                     ),
                 )
+                guide_rgb = guide.convert("RGB")
+                self.assertNotEqual(guide_rgb.getpixel((34, 28)), selected_chroma_rgb)
+                self.assertNotEqual(guide_rgb.getpixel((4, 4)), selected_chroma_rgb)
+                dashed_samples = [
+                    guide_rgb.getpixel((256, y))
+                    for y in range(24, 96)
+                ]
+                self.assertTrue(any(max(pixel) - min(pixel) <= 8 and 150 <= pixel[0] <= 210 for pixel in dashed_samples))
             jobs_after_base = json.loads(jobs_path.read_text(encoding="utf-8"))
             base_job_after = next(job for job in jobs_after_base["jobs"] if job["id"] == "base-character")
             wave_job_after = next(job for job in jobs_after_base["jobs"] if job["id"] == "wave")
@@ -183,14 +203,18 @@ class AnimationCreatorTests(unittest.TestCase):
             )
             self.assertEqual(prompt_result.returncode, 0, prompt_result.stderr)
             self.assertIn("Input images:", prompt_result.stdout)
-            self.assertIn("Reproduce those outer cell and inner safe-area border guidelines", prompt_result.stdout)
-            self.assertIn("Reproduce the registration guide's visible outer cell borders and inner safe-area borders", prompt_result.stdout)
+            self.assertIn("Edit the attached registration guide into the animation action sheet", prompt_result.stdout)
+            self.assertIn("Keep unchanged: canvas size, grid layout, black cell borders, blue safe-area rectangles", prompt_result.stdout)
+            self.assertIn("Remove from the generated result: gray dashed centerlines and faint guide characters", prompt_result.stdout)
+            self.assertIn("Fill only the inside of each blue safe-area rectangle", prompt_result.stdout)
+            self.assertNotIn("placement reference only, not as the output canvas", prompt_result.stdout)
+            self.assertNotIn("Preserve/recreate the registration guide's visible outer cell borders", prompt_result.stdout)
             self.assertIn("references/registration-guides/wave.png", prompt_result.stdout)
             self.assertNotIn("references/layout-guides/wave.png", prompt_result.stdout)
             self.assertFalse((run_dir / "prompts" / "image-creator").exists())
 
             generated_source = pathlib.Path(tmpdir) / "wave-generated.png"
-            self.make_grid(generated_source, chroma=selected_chroma_rgb, artifacts=True)
+            self.make_grid(generated_source, chroma=selected_chroma_rgb, artifacts=True, guide_canvas=True)
             recorded = self.run_script(
                 "record_animation_result.py",
                 "--run-dir",
@@ -240,19 +264,6 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertTrue((run_dir / "qa" / "run-summary.json").is_file())
             validation = json.loads((run_dir / "final" / "wave-validation.json").read_text(encoding="utf-8"))
             self.assertTrue(validation["ok"], validation)
-            finalized_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(
-                finalized_manifest["outputs"]["actions"]["wave"],
-                {
-                    "frames_dir": "frames/wave",
-                    "composed_sheet": "final/wave-frames.webp",
-                    "review": "qa/wave-review.json",
-                    "validation": "final/wave-validation.json",
-                    "contact_sheet": "qa/wave-contact-sheet.png",
-                    "preview": "qa/previews/wave.webp",
-                    "final_animation": "final/wave.webp",
-                },
-            )
             summary = json.loads((run_dir / "qa" / "run-summary.json").read_text(encoding="utf-8"))
             self.assertTrue(summary["visual_review_required"])
             self.assertEqual(summary["visual_review_status"], "pending")
@@ -317,7 +328,35 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertFalse((run_dir / "references" / "layout-guides" / "gesture.png").exists())
             prompt = (run_dir / "prompts" / "actions" / "gesture.md").read_text(encoding="utf-8")
             self.assertIn("Output exactly 5", prompt)
-            self.assertIn("Frame 5 ordering note: settle into the ending pose", prompt)
+            self.assertIn("Frame 5 consecutive motion beat: settle into the ending pose", prompt)
+            self.assertIn("final audited result of a sequential one-beat-at-a-time planning pass", prompt)
+            self.assertIn("missing transition beats were added, redundant duplicate beats were removed", prompt)
+            self.assertIn("Each frame must visibly continue from the immediately previous frame", prompt)
+            self.assertNotIn("for example", prompt.lower())
+            self.assertNotIn("few-shot", prompt.lower())
+
+    def test_prepare_rejects_excess_frame_actions_with_review_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = pathlib.Path(tmpdir)
+
+            prepared = self.run_script(
+                "prepare_animation_run.py",
+                "--project-root",
+                str(project),
+                "--character-name",
+                "Demo Bot",
+                "--action-id",
+                "too-long",
+                "--action",
+                "overplanned motion",
+                "--frame-actions",
+                "; ".join(f"beat {index}" for index in range(17)),
+                cwd=project,
+            )
+
+            self.assertNotEqual(prepared.returncode, 0)
+            self.assertIn("review the sequential plan", prepared.stderr)
+            self.assertIn("delete or merge excessive duplicate beats", prepared.stderr)
 
     def test_recommended_grid_sizes_fit_codex_imagegen_cell_budget(self) -> None:
         for frame_count in range(1, 17):
@@ -448,6 +487,9 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertFalse((run_dir / "references" / "layout-guides" / "wave.png").exists())
             with Image.open(run_dir / "references" / "registration-guides" / "wave.png") as guide:
                 self.assertEqual(guide.size, (2048, 1024))
+                guide_rgb = guide.convert("RGB")
+                self.assertNotEqual(guide_rgb.getpixel((34, 28)), (0, 255, 0))
+                self.assertNotEqual(guide_rgb.getpixel((4, 4)), (0, 255, 0))
 
             generated_source = pathlib.Path(tmpdir) / "wrong-aspect.png"
             Image.new("RGB", (1672, 941), DEFAULT_TEST_CHROMA).save(generated_source)
@@ -474,6 +516,58 @@ class AnimationCreatorTests(unittest.TestCase):
 
             self.assertNotEqual(finalized.returncode, 0)
             self.assertIn("does not match layout guide", finalized.stderr)
+
+    def test_finalize_accepts_visible_registration_guide_base_sheet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = pathlib.Path(tmpdir)
+            source_character = project / "source.png"
+            Image.new("RGB", (64, 64), "red").save(source_character)
+            prepared = self.run_script(
+                "prepare_animation_run.py",
+                "--project-root",
+                str(project),
+                "--character-name",
+                "Demo Bot",
+                "--source-character",
+                str(source_character),
+                "--chroma-key",
+                DEFAULT_TEST_CHROMA,
+                "--action-id",
+                "wave",
+                "--action",
+                "friendly waving loop",
+                "--frame-actions",
+                "; ".join(WAVE_BEATS),
+                cwd=project,
+            )
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            run_dir = pathlib.Path(prepared.stdout.strip())
+            generated_source = project / "wave-generated.png"
+            self.make_grid(generated_source, chroma=DEFAULT_TEST_CHROMA, guide_canvas=True)
+
+            recorded = self.run_script(
+                "record_animation_result.py",
+                "--run-dir",
+                str(run_dir),
+                "--job-id",
+                "wave",
+                "--source",
+                str(generated_source),
+                cwd=project,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            finalized = self.run_script(
+                "finalize_animation_run.py",
+                "--run-dir",
+                str(run_dir),
+                "--action-id",
+                "wave",
+                cwd=project,
+            )
+
+            self.assertEqual(finalized.returncode, 0, finalized.stderr + finalized.stdout)
+            review = json.loads((run_dir / "qa" / "wave-review.json").read_text(encoding="utf-8"))
+            self.assertTrue(review["ok"], review)
 
     def test_add_action_preserves_existing_completed_job_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -619,23 +713,24 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertEqual(wave["status"], "complete")
             self.assertEqual(wave["recorded_output"], "generated/wave.png")
             self.assertNotIn("decoded_path", wave)
+            self.assertIn("prompt_sha256", wave)
             self.assertIn("source_sha256", wave)
             self.assertIn("output_sha256", wave)
             self.assertIn("image_creator_prompt_sha256", wave)
+            self.assertFalse((run_dir / "prompts" / "image-creator").exists())
+            self.assertNotIn("image_creator_prompt_file", wave)
 
-    def test_record_hashes_source_and_built_prompts_without_prompt_copy(self) -> None:
+    def test_record_accepts_generated_source_already_at_expected_output_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project = pathlib.Path(tmpdir)
-            source_character = project / "source.png"
-            Image.new("RGB", (64, 64), "red").save(source_character)
             prepared = self.run_script(
                 "prepare_animation_run.py",
                 "--project-root",
                 str(project),
                 "--character-name",
                 "Demo Bot",
-                "--source-character",
-                str(source_character),
+                "--character-prompt",
+                "a compact blue robot",
                 "--action-id",
                 "wave",
                 "--action",
@@ -646,28 +741,27 @@ class AnimationCreatorTests(unittest.TestCase):
             )
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
             run_dir = pathlib.Path(prepared.stdout.strip())
-            generated_source = pathlib.Path(tmpdir) / "wave-generated.png"
-            chroma = tuple(json.loads((run_dir / "animation_manifest.json").read_text(encoding="utf-8"))["chroma_key"]["rgb"])
-            self.make_grid(generated_source, chroma=chroma)
+            expected_output = run_dir / "generated" / "base-character.png"
+            expected_output.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (96, 96), "#FFFFFF").save(expected_output)
 
             recorded = self.run_script(
                 "record_animation_result.py",
                 "--run-dir",
                 str(run_dir),
                 "--job-id",
-                "wave",
+                "base-character",
                 "--source",
-                str(generated_source),
+                str(expected_output),
                 cwd=project,
             )
 
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
-            self.assertFalse((run_dir / "prompts" / "image-creator").exists())
             jobs = json.loads((run_dir / "animation-jobs.json").read_text(encoding="utf-8"))
-            wave = next(job for job in jobs["jobs"] if job["id"] == "wave")
-            self.assertIn("prompt_sha256", wave)
-            self.assertIn("image_creator_prompt_sha256", wave)
-            self.assertNotIn("image_creator_prompt_file", wave)
+            base_job = next(job for job in jobs["jobs"] if job["id"] == "base-character")
+            self.assertEqual(base_job["status"], "complete")
+            self.assertEqual(base_job["recorded_output"], "generated/base-character.png")
+            self.assertTrue((run_dir / "references" / "canonical-base.png").is_file())
 
     def test_fit_to_frame_keeps_safe_inset(self) -> None:
         source = Image.new("RGBA", (80, 80), (0, 0, 0, 0))

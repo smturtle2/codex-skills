@@ -127,6 +127,7 @@ def main() -> None:
         "--run-dir",
         str(run_dir),
         *action_args,
+        "--require-components",
         "--json-out",
         str(review_path),
     ]

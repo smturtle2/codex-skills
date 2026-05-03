@@ -78,9 +78,9 @@ Defaults:
 - final animation format: `webp`
 - final WebP animation: `final/<action-id>.webp`
 
-Each action image should be a grid sheet with exactly one cell per planned frame action, read left-to-right, top-to-bottom. Each cell contains one complete pose matching that frame action, with consistent character registration, scale, facing, safe-box placement, and camera distance across adjacent frames. The prompt states the required grid dimensions and aspect ratio in text, uses the registration guide as the placement reference, asks the generator to reproduce the guide's outer cell borders and inner safe-area borders, and treats the inner safe-area border as the drawable boundary for character artwork. Extraction accepts generated sheets that preserve the manifest grid aspect ratio, removes generated guide border pixels, then uses the known grid to group or slice frame content.
+Each action image should be a grid sheet with exactly one cell per planned frame action, read left-to-right, top-to-bottom. Each cell contains one complete pose matching that frame action, with consistent character registration, scale, facing, safe-box placement, and camera distance across adjacent frames. The prompt treats the registration guide as an edit template: keep the canvas, black cell borders, blue safe-area rectangles, and neutral background outside the blue rectangles; remove gray dashed centerlines and faint guide characters; fill only each blue safe-area interior with the selected chroma key; and draw character artwork on top. Extraction accepts generated sheets that preserve the manifest grid aspect ratio, removes visible guide border/background remnants, then uses the known grid to group frame content.
 
-Extraction removes the chroma-key background from the full generated sheet before any cell slicing, then preserves the generated sheet's actual per-cell size. It prefers connected-component grouping into the expected frame slots and falls back to slot slicing when components cannot be separated. Validation checks whether the extracted frames are non-empty, avoid cell edges, and remain visually continuous.
+Extraction removes the chroma-key background from the full generated sheet, removes visible guide borders and center dashed lines, clears the guide canvas outside each inner safe area, then preserves the generated sheet's actual per-cell size. It prefers connected-component grouping into the expected frame slots. The default finalize path requires component extraction; known-layout slot slicing is a manual diagnostic fallback, not an acceptable default completion path. Validation checks whether the extracted frames are non-empty, avoid cell edges, were component-extracted, and remain visually continuous.
 
 Recommended layouts:
 
@@ -93,9 +93,9 @@ Recommended layouts:
 | 10-12 | `4x3` |
 | 13-16 | `4x4` |
 
-The maximum action length is `16` frames. Do not choose a frame count from an action category. First write the frame actions until the motion is complete; then choose the recommended layout from that finalized count.
+The maximum action length is `16` frames. Do not choose a frame count from an action category. First build and audit the frame actions until the motion is complete; then choose the recommended layout from that finalized count.
 
-Planning should continue one beat at a time. After each planned frame, ask whether the action still needs any of these beats before it will read clearly:
+Planning should continue one beat at a time. Do not use few-shot examples or canned templates. After each planned frame, ask whether the action still needs any of these beats before it will read clearly:
 
 - anticipation or wind-up
 - first contact or launch
@@ -105,11 +105,11 @@ Planning should continue one beat at a time. After each planned frame, ask wheth
 - recovery or settle
 - loop bridge back to the first pose
 
-Only stop when the answer is no. If stopping would remove one of those beats, keep planning instead of forcing a shorter sheet.
+Only stop when the answer is no. Then audit the full list for both directions: too few frames that create pose pops or missing timing beats, and too many frames that create duplicate silhouettes, frozen holds, micro-steps, or timing stalls. Add missing beats and delete redundant beats before deriving the final frame count. If the audited list is over 16 frames, first delete or merge repeated information and timing stalls; if the action still cannot fit, narrow the action or ask the user before preparing the run. If stopping would remove one of the required beats, keep planning instead of forcing a shorter sheet.
 
 ## Background
 
-Default action background mode is `chroma-key`, because clean background removal after known-layout slot extraction is central to reliable frame extraction. Generated base characters use a flat white `#FFFFFF` reference background first; after the base is recorded, the scripts inspect the canonical base colors and select a safe high-saturation chroma key for action sheets.
+Default action background mode is `chroma-key`, because clean background removal before component extraction is central to reliable frame extraction. Generated base characters use a flat white `#FFFFFF` reference background first; after the base is recorded, the scripts inspect the canonical base colors and select a safe high-saturation chroma key for action sheets. The selected chroma key applies to each generated action-sheet inner safe area, not to the registration guide file itself. Registration guides remain neutral edit templates with cell borders, safe-area borders, center dashed lines, and a faint canonical-base footprint. Generated action sheets should remove the dashed centerlines and faint guide characters.
 
 The chroma key must not appear in the character, outfit, props, highlights, shadows, or effects. Prefer a high-saturation key color far from source image colors. Extraction removes exact chroma-key pixels everywhere, including holes inside a character silhouette. It also removes exposed chroma-family components that touch transparent/erased background, including dark antialias edges and darker/lighter remnants around internal holes or shadows, while preserving chroma-adjacent pixels embedded in the character body. Validation fails frames that still contain too many non-transparent pixels close to the chroma key.
 
