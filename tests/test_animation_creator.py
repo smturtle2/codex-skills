@@ -214,7 +214,7 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertFalse((run_dir / "prompts" / "image-creator").exists())
 
             generated_source = pathlib.Path(tmpdir) / "wave-generated.png"
-            self.make_grid(generated_source, chroma=selected_chroma_rgb, artifacts=True, guide_canvas=True)
+            self.make_grid(generated_source, chroma=selected_chroma_rgb, guide_canvas=True)
             recorded = self.run_script(
                 "record_animation_result.py",
                 "--run-dir",
@@ -606,10 +606,19 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertEqual(base_job["recorded_output"], "references/canonical-base.png")
             self.assertIn("source_sha256", base_job)
             self.assertIn("output_sha256", base_job)
+            self.assertEqual(base_job["regenerated_action_prompts"], ["prompts/actions/wave.md"])
             self.assertNotIn("image_creator_prompt_file", base_job)
+            manifest = json.loads((run_dir / "animation_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["chroma_key_status"], "ready")
+            self.assertTrue((run_dir / "references" / "registration-guides" / "wave.png").is_file())
+            jobs_after_prepare = json.loads((run_dir / "animation-jobs.json").read_text(encoding="utf-8"))
+            wave_after_prepare = next(job for job in jobs_after_prepare["jobs"] if job["id"] == "wave")
+            self.assertEqual(wave_after_prepare["status"], "ready")
+            self.assertEqual(wave_after_prepare["prompt_status"], "ready-after-canonical-base")
+            self.assertTrue(wave_after_prepare["prompt_regenerated_after_base"])
 
             generated_source = pathlib.Path(tmpdir) / "wave-generated.png"
-            chroma = tuple(json.loads((run_dir / "animation_manifest.json").read_text(encoding="utf-8"))["chroma_key"]["rgb"])
+            chroma = tuple(manifest["chroma_key"]["rgb"])
             self.make_grid(generated_source, chroma=chroma)
             built_prompt = self.run_script(
                 "build_generation_prompt.py",
@@ -620,6 +629,8 @@ class AnimationCreatorTests(unittest.TestCase):
                 cwd=project,
             )
             self.assertEqual(built_prompt.returncode, 0, built_prompt.stderr)
+            self.assertIn("Edit the attached registration guide into the animation action sheet", built_prompt.stdout)
+            self.assertIn("references/registration-guides/wave.png", built_prompt.stdout)
             self.assertFalse((run_dir / "prompts" / "image-creator").exists())
             recorded = self.run_script(
                 "record_animation_result.py",

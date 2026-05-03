@@ -192,29 +192,6 @@ def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> 
             for xx in range(image.width):
                 pixels[xx, yy] = (0, 0, 0, 0)
 
-    def is_neutral_guide_pixel(pixel: tuple[int, int, int, int]) -> bool:
-        red, green, blue, alpha = pixel
-        if alpha <= 16:
-            return False
-        average = (red + green + blue) / 3
-        return 95 <= average <= 230 and max(red, green, blue) - min(red, green, blue) <= 45
-
-    def clear_neutral_column(x: int, top: int, bottom: int) -> None:
-        left = max(0, x - pad)
-        right = min(image.width, x + pad + 1)
-        for yy in range(max(0, top), min(image.height, bottom)):
-            for xx in range(left, right):
-                if is_neutral_guide_pixel(pixels[xx, yy]):
-                    pixels[xx, yy] = (0, 0, 0, 0)
-
-    def clear_neutral_row(y: int, left: int, right: int) -> None:
-        top = max(0, y - pad)
-        bottom = min(image.height, y + pad + 1)
-        for yy in range(top, bottom):
-            for xx in range(max(0, left), min(image.width, right)):
-                if is_neutral_guide_pixel(pixels[xx, yy]):
-                    pixels[xx, yy] = (0, 0, 0, 0)
-
     for column in range(columns + 1):
         clear_column(round(column * image.width / columns))
     for row in range(rows + 1):
@@ -234,15 +211,11 @@ def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> 
         right = round((column + 1) * image.width / columns)
         for x in (left + safe_x_px, right - safe_x_px):
             clear_column(x)
-        center_x = (left + right) // 2
-        clear_neutral_column(center_x, 0, image.height)
     for row in range(rows):
         top = round(row * image.height / rows)
         bottom = round((row + 1) * image.height / rows)
         for y in (top + safe_y_px, bottom - safe_y_px):
             clear_row(y)
-        center_y = (top + bottom) // 2
-        clear_neutral_row(center_y, 0, image.width)
     return image
 
 

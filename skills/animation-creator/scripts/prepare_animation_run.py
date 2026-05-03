@@ -437,6 +437,112 @@ def create_registration_guide(
     }
 
 
+def job_rows(jobs_manifest: dict[str, object]) -> list[dict[str, object]]:
+    jobs = jobs_manifest.get("jobs")
+    if not isinstance(jobs, list):
+        raise SystemExit("animation-jobs.json is missing a jobs list")
+    return [job for job in jobs if isinstance(job, dict)]
+
+
+def refresh_after_canonical_base(
+    *,
+    run_dir: Path,
+    manifest: dict[str, object],
+    jobs_manifest: dict[str, object],
+    canonical: Path,
+    chroma: dict[str, object],
+) -> list[str]:
+    manifest["canonical_base"] = rel(canonical, run_dir)
+    manifest["chroma_key"] = chroma
+    manifest["chroma_key_status"] = "ready"
+    if isinstance(manifest.get("animation"), dict):
+        manifest["animation"]["background_mode"] = manifest.get("background_mode", "chroma-key")
+    regenerated_prompts = []
+    registration_guides = []
+    animation = manifest.get("animation", {})
+    states = animation.get("states", []) if isinstance(animation, dict) else []
+    for state in states:
+        if not isinstance(state, dict):
+            continue
+        layout = dict(state["layout"])
+        frame_size = (int(manifest["frame_width"]), int(manifest["frame_height"]))
+        safe_margin = (
+            int(layout.get("safe_margin_x", 0) or 0),
+            int(layout.get("safe_margin_y", 0) or 0),
+        )
+        registration_guide = create_registration_guide(
+            run_dir / "references" / "registration-guides" / f"{state['name']}.png",
+            canonical_base=canonical,
+            frames=int(state["frames"]),
+            frame_size=frame_size,
+            safe_margin=safe_margin,
+            layout=layout,
+        )
+        registration_guide["state"] = str(state["name"])
+        registration_guides.append(registration_guide)
+        prompt_path = run_dir / "prompts" / "actions" / f"{state['name']}.md"
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path.write_text(
+            action_prompt(
+                action_id=str(state["name"]),
+                action=str(state.get("action", state["name"])),
+                character_name=str(manifest.get("character_name", manifest.get("name", "character"))),
+                frames=int(state["frames"]),
+                frame_size=frame_size,
+                layout=layout,
+                frame_actions=[str(item) for item in state.get("frame_actions", [])],
+                chroma=chroma,
+                chroma_ready=True,
+                registration_guide_ready=True,
+            ).rstrip()
+            + "\n",
+            encoding="utf-8",
+        )
+        regenerated_prompts.append(rel(prompt_path, run_dir))
+    manifest["registration_guides"] = registration_guides
+    for other_job in job_rows(jobs_manifest):
+        if other_job.get("kind") in {"action-grid", "action-strip"} and other_job.get("status") == "blocked":
+            other_job["status"] = "ready"
+        if other_job.get("kind") in {"action-grid", "action-strip"}:
+            other_job["prompt_status"] = "ready-after-canonical-base"
+            other_job["prompt_regenerated_after_base"] = True
+            other_job["chroma_key_hex"] = chroma["hex"]
+            inputs = other_job.get("input_images")
+            if isinstance(inputs, list):
+                state_name = str(other_job.get("id"))
+                inputs[:] = [
+                    item
+                    for item in inputs
+                    if not (
+                        isinstance(item, dict)
+                        and str(item.get("path", "")).startswith("references/layout-guides/")
+                    )
+                ]
+                registration_path = f"references/registration-guides/{state_name}.png"
+                registration_item = next(
+                    (
+                        item
+                        for item in inputs
+                        if isinstance(item, dict) and item.get("path") == registration_path
+                    ),
+                    None,
+                )
+                if registration_item is None:
+                    registration_item = {
+                        "path": registration_path,
+                        "role": "registration guide edit template; keep black cell borders, blue safe-area rectangles, and neutral outside background, remove gray dashed centerlines and faint guide characters, and fill only safe-area interiors with chroma-key",
+                    }
+                else:
+                    registration_item["role"] = "registration guide edit template; keep black cell borders, blue safe-area rectangles, and neutral outside background, remove gray dashed centerlines and faint guide characters, and fill only safe-area interiors with chroma-key"
+                inputs[:] = [
+                    item
+                    for item in inputs
+                    if not (isinstance(item, dict) and item.get("path") == registration_path)
+                ]
+                inputs.insert(0, registration_item)
+    return regenerated_prompts
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", help="Optional input manifest JSON.")
@@ -613,22 +719,10 @@ def main() -> None:
             chroma = choose_chroma_key_for_image(canonical_base)
     chroma_ready = bool(canonical_base.exists() or args.chroma_key)
 
-    registration_guides = []
     frame_size_tuple = (settings["frame_width"], settings["frame_height"])
     for state in settings["states"]:
         state["layout"]["safe_margin_x"] = safe_margin[0]
         state["layout"]["safe_margin_y"] = safe_margin[1]
-        if canonical_base.exists():
-            registration_guide = create_registration_guide(
-                references_dir / "registration-guides" / f"{state['name']}.png",
-                canonical_base=canonical_base,
-                frames=int(state["frames"]),
-                frame_size=frame_size_tuple,
-                safe_margin=safe_margin,
-                layout=state["layout"],
-            )
-            registration_guide["state"] = str(state["name"])
-            registration_guides.append(registration_guide)
 
     write_text(
         prompts_dir / "base-character.md",
@@ -652,7 +746,7 @@ def main() -> None:
                 frame_actions=list(state["frame_actions"]),
                 chroma=chroma,
                 chroma_ready=chroma_ready,
-                registration_guide_ready=canonical_base.exists(),
+                registration_guide_ready=False,
             ),
         )
 
@@ -698,7 +792,7 @@ def main() -> None:
             "preview_dir": "qa/previews",
         },
         "outputs": seed.get("outputs", {"actions": {}}),
-        "registration_guides": registration_guides,
+        "registration_guides": [],
     }
     if settings["fps"] is not None:
         manifest["fps"] = settings["fps"]
@@ -708,7 +802,6 @@ def main() -> None:
     if canonical_base.exists():
         manifest["canonical_base"] = rel(canonical_base, run_dir)
 
-    write_json(run_dir / "animation_manifest.json", manifest)
     base_job = {
         "id": "base-character",
         "kind": "base-character",
@@ -767,7 +860,17 @@ def main() -> None:
             ],
         ],
     }
+    if canonical_base.exists():
+        regenerated_prompts = refresh_after_canonical_base(
+            run_dir=run_dir,
+            manifest=manifest,
+            jobs_manifest=jobs,
+            canonical=canonical_base,
+            chroma=chroma,
+        )
+        base_job["regenerated_action_prompts"] = regenerated_prompts
     write_json(run_dir / "animation-jobs.json", jobs)
+    write_json(run_dir / "animation_manifest.json", manifest)
     print(str(run_dir))
 
 
