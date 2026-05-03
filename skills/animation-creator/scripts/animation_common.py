@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import colorsys
 import json
 import math
 import re
@@ -27,6 +28,8 @@ CODEX_IMAGEGEN_MAX_ASPECT_RATIO = 3.0
 CONNECTED_CHROMA_MIN_COMPONENT_AREA_RATIO = 0.05
 CONNECTED_CHROMA_MIN_RECT_FILL = 0.35
 CONNECTED_CHROMA_EDGE_BAND_RADIUS = 2
+BACKGROUND_EDGE_SAMPLE_BAND_RATIO = 0.08
+BACKGROUND_COLOR_BUCKET_SIZE = 24
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -432,7 +435,8 @@ def remove_chroma_background(
     rgba = image.convert("RGBA")
     width, height = rgba.size
     pixels = rgba.load()
-    key_channels, non_key_channels = chroma_channel_groups(chroma_key)
+    fallback_background = estimate_edge_background_color(rgba, chroma_key)
+    background_thresholds = estimate_background_thresholds(rgba, fallback_background, threshold)
     strong_mask = bytearray(width * height)
     exact_mask = bytearray(width * height)
     for y in range(height):
@@ -440,27 +444,23 @@ def remove_chroma_background(
             red, green, blue, alpha = pixels[x, y]
             if alpha <= 16:
                 continue
-            dist = color_distance(red, green, blue, chroma_key)
-            excess = chroma_excess(red, green, blue, key_channels, non_key_channels)
-            key_value = min((red, green, blue)[index] for index in key_channels)
+            dist = perceptual_background_distance((red, green, blue), fallback_background)
             index = y * width + x
-            if dist <= max(threshold, 72.0) or (key_value > 150 and excess > 45 and dist < 130):
+            if dist <= background_thresholds["possible"]:
                 strong_mask[index] = 1
-            if dist < 55 and key_value > 110 and excess > 60:
+            if dist <= background_thresholds["sure"]:
                 exact_mask[index] = 1
 
     sure_background = connected_chroma_background_mask(strong_mask, exact_mask, width, height)
     background_labels, background_colors = label_background_components(rgba, sure_background)
-    fallback_background_color = median_mask_color(rgba, sure_background) or chroma_key
+    fallback_background_color = median_mask_color(rgba, sure_background) or fallback_background
     alpha_values = build_connected_chroma_alpha(
         rgba,
         sure_background,
         background_labels,
         background_colors,
         fallback_background_color,
-        key_channels,
-        non_key_channels,
-        threshold,
+        background_thresholds,
     )
     for y in range(height):
         for x in range(width):
@@ -482,17 +482,91 @@ def remove_chroma_background(
                     fallback_background_color,
                 )
                 new_red, new_green, new_blue = restore_foreground_color((red, green, blue), background_color, new_alpha)
-                new_red, new_green, new_blue = despill_chroma_edge(
-                    new_red,
-                    new_green,
-                    new_blue,
-                    key_channels,
-                    non_key_channels,
-                    allowance=18,
-                )
+                new_red, new_green, new_blue = despill_background_edge((new_red, new_green, new_blue), background_color)
             pixels[x, y] = (new_red, new_green, new_blue, new_alpha)
-    suppress_chroma_spill_components(rgba, chroma_key, CHROMA_ARTIFACT_THRESHOLD, remove_internal_holes=False)
+    suppress_background_spill_components(rgba, fallback_background_color, CHROMA_ARTIFACT_THRESHOLD)
     return rgba
+
+
+def estimate_edge_background_color(image: Image.Image, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    width, height = image.size
+    pixels = image.load()
+    band = max(2, round(min(width, height) * BACKGROUND_EDGE_SAMPLE_BAND_RATIO))
+    buckets: dict[tuple[int, int, int], list[tuple[int, int, int]]] = {}
+    for y in range(height):
+        for x in range(width):
+            if x >= band and y >= band and x < width - band and y < height - band:
+                continue
+            red, green, blue, alpha = pixels[x, y]
+            if alpha <= 16:
+                continue
+            bucket = (
+                red // BACKGROUND_COLOR_BUCKET_SIZE,
+                green // BACKGROUND_COLOR_BUCKET_SIZE,
+                blue // BACKGROUND_COLOR_BUCKET_SIZE,
+            )
+            buckets.setdefault(bucket, []).append((red, green, blue))
+    if not buckets:
+        return fallback
+    return median_rgb(max(buckets.values(), key=len))
+
+
+def estimate_background_thresholds(
+    image: Image.Image,
+    background_color: tuple[int, int, int],
+    threshold: float,
+) -> dict[str, float]:
+    width, height = image.size
+    pixels = image.load()
+    band = max(2, round(min(width, height) * BACKGROUND_EDGE_SAMPLE_BAND_RATIO))
+    distances: list[float] = []
+    for y in range(height):
+        for x in range(width):
+            if x >= band and y >= band and x < width - band and y < height - band:
+                continue
+            red, green, blue, alpha = pixels[x, y]
+            if alpha <= 16:
+                continue
+            distances.append(perceptual_background_distance((red, green, blue), background_color))
+    if not distances:
+        return {"sure": min(48.0, threshold), "possible": max(72.0, threshold)}
+    distances.sort()
+    median = distances[len(distances) // 2]
+    deviations = sorted(abs(value - median) for value in distances)
+    mad = deviations[len(deviations) // 2]
+    sigma = 1.4826 * mad
+    percentile_90 = distances[min(len(distances) - 1, round((len(distances) - 1) * 0.90))]
+    sure = max(10.0, min(max(48.0, threshold * 0.55), median + sigma * 2.5 + 8.0))
+    possible = max(sure + 16.0, min(max(96.0, threshold * 1.25), max(percentile_90 + 24.0, median + sigma * 5.0 + 24.0)))
+    return {"sure": sure, "possible": possible}
+
+
+def median_rgb(colors: list[tuple[int, int, int]]) -> tuple[int, int, int]:
+    if not colors:
+        return DEFAULT_CHROMA_RGB
+    mid = len(colors) // 2
+    return (
+        sorted(color[0] for color in colors)[mid],
+        sorted(color[1] for color in colors)[mid],
+        sorted(color[2] for color in colors)[mid],
+    )
+
+
+def perceptual_background_distance(
+    color: tuple[int, int, int],
+    background_color: tuple[int, int, int],
+) -> float:
+    rgb_distance = color_distance(color[0], color[1], color[2], background_color)
+    hue_a, sat_a, val_a = colorsys.rgb_to_hsv(color[0] / 255.0, color[1] / 255.0, color[2] / 255.0)
+    hue_b, sat_b, val_b = colorsys.rgb_to_hsv(
+        background_color[0] / 255.0,
+        background_color[1] / 255.0,
+        background_color[2] / 255.0,
+    )
+    hue_delta = abs(hue_a - hue_b)
+    hue_delta = min(hue_delta, 1.0 - hue_delta)
+    hue_weight = min(sat_a, sat_b)
+    return math.sqrt(rgb_distance**2 + (hue_delta * 180.0 * hue_weight) ** 2 + ((val_a - val_b) * 80.0) ** 2)
 
 
 def chroma_channel_groups(chroma_key: tuple[int, int, int]) -> tuple[list[int], list[int]]:
@@ -683,9 +757,7 @@ def build_connected_chroma_alpha(
     background_labels: list[int],
     background_colors: list[tuple[int, int, int]],
     fallback_background_color: tuple[int, int, int],
-    key_channels: list[int],
-    non_key_channels: list[int],
-    threshold: float,
+    background_thresholds: dict[str, float],
 ) -> bytearray:
     width, height = image.size
     alpha = bytearray([255]) * (width * height)
@@ -714,11 +786,13 @@ def build_connected_chroma_alpha(
                 y,
                 fallback_background_color,
             )
-            dist = color_distance(red, green, blue, background_color)
-            excess = chroma_excess(red, green, blue, key_channels, non_key_channels)
-            bg_t = 1.0 - smoothstep(45.0, max(90.0, threshold * 1.35), dist)
-            excess_t = smoothstep(20.0, 80.0, excess)
-            remove_t = max(0.0, min(1.0, bg_t * excess_t))
+            dist = perceptual_background_distance((red, green, blue), background_color)
+            bg_t = 1.0 - smoothstep(
+                background_thresholds["sure"],
+                max(background_thresholds["possible"], background_thresholds["sure"] + 1.0),
+                dist,
+            )
+            remove_t = max(0.0, min(1.0, bg_t))
             alpha[index] = min(255, max(0, round(255 * (1.0 - remove_t))))
     alpha_image = Image.frombytes("L", (width, height), bytes(alpha))
     alpha_image = alpha_image.filter(ImageFilter.MedianFilter(3)).filter(ImageFilter.GaussianBlur(0.35))
@@ -787,6 +861,111 @@ def despill_chroma_edge(
     for index in key_channels:
         channels[index] = min(channels[index], limit)
     return tuple(channels)
+
+
+def despill_background_edge(
+    color: tuple[int, int, int],
+    background_color: tuple[int, int, int],
+    allowance: int = 18,
+) -> tuple[int, int, int]:
+    channels = list(color)
+    key_channels, non_key_channels = chroma_channel_groups(background_color)
+    if not key_channels or not non_key_channels:
+        return color
+    if max(background_color) - min(background_color) < 40:
+        return color
+    limit = min(255, max(channels[index] for index in non_key_channels) + allowance)
+    for index in key_channels:
+        channels[index] = min(channels[index], limit)
+    return channels[0], channels[1], channels[2]
+
+
+def suppress_background_spill_components(
+    image: Image.Image,
+    background_color: tuple[int, int, int],
+    threshold: float,
+) -> None:
+    width, height = image.size
+    pixels = image.load()
+    visited = bytearray(width * height)
+    exterior_transparent = exterior_transparent_mask(image)
+    artifact_threshold = threshold
+    for start in range(width * height):
+        if visited[start]:
+            continue
+        x = start % width
+        y = start // width
+        red, green, blue, alpha = pixels[x, y]
+        if alpha <= 16 or perceptual_background_distance((red, green, blue), background_color) > artifact_threshold:
+            visited[start] = 1
+            continue
+        stack = [start]
+        visited[start] = 1
+        component: list[int] = []
+        touches_transparent = False
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            cx = current % width
+            cy = current // width
+            for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                    touches_transparent = True
+                    continue
+                nred, ngreen, nblue, nalpha = pixels[nx, ny]
+                if nalpha <= 16 and exterior_transparent[ny * width + nx]:
+                    touches_transparent = True
+                    continue
+                if perceptual_background_distance((nred, ngreen, nblue), background_color) <= artifact_threshold:
+                    neighbor = ny * width + nx
+                    if visited[neighbor]:
+                        continue
+                    visited[neighbor] = 1
+                    stack.append(neighbor)
+        if touches_transparent:
+            for pixel_index in component:
+                px = pixel_index % width
+                py = pixel_index // width
+                red, green, blue, alpha = pixels[px, py]
+                red, green, blue = despill_background_edge((red, green, blue), background_color, allowance=0)
+                pixels[px, py] = (red, green, blue, alpha)
+
+
+def exterior_transparent_mask(image: Image.Image) -> bytearray:
+    width, height = image.size
+    pixels = image.load()
+    exterior = bytearray(width * height)
+    stack: list[int] = []
+    for x in range(width):
+        for y in (0, height - 1):
+            red, green, blue, alpha = pixels[x, y]
+            index = y * width + x
+            if alpha <= 16 and not exterior[index]:
+                exterior[index] = 1
+                stack.append(index)
+    for y in range(height):
+        for x in (0, width - 1):
+            red, green, blue, alpha = pixels[x, y]
+            index = y * width + x
+            if alpha <= 16 and not exterior[index]:
+                exterior[index] = 1
+                stack.append(index)
+    while stack:
+        current = stack.pop()
+        x = current % width
+        y = current // width
+        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                continue
+            neighbor = ny * width + nx
+            if exterior[neighbor]:
+                continue
+            red, green, blue, alpha = pixels[nx, ny]
+            if alpha > 16:
+                continue
+            exterior[neighbor] = 1
+            stack.append(neighbor)
+    return exterior
 
 
 def suppress_chroma_spill_components(
@@ -882,6 +1061,7 @@ def chroma_adjacent_count(
     width, height = rgba.size
     pixels = rgba.load()
     visited = bytearray(width * height)
+    exterior_transparent = exterior_transparent_mask(rgba)
     count = 0
     for start in range(width * height):
         if visited[start]:
@@ -906,7 +1086,7 @@ def chroma_adjacent_count(
                     touches_transparent = True
                     continue
                 nred, ngreen, nblue, nalpha = pixels[nx, ny]
-                if nalpha <= 16:
+                if nalpha <= 16 and exterior_transparent[ny * width + nx]:
                     touches_transparent = True
                     continue
                 if is_chroma_artifact_color(nred, ngreen, nblue, chroma_key, threshold):

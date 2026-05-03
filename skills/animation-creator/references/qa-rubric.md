@@ -41,7 +41,7 @@ Do not accept an animation action until the automatic checks and visual review p
 - Raw generated sheets must be reviewed before extraction. If the sheet has the wrong grid, missing requested frames, wrong slot order, obvious duplicate stills, broken identity, disconnected motion, visible labels, extra guide marks, malformed or missing safe-area rectangles, or non-chroma safe-area interiors, regenerate the action sheet instead of trying to fix it with post-processing.
 - No generated cell border, registration-guide, safe-box, or centerline pixels appear in extracted frames.
 - No detached effects create separate components that confuse extraction.
-- No chroma-key-adjacent pixels remain in character-visible regions.
+- No exterior-connected chroma-key remnants or visible background halos remain in character-visible regions. Chroma-like colors embedded inside the character are acceptable when they are not connected to the exterior background.
 
 ## Repair Policy
 

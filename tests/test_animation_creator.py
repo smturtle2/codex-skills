@@ -1147,6 +1147,23 @@ class AnimationCreatorTests(unittest.TestCase):
         self.assertEqual(cleaned.getpixel((22, 32)), (40, 190, 80, 255))
         self.assertEqual(cleaned.getpixel((104, 32)), (50, 180, 70, 255))
 
+    def test_chroma_cleanup_estimates_non_green_background_from_edges(self) -> None:
+        source = Image.new("RGB", (96, 96), (42, 80, 238))
+        draw = ImageDraw.Draw(source)
+        draw.rectangle((26, 22, 70, 70), fill=(240, 210, 90))
+        draw.rectangle((44, 34, 52, 42), fill=(44, 78, 232))
+        draw.rectangle((42, 50, 54, 56), fill=(180, 0, 160))
+        draw.rectangle((36, 62, 60, 64), fill=(42, 80, 238))
+        draw.rectangle((28, 28, 34, 34), fill=(42, 90, 210))
+
+        cleaned = remove_chroma_background(source, (0, 255, 0), 96)
+
+        self.assertEqual(cleaned.getpixel((4, 4))[3], 0)
+        self.assertEqual(cleaned.getpixel((48, 38))[3], 0)
+        self.assertEqual(cleaned.getpixel((48, 53)), (180, 0, 160, 255))
+        self.assertEqual(cleaned.getpixel((31, 31)), (42, 90, 210, 255))
+        self.assertEqual(cleaned.getpixel((48, 63))[3], 0)
+
     def test_validate_flags_chroma_adjacent_and_edge_pixels(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project = pathlib.Path(tmpdir)
