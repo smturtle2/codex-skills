@@ -19,6 +19,7 @@ Every run has one canonical base character and one or more action jobs.
 - When the user later asks for additional actions, reuse the existing canonical base. Do not redesign or regenerate the character unless the user explicitly asks for a new base.
 - Before creating any layout guide, build the per-frame action plan sequentially. Do not draft the full list in one pass and do not start by choosing a frame count. Add one concrete beat at a time. Frame 1 may describe the starting pose; every later beat should primarily describe the visible change from the immediately previous beat, and the frame should be understood as the accumulated result of all previous changes plus that new change, while scale, facing identity, spacing, balance, body center path, height, contact points, and weight shift remain continuous.
 - After the first pass, audit the frame action list before preparing the run. Mark any missing anticipation, contact, passing pose, follow-through, settle, or loop bridge. Remove redundant beats, frozen duplicates, or micro-steps that do not change the silhouette, balance, contact, or timing enough to help playback. Rewrite any state-label-only beat as a concrete delta from the previous frame, with a short phase label only when it helps identify the accumulated current frame, before using it in `--frame-actions`. Add only the missing beats needed for the action to read. The final frame count is the number of audited frame actions after additions and deletions.
+- Avoid transform-like wording in frame actions unless the requested animation explicitly requires that major visual transform. Words such as `inverted`, `flipped`, `mirrored`, `reversed`, `opposite direction`, `facing the other way`, `upside down`, or `rotate 180 degrees` can be interpreted as instructions to transform the character, camera, canvas, or facing direction. For ordinary rotation, tumbling, airborne motion, or transitional poses, describe body-part positions and continuous motion paths instead.
 - Do not use few-shot examples, canned action templates, or action-category frame counts. Plan from the requested action itself, then derive the frame count from the completed audited list.
 
 Use the manifest grid and registration guide for deterministic extraction, require complete poses inside safe grid cells, and reject frames that show clipping, cell crossing, weak identity consistency, or disconnected frame-to-frame motion. The registration guide is an edit template: it shows slot spacing, safe margins, center dashed lines, scale, and the base character footprint. The generated action sheet should keep the canvas, black cell borders, blue safe-area rectangles, and neutral background outside the blue rectangles, remove gray dashed centerlines and faint guide characters, replace only each inner safe-area background with the selected chroma key, and draw the animated poses on top. Do not create or attach a separate layout guide for image generation; attach only the canonical base and the registration guide when available.
@@ -35,6 +36,7 @@ Use the manifest grid and registration guide for deterministic extraction, requi
 - Keep action prompts identity-locked and continuity-locked: same character, same proportions, same face, same markings, same palette, same outfit/props, same camera distance, same scale, same facing, smooth motion, and consistent registration-guide slot spacing unless the requested action logically moves them.
 - Use complete full-body poses by default. If the user wants a cropped bust, hand, icon, or partial-body animation, record that as an explicit output contract.
 - Treat ground planes, floor lines, cast shadows, contact shadows, oval floor shadows, landing marks, dust, detached effects, glow, motion streaks, repeated still images, clipped body parts, poses crossing into neighboring grid cells, extra labels, extra guide marks, center dashed lines in the generated result, and ghost characters as failures unless explicitly accepted by the user. The raw generated action sheet should keep black cell borders and blue safe-area rectangles, remove gray dashed centerlines and faint guide characters, and use chroma-key background only inside each inner safe area. Extracted final frames must not retain guide lines, borders, safe-area boxes, center dashed lines, or guide background.
+- Do not use post-processing to accept a bad raw action sheet. If the generated action sheet has the wrong grid, missing or extra frames, wrong slot order, broken character identity, repeated stills, disconnected motion, visible labels, missing or malformed safe-area rectangles, missing chroma-key safe-area interiors, clipped poses, or obvious continuity failure, regenerate that action sheet with the exact same built prompt and input images. Record and finalize only an action-sheet attempt that passes raw visual review.
 - Remove exact chroma-key pixels everywhere, including holes inside the character silhouette. Remove exposed chroma-family components when they touch transparent/erased background so dark antialias edges and internal background rims are cleaned, while preserving embedded character colors such as mouths or blushes. Reject large remaining chroma-colored shadows, smears, halos, or landing marks during validation.
 - Do not accept deterministic validation alone as final proof. Review the contact sheet or final animation for identity drift and visible clipping.
 
@@ -51,11 +53,12 @@ Use the manifest grid and registration guide for deterministic extraction, requi
    - Start with the first readable pose for the requested action, then add the next adjacent beat only after checking how it connects to the prior beat.
    - For every beat after frame 1, primarily describe the visible change from the previous beat instead of naming a standalone pose. Treat each frame as the accumulated result of all previous frame changes plus the new change for that slot. Keep the continuity constraints stable: scale, facing identity, body center path, height, balance, contact points, spacing, easing, and weight transfer.
    - Prefer concrete spatial deltas over ambiguous state labels. Use a short phase label only when it helps identify the accumulated current frame. Describe how the body center, torso, head, hands, feet, contact, or weight shift changed from the previous beat.
+   - Keep transform-like words only when the user explicitly requested a real flip, mirror, reversal, opposite facing, upside-down result, or comparable major visual transform. Otherwise rewrite them into body-part relationships, contact changes, and motion-path continuity.
    - When a beat is likely to be misread as an isolated pose, such as rotation, body crossing, occlusion, airborne motion, or contact transition, anchor it to the same arc, path, or contact transition established by the previous beat.
    - Continue until the action has the needed anticipation, contact or launch, key pose, passing or in-between poses, follow-through or overshoot, settle, and loop bridge or clear end pose.
    - Audit the completed list for too few frames: missing key poses, abrupt jumps, unclear contact, no readable follow-through, or a bad first-to-last loop bridge.
    - Audit the completed list for too many frames: repeated stills, duplicate silhouettes, tiny non-animated micro-changes, timing stalls, or extra beats that do not improve readability.
-   - Audit the language before preparing the run: frame 1 is the starting pose, and every later frame must read as a cumulative continuation of the previous slot, primarily described by the new delta. Rewrite vague state labels into concrete spatial changes, using optional short phase labels rather than adding examples or action templates.
+   - Audit the language before preparing the run: frame 1 is the starting pose, and every later frame must read as a cumulative continuation of the previous slot, primarily described by the new delta. Rewrite vague state labels and unnecessary transform-like wording into concrete spatial changes, using optional short phase labels rather than adding examples or action templates.
    - Revise the list by adding missing beats and deleting redundant beats. Only after this audit is clean may the list become `--frame-actions`.
    - Do not use few-shot examples or canned templates for this planning. Keep the concrete audited frame actions ready for the run setup, then use the number of audited frame actions as the frame count.
 3. Prepare a run folder and manifest:
@@ -101,7 +104,7 @@ Use the manifest grid and registration guide for deterministic extraction, requi
    - the action prompt file
    - `references/canonical-base.*` as the character identity input
    - `references/registration-guides/<action-id>.png` as the placement registration input after the canonical base is recorded
-   - a destination inside the run directory, normally `generated/<action-id>.png`
+   - an attempt destination inside the run directory, normally `generated/attempts/<action-id>-NN.png` until one attempt passes raw review
 
    Print the exact `$image-creator` prompt from the job's markdown prompt file and input-image list:
 
@@ -113,7 +116,19 @@ Use the manifest grid and registration guide for deterministic extraction, requi
 
    Load the listed input images through `$image-creator`'s input-image workflow, then send stdout exactly as the final `$image-creator` prompt. The prompt must come from `build_generation_prompt.py`; do not reconstruct it manually.
 
-   Always record the selected generated image, even if it was saved at the expected job path. `record_animation_result.py` records the source prompt hash and exact built prompt hash with the generated output.
+   Review the raw generated action sheet before recording it as the selected job output. Check the whole sheet at once, not only the eventual extracted frames:
+   - canvas aspect and grid layout match the registration guide
+   - requested slots contain exactly one full-body character pose each, in left-to-right top-to-bottom order
+   - unused slots are irrelevant and may be ignored
+   - safe-area interiors use the selected chroma key clearly enough for extraction to find the inner safe-area fill
+   - gray dashed centerlines, guide characters, labels, captions, frame numbers, extra marks, and ghost characters are absent
+   - safe-area interiors use the selected chroma key, with poses fully inside the safe rectangles
+   - character identity, scale, facing identity, and camera distance remain stable
+   - adjacent frames read as one continuous motion instead of unrelated pose studies, mirrored direction changes, repeated stills, or sudden jumps
+
+   If the raw sheet fails this review, do not run extraction as an attempted repair. Keep the rejected attempt for debugging, generate a new attempt with the same exact prompt and input images, then review again. Regenerate only the failed action grid; do not recreate the canonical base unless the base is the source of the failure. If multiple attempts fail for the same structural reason, stop and revise the frame action plan or output contract instead of accumulating more attempts.
+
+   Record only the selected generated image that passed raw review. `record_animation_result.py` records the source prompt hash and exact built prompt hash with the generated output.
 
    ```bash
    python "$SKILL_DIR/scripts/record_animation_result.py" \

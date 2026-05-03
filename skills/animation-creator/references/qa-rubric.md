@@ -38,6 +38,7 @@ Do not accept an animation action until the automatic checks and visual review p
 - Component extraction is required in the default finalize path, matching the hatch-pet path, because it removes generated layout margins while preserving generated frame scale.
 - Known-layout slot extraction is only a manual diagnostic fallback. If the default finalize path used slot extraction, treat the action as failed and regenerate the action sheet.
 - Raw generated sheets are expected to keep black cell borders and blue safe-area rectangles, remove gray dashed centerlines and faint guide characters, and use chroma-key background only inside each inner safe area.
+- Raw generated sheets must be reviewed before extraction. If the sheet has the wrong grid, missing requested frames, wrong slot order, obvious duplicate stills, broken identity, disconnected motion, visible labels, extra guide marks, malformed or missing safe-area rectangles, or non-chroma safe-area interiors, regenerate the action sheet instead of trying to fix it with post-processing.
 - No generated cell border, registration-guide, safe-box, or centerline pixels appear in extracted frames.
 - No detached effects create separate components that confuse extraction.
 - No chroma-key-adjacent pixels remain in character-visible regions.
@@ -46,6 +47,7 @@ Do not accept an animation action until the automatic checks and visual review p
 
 Repair the smallest failing scope:
 
-1. Regenerate the failed action grid.
-2. Adjust extraction settings only when the generated grid is visually correct.
-3. Recreate the base character only when the canonical base itself is wrong.
+1. If the raw action sheet is wrong, regenerate that action grid from the exact built prompt and input images. Keep rejected attempts for debugging, but record and finalize only the accepted attempt.
+2. Adjust extraction settings only when the raw generated grid is visually correct and the failure is clearly post-processing.
+3. Revise the frame action plan only when repeated generations fail for the same motion-planning reason.
+4. Recreate the base character only when the canonical base itself is wrong.

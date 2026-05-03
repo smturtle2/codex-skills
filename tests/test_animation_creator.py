@@ -48,6 +48,9 @@ class AnimationCreatorTests(unittest.TestCase):
         artifacts: bool = False,
         guide_canvas: bool = False,
         guide_line_width: int = 2,
+        guide_line_color: str = "#2f80ed",
+        guide_safe_fill: str | tuple[int, int, int] | None = None,
+        guide_inner_edge_fragments: bool = False,
         extra_slot_content_indexes: set[int] | None = None,
     ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,8 +67,8 @@ class AnimationCreatorTests(unittest.TestCase):
                 draw.rectangle((left, top, left + size - 1, top + size - 1), outline="#111111", width=guide_line_width)
                 draw.rectangle(
                     (left + safe_x, top + safe_y, left + size - safe_x - 1, top + size - safe_y - 1),
-                    fill=chroma,
-                    outline="#2f80ed",
+                    fill=guide_safe_fill or chroma,
+                    outline=guide_line_color,
                     width=guide_line_width,
                 )
                 cx_line = left + size // 2
@@ -74,6 +77,12 @@ class AnimationCreatorTests(unittest.TestCase):
                     draw.line((cx_line, yy, cx_line, min(yy + 7, top + size - safe_y)), fill="#b8b8b8", width=guide_line_width)
                 for xx in range(left + safe_x, left + size - safe_x, 16):
                     draw.line((xx, cy_line, min(xx + 7, left + size - safe_x), cy_line), fill="#b8b8b8", width=guide_line_width)
+                if guide_inner_edge_fragments:
+                    edge_y = top + safe_y
+                    fragment_start = left + safe_x + 4
+                    fragment_end = left + size - safe_x - 4
+                    for xx in range(fragment_start, fragment_end, 48):
+                        draw.line((xx, edge_y, min(xx + 35, fragment_end), edge_y), fill="#111111", width=1)
             if index >= frames and index not in extra_slot_content_indexes:
                 continue
             cx = left + size // 2
@@ -630,10 +639,158 @@ class AnimationCreatorTests(unittest.TestCase):
             frame_manifest = json.loads((run_dir / "frames" / "frames-manifest.json").read_text(encoding="utf-8"))
             row = frame_manifest["rows"][0]
             self.assertEqual(row["method"], "components")
-            self.assertEqual(row["guide_erase_policy"], "detected-blue-safe-area-inner-box")
+            self.assertEqual(row["guide_erase_policy"], "detected-safe-area-inner-box")
             self.assertTrue(row["detected_safe_boxes"])
             self.assertTrue(
-                all(box["source"] == "detected-blue-safe-area" for box in row["detected_safe_boxes"].values())
+                all(box["source"] == "detected-safe-area-inner-fill" for box in row["detected_safe_boxes"].values())
+            )
+
+    def test_finalize_removes_connected_neutral_safe_area_canvas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = pathlib.Path(tmpdir)
+            source_character = project / "source.png"
+            Image.new("RGB", (64, 64), "red").save(source_character)
+            prepared = self.run_script(
+                "prepare_animation_run.py",
+                "--project-root",
+                str(project),
+                "--character-name",
+                "Demo Bot",
+                "--source-character",
+                str(source_character),
+                "--chroma-key",
+                DEFAULT_TEST_CHROMA,
+                "--action-id",
+                "wave",
+                "--action",
+                "friendly waving loop",
+                "--frame-actions",
+                "; ".join(WAVE_BEATS),
+                cwd=project,
+            )
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            run_dir = pathlib.Path(prepared.stdout.strip())
+            generated_source = project / "wave-generated.png"
+            self.make_grid(
+                generated_source,
+                chroma=DEFAULT_TEST_CHROMA,
+                guide_canvas=True,
+                guide_line_width=5,
+                guide_safe_fill="#FFFFFF",
+                guide_inner_edge_fragments=True,
+            )
+
+            recorded = self.run_script(
+                "record_animation_result.py",
+                "--run-dir",
+                str(run_dir),
+                "--job-id",
+                "wave",
+                "--source",
+                str(generated_source),
+                cwd=project,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            finalized = self.run_script(
+                "finalize_animation_run.py",
+                "--run-dir",
+                str(run_dir),
+                "--action-id",
+                "wave",
+                cwd=project,
+            )
+
+            self.assertEqual(finalized.returncode, 0, finalized.stderr + finalized.stdout)
+            for frame_path in sorted((run_dir / "frames" / "wave").glob("*.png")):
+                with Image.open(frame_path) as frame:
+                    rgba = frame.convert("RGBA")
+                    alpha = rgba.getchannel("A")
+                    wide_rows = [
+                        y
+                        for y in range(rgba.height)
+                        if sum(
+                            1
+                            for x in range(rgba.width)
+                            if alpha.getpixel((x, y)) > 0
+                            and min(rgba.getpixel((x, y))[:3]) >= 232
+                            and max(rgba.getpixel((x, y))[:3]) - min(rgba.getpixel((x, y))[:3]) <= 32
+                        )
+                        > rgba.width * 0.20
+                    ]
+                    self.assertFalse(wide_rows, f"{frame_path.name} retained guide canvas rows {wide_rows[:8]}")
+                    dark_rows = [
+                        y
+                        for y in range(rgba.height)
+                        if sum(
+                            1
+                            for x in range(rgba.width)
+                            if alpha.getpixel((x, y)) > 0 and max(rgba.getpixel((x, y))[:3]) < 80
+                        )
+                        > rgba.width * 0.45
+                    ]
+                    self.assertFalse(dark_rows, f"{frame_path.name} retained guide edge rows {dark_rows[:8]}")
+
+    def test_finalize_detects_non_blue_registration_safe_area_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = pathlib.Path(tmpdir)
+            source_character = project / "source.png"
+            Image.new("RGB", (64, 64), "red").save(source_character)
+            prepared = self.run_script(
+                "prepare_animation_run.py",
+                "--project-root",
+                str(project),
+                "--character-name",
+                "Demo Bot",
+                "--source-character",
+                str(source_character),
+                "--chroma-key",
+                DEFAULT_TEST_CHROMA,
+                "--action-id",
+                "wave",
+                "--action",
+                "friendly waving loop",
+                "--frame-actions",
+                "; ".join(WAVE_BEATS),
+                cwd=project,
+            )
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            run_dir = pathlib.Path(prepared.stdout.strip())
+            generated_source = project / "wave-generated.png"
+            self.make_grid(
+                generated_source,
+                chroma=DEFAULT_TEST_CHROMA,
+                guide_canvas=True,
+                guide_line_width=5,
+                guide_line_color="#777777",
+            )
+
+            recorded = self.run_script(
+                "record_animation_result.py",
+                "--run-dir",
+                str(run_dir),
+                "--job-id",
+                "wave",
+                "--source",
+                str(generated_source),
+                cwd=project,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            finalized = self.run_script(
+                "finalize_animation_run.py",
+                "--run-dir",
+                str(run_dir),
+                "--action-id",
+                "wave",
+                cwd=project,
+            )
+
+            self.assertEqual(finalized.returncode, 0, finalized.stderr + finalized.stdout)
+            frame_manifest = json.loads((run_dir / "frames" / "frames-manifest.json").read_text(encoding="utf-8"))
+            row = frame_manifest["rows"][0]
+            self.assertEqual(row["guide_erase_policy"], "detected-safe-area-inner-box")
+            self.assertTrue(row["detected_safe_boxes"])
+            self.assertTrue(
+                all(box["source"] == "detected-safe-area-inner-fill" for box in row["detected_safe_boxes"].values())
             )
 
     def test_finalize_ignores_generated_content_in_unused_slots(self) -> None:

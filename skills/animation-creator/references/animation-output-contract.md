@@ -16,6 +16,7 @@ All paths are project-local by default. A normal run lives under:
     registration-guides/<action-id>.png
   generated/
     base-character.png  # only when the base is generated
+    attempts/<action-id>-NN.png  # rejected or candidate action-sheet attempts, when regeneration was needed
     <action-id>.png
   frames/
     <action-id>/000.png
@@ -81,7 +82,9 @@ Each action image should be a grid sheet with exactly one cell per planned frame
 
 When the recommended grid contains more cells than planned frames, only the planned frame count is part of the output contract. Extraction ignores unused slots even if generation fills them.
 
-Extraction removes the chroma-key background from the full generated sheet, removes visible outer grid borders, detects the generated blue safe-area rectangle in each used slot, clears everything outside the detected inner safe-area box, ignores unused slots, then preserves the generated sheet's actual per-cell size. If a used slot's blue safe-area rectangle cannot be detected, extraction falls back to the manifest safe-area geometry for that slot and records that fallback in the frame manifest. It prefers connected-component grouping into the expected frame slots. The default finalize path requires component extraction; known-layout slot slicing is a manual diagnostic fallback, not an acceptable default completion path. Validation checks whether the extracted frames are non-empty, avoid cell edges, were component-extracted, and remain visually continuous.
+Before extraction, inspect the raw generated action sheet. If the sheet has the wrong grid, missing requested frames, wrong slot order, repeated stills where motion should change, broken identity, disconnected motion, visible labels, extra guide marks, malformed or missing safe-area rectangles, clipped poses, or non-chroma safe-area interiors, the selected action image is invalid and should be regenerated. Do not use deterministic post-processing as a way to accept a bad raw sheet. Save rejected action-sheet attempts under `generated/attempts/` when useful, but record only the selected accepted attempt as `generated/<action-id>.png`.
+
+Extraction removes the chroma-key background from the full generated sheet, removes visible outer grid borders, detects the generated chroma-key inner safe-area fill in each used slot, clears everything outside that detected inner safe-area box, ignores unused slots, then preserves the generated sheet's actual per-cell size. Safe-area outline color is not the primary detection signal; line detection is only a diagnostic backup when the inner fill cannot be read. If a used slot's inner safe-area fill cannot be detected, extraction may use the manifest safe-area geometry only as a diagnostic last resort and records that fallback in the frame manifest; an accepted production result should not rely on manifest fallback for a visibly malformed raw sheet. It prefers connected-component grouping into the expected frame slots. The default finalize path requires component extraction; known-layout slot slicing is a manual diagnostic fallback, not an acceptable default completion path. Validation checks whether the extracted frames are non-empty, avoid cell edges, were component-extracted, and remain visually continuous.
 
 Recommended layouts:
 
@@ -96,7 +99,7 @@ Recommended layouts:
 
 The maximum action length is `16` frames. Do not choose a frame count from an action category. First build and audit the frame actions until the motion is complete; then choose the recommended layout from that finalized count.
 
-Planning should continue one beat at a time. Frame 1 may describe the starting pose; every later frame should be treated as the accumulated result of all previous changes plus the visible change from the immediately previous slot, rather than a standalone pose label. A short phase label may be used only when it helps identify the accumulated current frame. Do not use few-shot examples or canned templates. After each planned frame, ask whether the action still needs any of these beats before it will read clearly:
+Planning should continue one beat at a time. Frame 1 may describe the starting pose; every later frame should be treated as the accumulated result of all previous changes plus the visible change from the immediately previous slot, rather than a standalone pose label. A short phase label may be used only when it helps identify the accumulated current frame. Avoid transform-like wording unless the requested animation explicitly requires that major visual transform; for ordinary rotation, tumbling, airborne motion, or transitional poses, prefer body-part positions and continuous motion paths. Do not use few-shot examples or canned templates. After each planned frame, ask whether the action still needs any of these beats before it will read clearly:
 
 - anticipation or wind-up
 - first contact or launch

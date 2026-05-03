@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,7 @@ from animation_common import (
 )
 
 GENERATED_CELL_BORDER_ERASE_PAD = 8
-SAFE_LINE_SEARCH_PAD = 18
+SAFE_LINE_SEARCH_PAD = 36
 DETECTED_SAFE_BOX_INNER_PAD = 3
 
 
@@ -203,9 +204,101 @@ def common_slot_size(boxes: list[tuple[int, int, int, int]]) -> tuple[int, int]:
     )
 
 
-def is_safe_area_blue(red: int, green: int, blue: int) -> bool:
-    """Identify the registration guide's blue safe-area line without matching character blues by itself."""
-    return blue >= 150 and 70 <= green <= 180 and red <= 90 and blue - red >= 100 and blue - green >= 45
+def is_chroma_green_like(red: int, green: int, blue: int) -> bool:
+    return green >= 170 and red <= 100 and blue <= 120 and green - red >= 70 and green - blue >= 70
+
+
+def is_neutral_canvas_like(red: int, green: int, blue: int) -> bool:
+    return min(red, green, blue) >= 232 and max(red, green, blue) - min(red, green, blue) <= 18
+
+
+def color_distance(left: tuple[int, int, int], right: tuple[int, int, int]) -> int:
+    return max(abs(left[index] - right[index]) for index in range(3))
+
+
+def guide_line_pixel_weight(red: int, green: int, blue: int, ignored_colors: tuple[tuple[int, int, int], ...]) -> int:
+    pixel = (red, green, blue)
+    if any(color_distance(pixel, ignored) <= 32 for ignored in ignored_colors):
+        return 0
+    if is_chroma_green_like(red, green, blue) or is_neutral_canvas_like(red, green, blue):
+        return 0
+    if min(red, green, blue) <= 96:
+        return 1
+    if max(red, green, blue) - min(red, green, blue) >= 32:
+        return 1
+    if 70 <= red <= 220 and 70 <= green <= 220 and 70 <= blue <= 220:
+        return 1
+    return 0
+
+
+def quantized_color(red: int, green: int, blue: int) -> tuple[int, int, int]:
+    return tuple(min(255, (value // 8) * 8 + 4) for value in (red, green, blue))
+
+
+def dominant_inner_color(
+    cell: Image.Image,
+    *,
+    expected_left: int,
+    expected_top: int,
+    expected_right: int,
+    expected_bottom: int,
+) -> tuple[int, int, int] | None:
+    pixels = cell.load()
+    width, height = cell.size
+    inset_x = max(4, round((expected_right - expected_left) * 0.20))
+    inset_y = max(4, round((expected_bottom - expected_top) * 0.20))
+    sample_left = max(0, min(width, expected_left + inset_x))
+    sample_right = max(0, min(width, expected_right - inset_x))
+    sample_top = max(0, min(height, expected_top + inset_y))
+    sample_bottom = max(0, min(height, expected_bottom - inset_y))
+    if sample_right <= sample_left or sample_bottom <= sample_top:
+        return None
+    step = max(1, round(min(width, height) / 128))
+    counts: Counter[tuple[int, int, int]] = Counter()
+    for yy in range(sample_top, sample_bottom, step):
+        for xx in range(sample_left, sample_right, step):
+            counts[quantized_color(*pixels[xx, yy])] += 1
+    return counts.most_common(1)[0][0] if counts else None
+
+
+def safe_area_line_scores(
+    cell: Image.Image,
+    *,
+    expected_left: int,
+    expected_top: int,
+    expected_right: int,
+    expected_bottom: int,
+) -> tuple[list[int], list[int]]:
+    pixels = cell.load()
+    width, height = cell.size
+    row_scores = [0] * height
+    column_scores = [0] * width
+    scan_left = max(0, expected_left)
+    scan_right = min(width, expected_right)
+    scan_top = max(0, expected_top)
+    scan_bottom = min(height, expected_bottom)
+    dominant = dominant_inner_color(
+        cell,
+        expected_left=expected_left,
+        expected_top=expected_top,
+        expected_right=expected_right,
+        expected_bottom=expected_bottom,
+    )
+    ignored_colors = (dominant,) if dominant else ()
+
+    for yy in range(height):
+        score = 0
+        for xx in range(scan_left, scan_right):
+            score += guide_line_pixel_weight(*pixels[xx, yy], ignored_colors)
+        row_scores[yy] = score
+
+    for xx in range(width):
+        score = 0
+        for yy in range(scan_top, scan_bottom):
+            score += guide_line_pixel_weight(*pixels[xx, yy], ignored_colors)
+        column_scores[xx] = score
+
+    return row_scores, column_scores
 
 
 def best_line_group(
@@ -214,35 +307,112 @@ def best_line_group(
     expected: int,
     search_pad: int,
     minimum_score: int,
+    min_index: int | None = None,
+    max_index: int | None = None,
 ) -> tuple[int, int] | None:
-    start = max(0, expected - search_pad)
-    end = min(len(scores), expected + search_pad + 1)
-    groups: list[tuple[int, int, int]] = []
+    start = max(0, expected - search_pad, min_index if min_index is not None else 0)
+    end = min(len(scores), expected + search_pad + 1, max_index if max_index is not None else len(scores))
+    groups: list[tuple[int, int, int, int]] = []
     group_start: int | None = None
     group_score = 0
+    group_peak = 0
     for index in range(start, end):
         if scores[index] >= minimum_score:
             if group_start is None:
                 group_start = index
                 group_score = 0
+                group_peak = 0
             group_score += scores[index]
+            group_peak = max(group_peak, scores[index])
         elif group_start is not None:
-            groups.append((group_start, index, group_score))
+            groups.append((group_start, index, group_score, group_peak))
             group_start = None
     if group_start is not None:
-        groups.append((group_start, end, group_score))
+        groups.append((group_start, end, group_score, group_peak))
     if not groups:
         return None
-    best = max(groups, key=lambda item: (item[2], -abs(((item[0] + item[1]) / 2) - expected)))
+    best = max(groups, key=lambda item: (item[3], item[2], -abs(((item[0] + item[1]) / 2) - expected)))
     return best[0], best[1]
+
+
+def first_index_at_least(scores: list[int], start: int, end: int, minimum_score: int) -> int | None:
+    for index in range(max(0, start), min(len(scores), end)):
+        if scores[index] >= minimum_score:
+            return index
+    return None
+
+
+def last_index_at_least(scores: list[int], start: int, end: int, minimum_score: int) -> int | None:
+    for index in range(min(len(scores), end) - 1, max(0, start) - 1, -1):
+        if scores[index] >= minimum_score:
+            return index
+    return None
+
+
+def detect_inner_fill_box(
+    cell: Image.Image,
+    *,
+    expected_left: int,
+    expected_top: int,
+    expected_right: int,
+    expected_bottom: int,
+    search_pad: int,
+    chroma_key: tuple[int, int, int],
+    chroma_threshold: float,
+) -> tuple[int, int, int, int] | None:
+    pixels = cell.load()
+    width, height = cell.size
+    row_counts = [0] * height
+    column_counts = [0] * width
+    for yy in range(height):
+        for xx in range(width):
+            if color_distance(pixels[xx, yy], chroma_key) <= chroma_threshold:
+                row_counts[yy] += 1
+                column_counts[xx] += 1
+
+    horizontal_span = max(1, expected_right - expected_left)
+    vertical_span = max(1, expected_bottom - expected_top)
+    horizontal_min = max(12, round(horizontal_span * 0.20))
+    vertical_min = max(12, round(vertical_span * 0.20))
+    inner_left = first_index_at_least(
+        column_counts,
+        expected_left - search_pad,
+        expected_left + search_pad + 1,
+        vertical_min,
+    )
+    inner_top = first_index_at_least(
+        row_counts,
+        expected_top - search_pad,
+        expected_top + search_pad + 1,
+        horizontal_min,
+    )
+    inner_right = last_index_at_least(
+        column_counts,
+        expected_right - search_pad,
+        expected_right + search_pad + 1,
+        vertical_min,
+    )
+    inner_bottom = last_index_at_least(
+        row_counts,
+        expected_bottom - search_pad,
+        expected_bottom + search_pad + 1,
+        horizontal_min,
+    )
+    if inner_left is None or inner_top is None or inner_right is None or inner_bottom is None:
+        return None
+    if inner_right <= inner_left or inner_bottom <= inner_top:
+        return None
+    return inner_left, inner_top, inner_right + 1, inner_bottom + 1
 
 
 def detect_inner_safe_box(
     source: Image.Image,
     layout: dict[str, int],
     slot_box: tuple[int, int, int, int],
+    chroma_key: tuple[int, int, int],
+    chroma_threshold: float,
 ) -> tuple[tuple[int, int, int, int], str]:
-    """Find the actual generated blue safe-area rectangle and return its inner box in sheet coordinates."""
+    """Find the generated safe-area inner fill and return its box in sheet coordinates."""
     left, top, right, bottom = slot_box
     cell = source.crop(slot_box).convert("RGB")
     width, height = cell.size
@@ -264,22 +434,67 @@ def detect_inner_safe_box(
     if expected_left <= 0 or expected_top <= 0:
         return fallback, "manifest"
 
-    pixels = cell.load()
-    row_scores = [0] * height
-    column_scores = [0] * width
-    for yy in range(height):
-        for xx in range(width):
-            if is_safe_area_blue(*pixels[xx, yy]):
-                row_scores[yy] += 1
-                column_scores[xx] += 1
-
     search_pad = max(6, round(min(width, height) / 512 * SAFE_LINE_SEARCH_PAD))
-    horizontal_min = max(20, round(width * 0.35))
-    vertical_min = max(20, round(height * 0.35))
-    top_group = best_line_group(row_scores, expected=expected_top, search_pad=search_pad, minimum_score=horizontal_min)
-    bottom_group = best_line_group(row_scores, expected=expected_bottom - 1, search_pad=search_pad, minimum_score=horizontal_min)
-    left_group = best_line_group(column_scores, expected=expected_left, search_pad=search_pad, minimum_score=vertical_min)
-    right_group = best_line_group(column_scores, expected=expected_right - 1, search_pad=search_pad, minimum_score=vertical_min)
+    fill_box = detect_inner_fill_box(
+        cell,
+        expected_left=expected_left,
+        expected_top=expected_top,
+        expected_right=expected_right,
+        expected_bottom=expected_bottom,
+        search_pad=search_pad,
+        chroma_key=chroma_key,
+        chroma_threshold=chroma_threshold,
+    )
+    if fill_box is not None:
+        inner_left = left + fill_box[0] + inner_pad
+        inner_top = top + fill_box[1] + inner_pad
+        inner_right = left + fill_box[2] - inner_pad
+        inner_bottom = top + fill_box[3] - inner_pad
+        if inner_right > inner_left and inner_bottom > inner_top:
+            return (inner_left, inner_top, inner_right, inner_bottom), "detected-safe-area-inner-fill"
+
+    row_scores, column_scores = safe_area_line_scores(
+        cell,
+        expected_left=expected_left,
+        expected_top=expected_top,
+        expected_right=expected_right,
+        expected_bottom=expected_bottom,
+    )
+
+    horizontal_span = max(1, expected_right - expected_left)
+    vertical_span = max(1, expected_bottom - expected_top)
+    horizontal_min = max(20, round(horizontal_span * 0.45))
+    vertical_min = max(20, round(vertical_span * 0.45))
+    edge_clear_x = max(2, round(expected_left * 0.75))
+    edge_clear_y = max(2, round(expected_top * 0.75))
+    top_group = best_line_group(
+        row_scores,
+        expected=expected_top,
+        search_pad=search_pad,
+        minimum_score=horizontal_min,
+        min_index=edge_clear_y,
+    )
+    bottom_group = best_line_group(
+        row_scores,
+        expected=expected_bottom - 1,
+        search_pad=search_pad,
+        minimum_score=horizontal_min,
+        max_index=height - edge_clear_y,
+    )
+    left_group = best_line_group(
+        column_scores,
+        expected=expected_left,
+        search_pad=search_pad,
+        minimum_score=vertical_min,
+        min_index=edge_clear_x,
+    )
+    right_group = best_line_group(
+        column_scores,
+        expected=expected_right - 1,
+        search_pad=search_pad,
+        minimum_score=vertical_min,
+        max_index=width - edge_clear_x,
+    )
     if not all((top_group, bottom_group, left_group, right_group)):
         return fallback, "manifest"
 
@@ -289,18 +504,20 @@ def detect_inner_safe_box(
     inner_bottom = top + bottom_group[0] - inner_pad
     if inner_right <= inner_left or inner_bottom <= inner_top:
         return fallback, "manifest"
-    return (inner_left, inner_top, inner_right, inner_bottom), "detected-blue-safe-area"
+    return (inner_left, inner_top, inner_right, inner_bottom), "detected-safe-area-line"
 
 
 def detect_inner_safe_boxes(
     source: Image.Image,
     layout: dict[str, int],
     frame_count: int,
+    chroma_key: tuple[int, int, int],
+    chroma_threshold: float,
 ) -> dict[int, dict[str, object]]:
     return {
         index: {"box": list(box), "source": source_name}
         for index, slot_box in enumerate(slot_boxes(source, layout, frame_count))
-        for box, source_name in [detect_inner_safe_box(source, layout, slot_box)]
+        for box, source_name in [detect_inner_safe_box(source, layout, slot_box, chroma_key, chroma_threshold)]
     }
 
 
@@ -375,6 +592,57 @@ def erase_outside_safe_areas(
                 for xx in range(left, right):
                     if not (safe_left <= xx < safe_right and safe_top <= yy < safe_bottom):
                         pixels[xx, yy] = (0, 0, 0, 0)
+    return rgba
+
+
+def is_guide_canvas_background(red: int, green: int, blue: int) -> bool:
+    return min(red, green, blue) >= 232 and max(red, green, blue) - min(red, green, blue) <= 32
+
+
+def erase_connected_guide_canvas_background(image: Image.Image, *, large_component_min_area: int | None = None) -> Image.Image:
+    """Remove light neutral guide-canvas remnants that are connected to transparent background."""
+    rgba = image.convert("RGBA")
+    width, height = rgba.size
+    pixels = rgba.load()
+    visited = bytearray(width * height)
+    for start in range(width * height):
+        if visited[start]:
+            continue
+        x = start % width
+        y = start // width
+        red, green, blue, alpha = pixels[x, y]
+        if alpha <= 16 or not is_guide_canvas_background(red, green, blue):
+            visited[start] = 1
+            continue
+        stack = [start]
+        visited[start] = 1
+        component: list[int] = []
+        touches_transparent = False
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            cx = current % width
+            cy = current // width
+            for nx, ny in ((cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                    touches_transparent = True
+                    continue
+                nred, ngreen, nblue, nalpha = pixels[nx, ny]
+                if nalpha <= 16:
+                    touches_transparent = True
+                    continue
+                if is_guide_canvas_background(nred, ngreen, nblue):
+                    neighbor = ny * width + nx
+                    if visited[neighbor]:
+                        continue
+                    visited[neighbor] = 1
+                    stack.append(neighbor)
+        is_large_background = large_component_min_area is not None and len(component) >= large_component_min_area
+        if touches_transparent or is_large_background:
+            for pixel_index in component:
+                px = pixel_index % width
+                py = pixel_index // width
+                pixels[px, py] = (0, 0, 0, 0)
     return rgba
 
 
@@ -657,9 +925,11 @@ def main() -> None:
         used_method = args.method
         layout = add_guide_safe_margins(state_layout(state, int(state["frames"])), guides_by_state.get(str(state["name"])))
         validate_sheet_aspect(sheet, layout, str(state["name"]))
-        safe_boxes = detect_inner_safe_boxes(source_rgb, layout, int(state["frames"]))
+        safe_boxes = detect_inner_safe_boxes(source_rgb, layout, int(state["frames"]), key_rgb, float(chroma["threshold"]))
         sheet = erase_generated_cell_borders(sheet, layout)
         sheet = erase_outside_safe_areas(sheet, layout, safe_boxes)
+        slot_area = max(1, round((sheet.width / int(layout["columns"])) * (sheet.height / int(layout["rows"]))))
+        sheet = erase_connected_guide_canvas_background(sheet, large_component_min_area=max(256, round(slot_area * 0.08)))
         unused_slots = unused_slot_diagnostics(sheet, layout, int(state["frames"]))
         sheet = clear_unused_slots(sheet, layout, int(state["frames"]))
         crop_box_values = slot_boxes(sheet, layout, int(state["frames"]))
@@ -687,12 +957,13 @@ def main() -> None:
             for box in safe_boxes.values()
             if isinstance(box, dict) and box.get("source") is not None
         }
+        detected_sources = {"detected-safe-area-line", "detected-safe-area-inner-fill"}
         guide_erase_policy = (
-            "detected-blue-safe-area-inner-box"
-            if safe_box_sources == {"detected-blue-safe-area"}
+            "detected-safe-area-inner-box"
+            if safe_box_sources and safe_box_sources <= detected_sources
             else "manifest-safe-area-fallback"
             if safe_box_sources == {"manifest"}
-            else "detected-blue-safe-area-inner-box-with-manifest-fallback"
+            else "detected-safe-area-inner-box-with-manifest-fallback"
         )
         rows.append(
             {
