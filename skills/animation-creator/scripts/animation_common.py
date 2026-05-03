@@ -221,12 +221,16 @@ def recommended_grid(frame_count: int) -> dict[str, Any]:
         columns = 4
         rows = 4
     cell_width, cell_height = image_2_cell_size(columns, rows)
+    cell_count = columns * rows
     return {
         "type": "grid",
         "order": "left-to-right-top-to-bottom",
         "columns": columns,
         "rows": rows,
         "frame_count": frame_count,
+        "cell_count": cell_count,
+        "used_slots": frame_count,
+        "unused_slots": list(range(frame_count + 1, cell_count + 1)),
         "cell_width": cell_width,
         "cell_height": cell_height,
         "nominal_cell_width": DEFAULT_WORKING_CELL_SIZE[0],
@@ -253,10 +257,13 @@ def normalize_grid_layout(raw: Any, frame_count: int) -> dict[str, Any]:
                 "rows": rows,
                 "cell_width": cell_width,
                 "cell_height": cell_height,
+                "cell_count": columns * rows,
                 "working_cell_size": [cell_width, cell_height],
             }
         )
     layout["frame_count"] = frame_count
+    layout["used_slots"] = frame_count
+    layout["unused_slots"] = list(range(frame_count + 1, int(layout["columns"]) * int(layout["rows"]) + 1))
     return layout
 
 

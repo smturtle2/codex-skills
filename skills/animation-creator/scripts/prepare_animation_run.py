@@ -108,7 +108,7 @@ def action_prompt(
     guide_height = rows * cell_height
     aspect = guide_width / guide_height
     chroma_background_requirement = (
-        f"- Fill only the inside of each blue safe-area rectangle with chroma key {chroma_hex}, then draw the character pose on that chroma background."
+        f"- Fill only the inside of each requested slot's blue safe-area rectangle with chroma key {chroma_hex}, then draw the character pose on that chroma background."
         if chroma_ready
         else "- This is a pre-base planning prompt. Do not use it for final action generation until the canonical base is recorded and this prompt is regenerated with the selected chroma-key background."
     )
@@ -135,7 +135,7 @@ Identity lock:
 - Change pose, expression, and action timing for this action: {action}.
 
 Motion sequence instructions:
-Frame labels below are text-only ordering instructions for the generator. They are the final audited result of a sequential one-beat-at-a-time planning pass: missing transition beats were added, redundant duplicate beats were removed, and the remaining beats are intended to play as one continuous motion. Use them to map each pose to the correct slot, but never draw frame numbers or frame labels in the image.
+Frame labels below are text-only ordering instructions for the generator. They are the final audited result of a sequential one-beat-at-a-time planning pass: missing transition beats were added, redundant duplicate beats were removed, and the remaining beats are intended to play as one continuous motion. This is a delta-based cumulative animation plan: Frame 1 is the starting pose, and every later frame is the accumulated result of all previous frame changes plus the visible change described for that slot. Each later line primarily describes what visibly changed from the immediately previous slot. A short phase label may be included only when it helps identify the accumulated current frame. Interpret each line as a continuation of the prior slot, not as an independent pose. Use these lines to map each pose to the correct slot, but never draw frame numbers or frame labels in the image.
 {format_frame_actions(frame_actions)}
 
 Animation continuity contract:
@@ -179,7 +179,7 @@ def split_frame_actions(raw: str | None) -> list[str]:
 
 
 def format_frame_actions(frame_actions: list[str]) -> str:
-    return "\n".join(f"Frame {index} consecutive motion beat: {beat}" for index, beat in enumerate(frame_actions, start=1))
+    return "\n".join(f"Frame {index}: {beat}" for index, beat in enumerate(frame_actions, start=1))
 
 
 def normalize_frame_actions(action_id: str, action: str, explicit: list[str] | None = None) -> list[str]:

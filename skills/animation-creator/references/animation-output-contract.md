@@ -80,7 +80,9 @@ Defaults:
 
 Each action image should be a grid sheet with exactly one cell per planned frame action, read left-to-right, top-to-bottom. Each cell contains one complete pose matching that frame action, with consistent character registration, scale, facing, safe-box placement, and camera distance across adjacent frames. The prompt treats the registration guide as an edit template: keep the canvas, black cell borders, blue safe-area rectangles, and neutral background outside the blue rectangles; remove gray dashed centerlines and faint guide characters; fill only each blue safe-area interior with the selected chroma key; and draw character artwork on top. Extraction accepts generated sheets that preserve the manifest grid aspect ratio, removes visible guide border/background remnants, then uses the known grid to group frame content.
 
-Extraction removes the chroma-key background from the full generated sheet, removes visible guide borders and center dashed lines, clears the guide canvas outside each inner safe area, then preserves the generated sheet's actual per-cell size. It prefers connected-component grouping into the expected frame slots. The default finalize path requires component extraction; known-layout slot slicing is a manual diagnostic fallback, not an acceptable default completion path. Validation checks whether the extracted frames are non-empty, avoid cell edges, were component-extracted, and remain visually continuous.
+When the recommended grid contains more cells than planned frames, only the planned frame count is part of the output contract. Extraction ignores unused slots even if generation fills them.
+
+Extraction removes the chroma-key background from the full generated sheet, removes visible outer grid borders, detects the generated blue safe-area rectangle in each used slot, clears everything outside the detected inner safe-area box, ignores unused slots, then preserves the generated sheet's actual per-cell size. If a used slot's blue safe-area rectangle cannot be detected, extraction falls back to the manifest safe-area geometry for that slot and records that fallback in the frame manifest. It prefers connected-component grouping into the expected frame slots. The default finalize path requires component extraction; known-layout slot slicing is a manual diagnostic fallback, not an acceptable default completion path. Validation checks whether the extracted frames are non-empty, avoid cell edges, were component-extracted, and remain visually continuous.
 
 Recommended layouts:
 
@@ -95,7 +97,7 @@ Recommended layouts:
 
 The maximum action length is `16` frames. Do not choose a frame count from an action category. First build and audit the frame actions until the motion is complete; then choose the recommended layout from that finalized count.
 
-Planning should continue one beat at a time. Do not use few-shot examples or canned templates. After each planned frame, ask whether the action still needs any of these beats before it will read clearly:
+Planning should continue one beat at a time. Frame 1 may describe the starting pose; every later frame should be treated as the accumulated result of all previous changes plus the visible change from the immediately previous slot, rather than a standalone pose label. A short phase label may be used only when it helps identify the accumulated current frame. Do not use few-shot examples or canned templates. After each planned frame, ask whether the action still needs any of these beats before it will read clearly:
 
 - anticipation or wind-up
 - first contact or launch

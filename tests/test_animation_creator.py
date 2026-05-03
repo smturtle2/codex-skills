@@ -24,6 +24,7 @@ WAVE_BEATS = [
 ]
 
 from animation_common import chroma_adjacent_count, fit_to_frame, recommended_grid, remove_chroma_background  # noqa: E402
+from extract_frames import character_components, connected_components  # noqa: E402
 
 class AnimationCreatorTests(unittest.TestCase):
     def run_script(self, script: str, *args: str, cwd: pathlib.Path) -> subprocess.CompletedProcess[str]:
@@ -46,32 +47,40 @@ class AnimationCreatorTests(unittest.TestCase):
         chroma: str | tuple[int, int, int] = DEFAULT_TEST_CHROMA,
         artifacts: bool = False,
         guide_canvas: bool = False,
+        guide_line_width: int = 2,
+        extra_slot_content_indexes: set[int] | None = None,
     ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         image = Image.new("RGB", (columns * size, rows * size), "#f7f7f7" if guide_canvas else chroma)
         draw = ImageDraw.Draw(image)
-        for index in range(frames):
+        extra_slot_content_indexes = extra_slot_content_indexes or set()
+        total_slots = columns * rows
+        for index in range(total_slots if guide_canvas else frames):
             left = (index % columns) * size
             top = (index // columns) * size
             safe_x = round(30 * size / 512)
             safe_y = round(24 * size / 512)
             if guide_canvas:
-                draw.rectangle((left, top, left + size - 1, top + size - 1), outline="#111111", width=2)
+                draw.rectangle((left, top, left + size - 1, top + size - 1), outline="#111111", width=guide_line_width)
                 draw.rectangle(
                     (left + safe_x, top + safe_y, left + size - safe_x - 1, top + size - safe_y - 1),
                     fill=chroma,
                     outline="#2f80ed",
-                    width=2,
+                    width=guide_line_width,
                 )
                 cx_line = left + size // 2
                 cy_line = top + size // 2
                 for yy in range(top + safe_y, top + size - safe_y, 16):
-                    draw.line((cx_line, yy, cx_line, min(yy + 7, top + size - safe_y)), fill="#b8b8b8", width=2)
+                    draw.line((cx_line, yy, cx_line, min(yy + 7, top + size - safe_y)), fill="#b8b8b8", width=guide_line_width)
                 for xx in range(left + safe_x, left + size - safe_x, 16):
-                    draw.line((xx, cy_line, min(xx + 7, left + size - safe_x), cy_line), fill="#b8b8b8", width=2)
+                    draw.line((xx, cy_line, min(xx + 7, left + size - safe_x), cy_line), fill="#b8b8b8", width=guide_line_width)
+            if index >= frames and index not in extra_slot_content_indexes:
+                continue
             cx = left + size // 2
             cy = top + size // 2
             radius = 80 + index * 3
+            if index in extra_slot_content_indexes:
+                radius = 96
             if artifacts:
                 draw.ellipse(
                     (cx - radius - 16, cy - radius - 10, cx + radius + 16, cy + radius + 18),
@@ -206,8 +215,10 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertIn("Edit the attached registration guide into the animation action sheet", prompt_result.stdout)
             self.assertIn("Keep unchanged: canvas size, grid layout, black cell borders, blue safe-area rectangles", prompt_result.stdout)
             self.assertIn("Remove from the generated result: gray dashed centerlines and faint guide characters", prompt_result.stdout)
+            self.assertIn("This is a delta-based cumulative animation plan", prompt_result.stdout)
+            self.assertIn("accumulated result of all previous frame changes", prompt_result.stdout)
             self.assertIn("Anchor the character to the same registration point in every slot", prompt_result.stdout)
-            self.assertIn("Fill only the inside of each blue safe-area rectangle", prompt_result.stdout)
+            self.assertIn("Fill only the inside of each requested slot's blue safe-area rectangle", prompt_result.stdout)
             self.assertNotIn("placement reference only, not as the output canvas", prompt_result.stdout)
             self.assertNotIn("Preserve/recreate the registration guide's visible outer cell borders", prompt_result.stdout)
             self.assertIn("references/registration-guides/wave.png", prompt_result.stdout)
@@ -329,12 +340,55 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertFalse((run_dir / "references" / "layout-guides" / "gesture.png").exists())
             prompt = (run_dir / "prompts" / "actions" / "gesture.md").read_text(encoding="utf-8")
             self.assertIn("Output exactly 5", prompt)
-            self.assertIn("Frame 5 consecutive motion beat: settle into the ending pose", prompt)
+            self.assertIn("Frame 1: ready stance", prompt)
+            self.assertIn("Frame 5: settle into the ending pose", prompt)
             self.assertIn("final audited result of a sequential one-beat-at-a-time planning pass", prompt)
             self.assertIn("missing transition beats were added, redundant duplicate beats were removed", prompt)
-            self.assertIn("Each frame must visibly continue from the immediately previous frame", prompt)
+            self.assertIn("accumulated result of all previous frame changes", prompt)
+            self.assertIn("what visibly changed from the immediately previous slot", prompt)
+            self.assertNotIn("Slots F6 must contain no character", prompt)
+            self.assertNotIn("Fill only slots F1-F5", prompt)
             self.assertNotIn("for example", prompt.lower())
             self.assertNotIn("few-shot", prompt.lower())
+
+    def test_prepare_records_unused_grid_slots_without_prompting_them(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = pathlib.Path(tmpdir)
+            frame_actions = [
+                "ready stance",
+                "lower the body",
+                "move through the middle of the action",
+                "recover toward balance",
+                "settle into the ending pose",
+            ]
+
+            prepared = self.run_script(
+                "prepare_animation_run.py",
+                "--project-root",
+                str(project),
+                "--character-name",
+                "Demo Bot",
+                "--action-id",
+                "gesture",
+                "--action",
+                "short gesture",
+                "--frame-actions",
+                "; ".join(frame_actions),
+                cwd=project,
+            )
+
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            run_dir = pathlib.Path(prepared.stdout.strip())
+            manifest = json.loads((run_dir / "animation_manifest.json").read_text(encoding="utf-8"))
+            layout = manifest["animation"]["states"][0]["layout"]
+            self.assertEqual(layout["columns"], 3)
+            self.assertEqual(layout["rows"], 2)
+            self.assertEqual(layout["unused_slots"], [6])
+            prompt = (run_dir / "prompts" / "actions" / "gesture.md").read_text(encoding="utf-8")
+            self.assertIn("Output exactly 5 separate full-body animation frames", prompt)
+            self.assertIn("Frame 5: settle into the ending pose", prompt)
+            self.assertNotIn("Slots F6", prompt)
+            self.assertNotIn("unused slots", prompt.lower())
 
     def test_prepare_rejects_excess_frame_actions_with_review_hint(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -544,7 +598,7 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
             run_dir = pathlib.Path(prepared.stdout.strip())
             generated_source = project / "wave-generated.png"
-            self.make_grid(generated_source, chroma=DEFAULT_TEST_CHROMA, guide_canvas=True)
+            self.make_grid(generated_source, chroma=DEFAULT_TEST_CHROMA, guide_canvas=True, guide_line_width=5)
 
             recorded = self.run_script(
                 "record_animation_result.py",
@@ -569,6 +623,108 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertEqual(finalized.returncode, 0, finalized.stderr + finalized.stdout)
             review = json.loads((run_dir / "qa" / "wave-review.json").read_text(encoding="utf-8"))
             self.assertTrue(review["ok"], review)
+            frame_manifest = json.loads((run_dir / "frames" / "frames-manifest.json").read_text(encoding="utf-8"))
+            row = frame_manifest["rows"][0]
+            self.assertEqual(row["method"], "components")
+            self.assertEqual(row["guide_erase_policy"], "detected-blue-safe-area-inner-box")
+            self.assertTrue(row["detected_safe_boxes"])
+            self.assertTrue(
+                all(box["source"] == "detected-blue-safe-area" for box in row["detected_safe_boxes"].values())
+            )
+
+    def test_finalize_ignores_generated_content_in_unused_slots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = pathlib.Path(tmpdir)
+            source_character = project / "source.png"
+            Image.new("RGB", (64, 64), "red").save(source_character)
+            frame_actions = [
+                "ready stance",
+                "lower the body",
+                "move through the middle of the action",
+                "recover toward balance",
+                "settle into the ending pose",
+            ]
+            prepared = self.run_script(
+                "prepare_animation_run.py",
+                "--project-root",
+                str(project),
+                "--character-name",
+                "Demo Bot",
+                "--source-character",
+                str(source_character),
+                "--chroma-key",
+                DEFAULT_TEST_CHROMA,
+                "--action-id",
+                "gesture",
+                "--action",
+                "short gesture",
+                "--frame-actions",
+                "; ".join(frame_actions),
+                cwd=project,
+            )
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            run_dir = pathlib.Path(prepared.stdout.strip())
+            generated_source = project / "gesture-generated.png"
+            self.make_grid(
+                generated_source,
+                frames=len(frame_actions),
+                columns=3,
+                rows=2,
+                chroma=DEFAULT_TEST_CHROMA,
+                guide_canvas=True,
+                extra_slot_content_indexes={5},
+            )
+            recorded = self.run_script(
+                "record_animation_result.py",
+                "--run-dir",
+                str(run_dir),
+                "--job-id",
+                "gesture",
+                "--source",
+                str(generated_source),
+                cwd=project,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+
+            finalized = self.run_script(
+                "finalize_animation_run.py",
+                "--run-dir",
+                str(run_dir),
+                "--action-id",
+                "gesture",
+                cwd=project,
+            )
+
+            self.assertEqual(finalized.returncode, 0, finalized.stderr + finalized.stdout)
+            review = json.loads((run_dir / "qa" / "gesture-review.json").read_text(encoding="utf-8"))
+            self.assertTrue(review["ok"], review)
+            frames = sorted((run_dir / "frames" / "gesture").glob("*.png"))
+            self.assertEqual(len(frames), len(frame_actions))
+            frame_manifest = json.loads((run_dir / "frames" / "frames-manifest.json").read_text(encoding="utf-8"))
+            row = frame_manifest["rows"][0]
+            self.assertEqual(row["method"], "components")
+            self.assertEqual(len(row["unused_slots"]), 1)
+            self.assertGreater(row["unused_slots"][0]["nontransparent_pixels"], 0)
+
+    def test_component_extraction_ignores_safe_area_line_remnants(self) -> None:
+        image = Image.new("RGBA", (624, 312), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        layout = {
+            "columns": 2,
+            "rows": 1,
+            "cell_width": 512,
+            "cell_height": 512,
+            "safe_margin_x": 30,
+            "safe_margin_y": 24,
+        }
+        safe_x = round(30 * 312 / 512)
+        draw.ellipse((90, 80, 210, 240), fill=(40, 120, 220, 255), outline=(10, 20, 30, 255), width=6)
+        draw.line((312 - safe_x, 20, 312 - safe_x, 292), fill=(47, 128, 237, 255), width=2)
+
+        components = character_components(connected_components(image), image, layout)
+
+        self.assertEqual(len(components), 1)
+        self.assertLess(components[0]["bbox"][2], 312 - safe_x)
 
     def test_add_action_preserves_existing_completed_job_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -24,7 +24,9 @@ from animation_common import (
     write_json,
 )
 
-GENERATED_CELL_BORDER_ERASE_PAD = 6
+GENERATED_CELL_BORDER_ERASE_PAD = 8
+SAFE_LINE_SEARCH_PAD = 18
+DETECTED_SAFE_BOX_INNER_PAD = 3
 
 
 def connected_components(image: Image.Image) -> list[dict[str, Any]]:
@@ -114,6 +116,7 @@ def is_grid_artifact_component(component: dict[str, Any], sheet: Image.Image, la
     sheet_w, sheet_h = sheet.size
     slot_w = sheet_w / layout["columns"]
     slot_h = sheet_h / layout["rows"]
+    bbox = component["bbox"]
     bbox_area = width * height
     fill_ratio = component["area"] / bbox_area if bbox_area else 1.0
     sparse_sheet_spanning = width > sheet_w * 0.90 and height > sheet_h * 0.90 and fill_ratio < 0.12
@@ -123,7 +126,39 @@ def is_grid_artifact_component(component: dict[str, Any], sheet: Image.Image, la
     very_tall = height > sheet_h * 0.80 and width < slot_w * 0.18
     covers_grid = width > sheet_w * 0.65 and height > sheet_h * 0.65
     thin_for_extent = min(width, height) / max(width, height) < 0.08
-    return sparse_sheet_spanning or very_wide or very_tall or (covers_grid and thin_for_extent) or (spans_multiple_columns and spans_multiple_rows and thin_for_extent)
+    sheet_artifact = (
+        sparse_sheet_spanning
+        or very_wide
+        or very_tall
+        or (covers_grid and thin_for_extent)
+        or (spans_multiple_columns and spans_multiple_rows and thin_for_extent)
+    )
+    if sheet_artifact:
+        return True
+
+    safe_x = layout.get("safe_margin_x")
+    safe_y = layout.get("safe_margin_y")
+    if safe_x is None or safe_y is None:
+        return False
+
+    column = min(int(layout["columns"]) - 1, max(0, int(component["center_x"] // slot_w)))
+    row = min(int(layout["rows"]) - 1, max(0, int(component["center_y"] // slot_h)))
+    slot_left = round(column * sheet_w / int(layout["columns"]))
+    slot_top = round(row * sheet_h / int(layout["rows"]))
+    slot_right = round((column + 1) * sheet_w / int(layout["columns"]))
+    slot_bottom = round((row + 1) * sheet_h / int(layout["rows"]))
+    scale_x = slot_w / max(1, int(layout.get("cell_width") or round(slot_w)))
+    scale_y = slot_h / max(1, int(layout.get("cell_height") or round(slot_h)))
+    safe_left = slot_left + round(int(safe_x) * scale_x)
+    safe_right = slot_right - round(int(safe_x) * scale_x)
+    safe_top = slot_top + round(int(safe_y) * scale_y)
+    safe_bottom = slot_bottom - round(int(safe_y) * scale_y)
+    tolerance = max(3, round(min(slot_w, slot_h) / 512 * 8))
+    thin_vertical = width <= max(4, round(slot_w * 0.03)) and height >= slot_h * 0.45
+    thin_horizontal = height <= max(4, round(slot_h * 0.03)) and width >= slot_w * 0.45
+    near_safe_vertical = abs(bbox[0] - safe_left) <= tolerance or abs(bbox[2] - safe_right) <= tolerance
+    near_safe_horizontal = abs(bbox[1] - safe_top) <= tolerance or abs(bbox[3] - safe_bottom) <= tolerance
+    return (thin_vertical and near_safe_vertical) or (thin_horizontal and near_safe_horizontal)
 
 
 def character_components(components: list[dict[str, Any]], sheet: Image.Image, layout: dict[str, int]) -> list[dict[str, Any]]:
@@ -168,6 +203,107 @@ def common_slot_size(boxes: list[tuple[int, int, int, int]]) -> tuple[int, int]:
     )
 
 
+def is_safe_area_blue(red: int, green: int, blue: int) -> bool:
+    """Identify the registration guide's blue safe-area line without matching character blues by itself."""
+    return blue >= 150 and 70 <= green <= 180 and red <= 90 and blue - red >= 100 and blue - green >= 45
+
+
+def best_line_group(
+    scores: list[int],
+    *,
+    expected: int,
+    search_pad: int,
+    minimum_score: int,
+) -> tuple[int, int] | None:
+    start = max(0, expected - search_pad)
+    end = min(len(scores), expected + search_pad + 1)
+    groups: list[tuple[int, int, int]] = []
+    group_start: int | None = None
+    group_score = 0
+    for index in range(start, end):
+        if scores[index] >= minimum_score:
+            if group_start is None:
+                group_start = index
+                group_score = 0
+            group_score += scores[index]
+        elif group_start is not None:
+            groups.append((group_start, index, group_score))
+            group_start = None
+    if group_start is not None:
+        groups.append((group_start, end, group_score))
+    if not groups:
+        return None
+    best = max(groups, key=lambda item: (item[2], -abs(((item[0] + item[1]) / 2) - expected)))
+    return best[0], best[1]
+
+
+def detect_inner_safe_box(
+    source: Image.Image,
+    layout: dict[str, int],
+    slot_box: tuple[int, int, int, int],
+) -> tuple[tuple[int, int, int, int], str]:
+    """Find the actual generated blue safe-area rectangle and return its inner box in sheet coordinates."""
+    left, top, right, bottom = slot_box
+    cell = source.crop(slot_box).convert("RGB")
+    width, height = cell.size
+    slot_w = source.width / int(layout["columns"])
+    slot_h = source.height / int(layout["rows"])
+    scale_x = slot_w / max(1, int(layout.get("cell_width") or round(slot_w)))
+    scale_y = slot_h / max(1, int(layout.get("cell_height") or round(slot_h)))
+    expected_left = round(int(layout.get("safe_margin_x", 0) or 0) * scale_x)
+    expected_top = round(int(layout.get("safe_margin_y", 0) or 0) * scale_y)
+    expected_right = width - expected_left
+    expected_bottom = height - expected_top
+    inner_pad = max(1, round(min(width, height) / 512 * DETECTED_SAFE_BOX_INNER_PAD))
+    fallback = (
+        left + expected_left + inner_pad,
+        top + expected_top + inner_pad,
+        left + expected_right - inner_pad,
+        top + expected_bottom - inner_pad,
+    )
+    if expected_left <= 0 or expected_top <= 0:
+        return fallback, "manifest"
+
+    pixels = cell.load()
+    row_scores = [0] * height
+    column_scores = [0] * width
+    for yy in range(height):
+        for xx in range(width):
+            if is_safe_area_blue(*pixels[xx, yy]):
+                row_scores[yy] += 1
+                column_scores[xx] += 1
+
+    search_pad = max(6, round(min(width, height) / 512 * SAFE_LINE_SEARCH_PAD))
+    horizontal_min = max(20, round(width * 0.35))
+    vertical_min = max(20, round(height * 0.35))
+    top_group = best_line_group(row_scores, expected=expected_top, search_pad=search_pad, minimum_score=horizontal_min)
+    bottom_group = best_line_group(row_scores, expected=expected_bottom - 1, search_pad=search_pad, minimum_score=horizontal_min)
+    left_group = best_line_group(column_scores, expected=expected_left, search_pad=search_pad, minimum_score=vertical_min)
+    right_group = best_line_group(column_scores, expected=expected_right - 1, search_pad=search_pad, minimum_score=vertical_min)
+    if not all((top_group, bottom_group, left_group, right_group)):
+        return fallback, "manifest"
+
+    inner_left = left + left_group[1] + inner_pad
+    inner_top = top + top_group[1] + inner_pad
+    inner_right = left + right_group[0] - inner_pad
+    inner_bottom = top + bottom_group[0] - inner_pad
+    if inner_right <= inner_left or inner_bottom <= inner_top:
+        return fallback, "manifest"
+    return (inner_left, inner_top, inner_right, inner_bottom), "detected-blue-safe-area"
+
+
+def detect_inner_safe_boxes(
+    source: Image.Image,
+    layout: dict[str, int],
+    frame_count: int,
+) -> dict[int, dict[str, object]]:
+    return {
+        index: {"box": list(box), "source": source_name}
+        for index, slot_box in enumerate(slot_boxes(source, layout, frame_count))
+        for box, source_name in [detect_inner_safe_box(source, layout, slot_box)]
+    }
+
+
 def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> Image.Image:
     """Remove visible registration-guide lines before component extraction."""
     image = sheet.convert("RGBA")
@@ -176,18 +312,18 @@ def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> 
     rows = int(layout["rows"])
     slot_w = image.width / columns
     slot_h = image.height / rows
-    pad = max(2, round(min(slot_w, slot_h) / 512 * GENERATED_CELL_BORDER_ERASE_PAD))
+    border_pad = max(2, round(min(slot_w, slot_h) / 512 * GENERATED_CELL_BORDER_ERASE_PAD))
 
     def clear_column(x: int) -> None:
-        left = max(0, x - pad)
-        right = min(image.width, x + pad + 1)
+        left = max(0, x - border_pad)
+        right = min(image.width, x + border_pad + 1)
         for yy in range(image.height):
             for xx in range(left, right):
                 pixels[xx, yy] = (0, 0, 0, 0)
 
     def clear_row(y: int) -> None:
-        top = max(0, y - pad)
-        bottom = min(image.height, y + pad + 1)
+        top = max(0, y - border_pad)
+        bottom = min(image.height, y + border_pad + 1)
         for yy in range(top, bottom):
             for xx in range(image.width):
                 pixels[xx, yy] = (0, 0, 0, 0)
@@ -197,29 +333,14 @@ def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> 
     for row in range(rows + 1):
         clear_row(round(row * image.height / rows))
 
-    safe_x = layout.get("safe_margin_x")
-    safe_y = layout.get("safe_margin_y")
-    if safe_x is None or safe_y is None:
-        return image
-    scale_x = slot_w / max(1, int(layout.get("cell_width") or round(slot_w)))
-    scale_y = slot_h / max(1, int(layout.get("cell_height") or round(slot_h)))
-    safe_x_px = round(int(safe_x) * scale_x)
-    safe_y_px = round(int(safe_y) * scale_y)
-
-    for column in range(columns):
-        left = round(column * image.width / columns)
-        right = round((column + 1) * image.width / columns)
-        for x in (left + safe_x_px, right - safe_x_px):
-            clear_column(x)
-    for row in range(rows):
-        top = round(row * image.height / rows)
-        bottom = round((row + 1) * image.height / rows)
-        for y in (top + safe_y_px, bottom - safe_y_px):
-            clear_row(y)
     return image
 
 
-def erase_outside_safe_areas(image: Image.Image, layout: dict[str, int]) -> Image.Image:
+def erase_outside_safe_areas(
+    image: Image.Image,
+    layout: dict[str, int],
+    safe_boxes: dict[int, dict[str, object]] | None = None,
+) -> Image.Image:
     """Discard visible guide canvas outside each chroma-key inner safe area."""
     rgba = image.convert("RGBA")
     pixels = rgba.load()
@@ -238,18 +359,59 @@ def erase_outside_safe_areas(image: Image.Image, layout: dict[str, int]) -> Imag
     for row in range(rows):
         top = round(row * rgba.height / rows)
         bottom = round((row + 1) * rgba.height / rows)
-        safe_top = top + safe_y_px
-        safe_bottom = bottom - safe_y_px
         for column in range(columns):
+            index = row * columns + column
             left = round(column * rgba.width / columns)
             right = round((column + 1) * rgba.width / columns)
-            safe_left = left + safe_x_px
-            safe_right = right - safe_x_px
+            detected = safe_boxes.get(index) if safe_boxes else None
+            if isinstance(detected, dict) and isinstance(detected.get("box"), list) and len(detected["box"]) == 4:
+                safe_left, safe_top, safe_right, safe_bottom = [int(value) for value in detected["box"]]
+            else:
+                safe_left = left + safe_x_px
+                safe_top = top + safe_y_px
+                safe_right = right - safe_x_px
+                safe_bottom = bottom - safe_y_px
             for yy in range(top, bottom):
                 for xx in range(left, right):
                     if not (safe_left <= xx < safe_right and safe_top <= yy < safe_bottom):
                         pixels[xx, yy] = (0, 0, 0, 0)
     return rgba
+
+
+def clear_unused_slots(image: Image.Image, layout: dict[str, int], frame_count: int) -> Image.Image:
+    """Make generated content in unused grid slots invisible to extraction."""
+    rgba = image.convert("RGBA")
+    pixels = rgba.load()
+    capacity = int(layout["columns"]) * int(layout["rows"])
+    if frame_count >= capacity:
+        return rgba
+    for left, top, right, bottom in slot_boxes(rgba, layout, capacity)[frame_count:]:
+        for yy in range(top, bottom):
+            for xx in range(left, right):
+                pixels[xx, yy] = (0, 0, 0, 0)
+    return rgba
+
+
+def unused_slot_diagnostics(sheet: Image.Image, layout: dict[str, int], frame_count: int) -> list[dict[str, object]]:
+    capacity = int(layout["columns"]) * int(layout["rows"])
+    if frame_count >= capacity:
+        return []
+    diagnostics = []
+    for index, crop_box in enumerate(slot_boxes(sheet, layout, capacity)[frame_count:], start=frame_count):
+        frame = sheet.crop(crop_box).convert("RGBA")
+        alpha = frame.getchannel("A")
+        nontransparent = sum(alpha.histogram()[1:])
+        bbox = frame.getbbox()
+        diagnostics.append(
+            {
+                "slot": index + 1,
+                "index": index,
+                "crop_box": list(crop_box),
+                "nontransparent_pixels": nontransparent,
+                "bbox": list(bbox) if bbox else None,
+            }
+        )
+    return diagnostics
 
 
 def pad_to_size(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -292,15 +454,23 @@ def extract_component_frames(
     if not components:
         return None
     largest = max(component["area"] for component in components)
-    seed_threshold = max(120, largest * 0.20)
-    seeds = [component for component in components if component["area"] >= seed_threshold]
-    if len(seeds) < frame_count:
-        seeds = sorted(components, key=lambda component: component["area"], reverse=True)[:frame_count]
-    if len(seeds) < frame_count:
-        return None
-
     centers = slot_centers(sheet, layout, frame_count)
-    selected = sorted(seeds[:frame_count], key=lambda component: component_slot_index(component, centers))
+    by_slot: list[list[dict[str, Any]]] = [[] for _ in range(frame_count)]
+    for component in components:
+        index = component_slot_index(component, centers)
+        if index < frame_count:
+            by_slot[index].append(component)
+
+    seed_threshold = max(120, largest * 0.02)
+    selected: list[dict[str, Any]] = []
+    for slot_components in by_slot:
+        if not slot_components:
+            return None
+        seed = max(slot_components, key=lambda component: component["area"])
+        if seed["area"] < seed_threshold:
+            return None
+        selected.append(seed)
+
     groups: list[list[dict[str, Any]]] = [[] for _ in range(frame_count)]
     for seed in selected:
         index = component_slot_index(seed, centers)
@@ -480,14 +650,18 @@ def main() -> None:
         if not source.is_file():
             raise SystemExit(f"missing grid sheet for {state['name']}: {source}")
         with Image.open(source) as opened:
+            source_rgb = opened.convert("RGB")
             sheet = remove_chroma_background(opened, key_rgb, float(chroma["threshold"]))
         frames: list[Image.Image] | None = None
         crop_boxes: list[dict[str, object]] = []
         used_method = args.method
         layout = add_guide_safe_margins(state_layout(state, int(state["frames"])), guides_by_state.get(str(state["name"])))
         validate_sheet_aspect(sheet, layout, str(state["name"]))
+        safe_boxes = detect_inner_safe_boxes(source_rgb, layout, int(state["frames"]))
         sheet = erase_generated_cell_borders(sheet, layout)
-        sheet = erase_outside_safe_areas(sheet, layout)
+        sheet = erase_outside_safe_areas(sheet, layout, safe_boxes)
+        unused_slots = unused_slot_diagnostics(sheet, layout, int(state["frames"]))
+        sheet = clear_unused_slots(sheet, layout, int(state["frames"]))
         crop_box_values = slot_boxes(sheet, layout, int(state["frames"]))
         generated_frame_size = common_slot_size(crop_box_values)
         if args.method in {"auto", "components"}:
@@ -508,6 +682,18 @@ def main() -> None:
             frame.save(target, format="PNG")
             outputs.append(str(target))
         extracted_size = list(frames[0].size) if frames else []
+        safe_box_sources = {
+            str(box.get("source"))
+            for box in safe_boxes.values()
+            if isinstance(box, dict) and box.get("source") is not None
+        }
+        guide_erase_policy = (
+            "detected-blue-safe-area-inner-box"
+            if safe_box_sources == {"detected-blue-safe-area"}
+            else "manifest-safe-area-fallback"
+            if safe_box_sources == {"manifest"}
+            else "detected-blue-safe-area-inner-box-with-manifest-fallback"
+        )
         rows.append(
             {
                 "state": state["name"],
@@ -519,6 +705,9 @@ def main() -> None:
                 "extracted_frame_size": extracted_size,
                 "extraction_size_policy": "preserve-generated-cell-size",
                 "generated_cell_border_removed": True,
+                "guide_erase_policy": guide_erase_policy,
+                "detected_safe_boxes": safe_boxes,
+                "unused_slots": unused_slots,
                 "crop_boxes": crop_boxes,
             }
         )
