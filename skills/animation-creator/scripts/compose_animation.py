@@ -55,7 +55,7 @@ def main() -> None:
     )
     paths = manifest.get("paths", {}) if isinstance(manifest.get("paths"), dict) else {}
     frames_root = resolve_path(args.frames_root or paths.get("frames_dir", "frames"), run_dir)
-    default_output = f"final/{args.action_id}-frames.webp" if args.action_id else paths.get("aggregate_sheet", "final/animation-frames.webp")
+    default_output = f"final/{args.action_id}-frames.png" if args.action_id else paths.get("aggregate_sheet", "final/animation-frames.png")
     output = resolve_path(args.output or default_output, run_dir)
 
     frames_manifest_path = frames_root / "frames-manifest.json"

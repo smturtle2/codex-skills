@@ -133,6 +133,11 @@ def main() -> None:
         action="store_true",
         help="Also write unscaled final GIF/WebP animation files under final/.",
     )
+    parser.add_argument(
+        "--final-only",
+        action="store_true",
+        help="When used with --write-final, skip QA preview files and write only final animation files.",
+    )
     parser.add_argument("--state", help="Render one state only. Alias for --action-id.")
     parser.add_argument("--scale", type=int, default=2)
     parser.add_argument("--loops", type=int, default=1, help="Repeat frames inside each preview.")
@@ -183,20 +188,21 @@ def main() -> None:
             if state.get("fps") is not None
             else DEFAULT_PREVIEW_FRAME_DURATION_MS
         )
-        preview_frames = composite_preview_frames(raw_frames, args.scale, args.transparent)
         stem = output_dir / str(state["name"])
-        if "gif" in requested_formats:
-            save_gif(preview_frames, stem.with_suffix(".gif"), duration_ms, loop_count)
-            rendered.append(str(stem.with_suffix(".gif")))
-        if "webp" in requested_formats:
-            save_webp(preview_frames, stem.with_suffix(".webp"), duration_ms, loop_count)
-            rendered.append(str(stem.with_suffix(".webp")))
-        if "mp4" in requested_formats:
-            mp4_path = stem.with_suffix(".mp4")
-            if save_mp4(preview_frames, mp4_path, duration_ms, args.ffmpeg):
-                rendered.append(str(mp4_path))
-            else:
-                print(f"skipped MP4 for {state['name']}: ffmpeg not found")
+        if not args.final_only:
+            preview_frames = composite_preview_frames(raw_frames, args.scale, args.transparent)
+            if "gif" in requested_formats:
+                save_gif(preview_frames, stem.with_suffix(".gif"), duration_ms, loop_count)
+                rendered.append(str(stem.with_suffix(".gif")))
+            if "webp" in requested_formats:
+                save_webp(preview_frames, stem.with_suffix(".webp"), duration_ms, loop_count)
+                rendered.append(str(stem.with_suffix(".webp")))
+            if "mp4" in requested_formats:
+                mp4_path = stem.with_suffix(".mp4")
+                if save_mp4(preview_frames, mp4_path, duration_ms, args.ffmpeg):
+                    rendered.append(str(mp4_path))
+                else:
+                    print(f"skipped MP4 for {state['name']}: ffmpeg not found")
 
         if args.write_final:
             final_stem = run_dir / "final" / str(state["name"])

@@ -24,20 +24,19 @@ All paths are project-local by default. A normal run lives under:
     frames-manifest.json
   final/
     <action-id>.webp
-    <action-id>-frames.webp
+    <action-id>-frames.png
     <action-id>-validation.json
   qa/
     <action-id>-contact-sheet.png
     <action-id>-review.json
-    previews/<action-id>.webp
     run-summary.json
 ```
 
 The exact final files depend on the requested output format.
 
-`finalize_animation_run.py` writes WebP outputs by default: a composed frame sheet at `final/<action-id>-frames.webp`, an animated WebP at `final/<action-id>.webp`, and a QA preview at `qa/previews/<action-id>.webp`. It writes frame-review diagnostics to `qa/<action-id>-review.json` before composing and sheet-validation diagnostics to `final/<action-id>-validation.json` after composing.
+`finalize_animation_run.py` writes the composed frame sheet as PNG at `final/<action-id>-frames.png` and writes WebP only for the final animated result at `final/<action-id>.webp`. It writes frame-review diagnostics to `qa/<action-id>-review.json` before composing and sheet-validation diagnostics to `final/<action-id>-validation.json` after composing.
 
-When `finalize_animation_run.py` runs without `--action-id`, it writes aggregate files for the selected run: `final/animation-frames.webp`, `final/validation.json`, `qa/review.json`, and `qa/contact-sheet.png`.
+When `finalize_animation_run.py` runs without `--action-id`, it writes aggregate files for the selected run: `final/animation-frames.png`, `final/validation.json`, `qa/review.json`, and `qa/contact-sheet.png`.
 
 ## Required Manifest Fields
 
@@ -76,7 +75,7 @@ Defaults:
 - frame count: finalized from the completed per-frame action plan
 - intermediate frame format: `png`
 - final animation format: `webp`
-- final WebP animation: `final/<action-id>.webp`
+- final WebP animation: `final/<action-id>.webp`; intermediate sheets and QA images stay PNG
 
 Each action image should be a grid sheet with exactly one cell per planned frame action, read left-to-right, top-to-bottom. Each cell contains one complete pose matching that frame action, with consistent character registration, scale, facing, safe-box placement, and camera distance across adjacent frames. The prompt treats the registration guide as an edit template: keep the canvas, black cell borders, blue safe-area rectangles, and neutral background outside the blue rectangles; remove gray dashed centerlines and faint guide characters; fill only each blue safe-area interior with the selected chroma key; and draw character artwork on top. Extraction accepts generated sheets that preserve the manifest grid aspect ratio, removes visible guide border/background remnants, then uses the known grid to group frame content.
 
@@ -115,4 +114,4 @@ Default action background mode is `chroma-key`, because clean background removal
 
 The chroma key must not appear in the character, outfit, props, highlights, shadows, or effects. Prefer a high-saturation key color far from source image colors. Extraction removes exact chroma-key pixels everywhere, including holes inside a character silhouette. It also removes exposed chroma-family components that touch transparent/erased background, including dark antialias edges and darker/lighter remnants around internal holes or shadows, while preserving chroma-adjacent pixels embedded in the character body. Validation fails frames that still contain too many non-transparent pixels close to the chroma key.
 
-Transparent output is preferred for WebP frame assets. MP4 previews may use a checkerboard or flat background because MP4 does not carry alpha.
+Transparent output is preferred for the final animated WebP. MP4 previews may use a checkerboard or flat background because MP4 does not carry alpha.

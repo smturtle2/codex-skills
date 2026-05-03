@@ -147,7 +147,7 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    composed_path = final_dir / (f"{args.action_id}-frames.webp" if args.action_id else "animation-frames.webp")
+    composed_path = final_dir / (f"{args.action_id}-frames.png" if args.action_id else "animation-frames.png")
     run(
         [
             sys.executable,
@@ -203,6 +203,7 @@ def main() -> None:
                 "--formats",
                 "webp",
                 "--write-final",
+                "--final-only",
             ]
         )
 
@@ -214,7 +215,7 @@ def main() -> None:
         "review": str(review_path),
         "validation": str(validation_path),
         "contact_sheet": str(contact_sheet_path),
-        "preview_dir": None if args.skip_preview else str(preview_dir),
+        "preview_dir": None,
         "final_animations": [] if args.skip_preview else final_animations,
         "visual_review_required": True,
         "visual_review_status": "pending",
@@ -228,11 +229,11 @@ def main() -> None:
     for job_id in sorted(job_ids):
         action_outputs[job_id] = {
             "frames_dir": f"frames/{job_id}",
-            "composed_sheet": f"final/{job_id}-frames.webp",
+            "composed_sheet": f"final/{job_id}-frames.png",
             "review": f"qa/{job_id}-review.json",
             "validation": f"final/{job_id}-validation.json",
             "contact_sheet": f"qa/{job_id}-contact-sheet.png",
-            "preview": None if args.skip_preview else f"qa/previews/{job_id}.webp",
+            "preview": None,
             "final_animation": None if args.skip_preview else f"final/{job_id}.webp",
         }
     outputs["actions"] = action_outputs

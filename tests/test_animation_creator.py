@@ -262,23 +262,27 @@ class AnimationCreatorTests(unittest.TestCase):
                     observed_sizes.append(bbox[2] - bbox[0])
                     self.assertEqual(chroma_adjacent_count(rgba, selected_chroma_rgb, 190), 0)
             self.assertEqual(observed_sizes, sorted(observed_sizes))
-            self.assertTrue((run_dir / "final" / "wave-frames.webp").is_file())
+            self.assertTrue((run_dir / "final" / "wave-frames.png").is_file())
+            self.assertFalse((run_dir / "final" / "wave-frames.webp").exists())
             self.assertTrue((run_dir / "final" / "wave.webp").is_file())
             with Image.open(run_dir / "final" / "wave.webp") as animated:
                 self.assertTrue(getattr(animated, "is_animated", False))
                 self.assertEqual(getattr(animated, "n_frames", 1), len(codex_prepared_frame_actions))
-            with Image.open(run_dir / "final" / "wave-frames.webp") as sheet:
+            with Image.open(run_dir / "final" / "wave-frames.png") as sheet:
+                self.assertEqual(sheet.format, "PNG")
                 self.assertEqual(sheet.size, (312 * len(codex_prepared_frame_actions), 312))
             self.assertTrue((run_dir / "final" / "wave-validation.json").is_file())
             self.assertTrue((run_dir / "qa" / "wave-contact-sheet.png").is_file())
             self.assertTrue((run_dir / "qa" / "wave-review.json").is_file())
-            self.assertTrue((run_dir / "qa" / "previews" / "wave.webp").is_file())
+            self.assertFalse((run_dir / "qa" / "previews" / "wave.webp").exists())
             self.assertTrue((run_dir / "qa" / "run-summary.json").is_file())
             validation = json.loads((run_dir / "final" / "wave-validation.json").read_text(encoding="utf-8"))
             self.assertTrue(validation["ok"], validation)
             summary = json.loads((run_dir / "qa" / "run-summary.json").read_text(encoding="utf-8"))
             self.assertTrue(summary["visual_review_required"])
             self.assertEqual(summary["visual_review_status"], "pending")
+            self.assertEqual(summary["composed_sheet"], str(run_dir / "final" / "wave-frames.png"))
+            self.assertIsNone(summary["preview_dir"])
 
     def test_prepare_requires_frame_actions_for_new_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

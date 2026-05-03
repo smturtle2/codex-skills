@@ -5,7 +5,7 @@ description: Create character animation runs from one canonical base character. 
 
 # Animation Creator
 
-Create character animation assets from one canonical base character. Codex does not fix the frame count or layout up front. It starts from the first pose of the requested motion, adds the next pose one at a time, and after each pose checks whether another anticipation, contact, follow-through, overshoot, settle, or loop-bridge pose is needed for the motion to read. When the motion is complete, Codex finalizes the frame action list and uses that list length to decide the frame count and layout. It then passes the canonical base and registration guide to `$image-creator` to generate the action sheet, while local scripts use the manifest grid and registration guide metadata for deterministic post-processing: extraction, validation, WebP composition, contact sheets, previews, and run summaries.
+Create character animation assets from one canonical base character. Codex does not fix the frame count or layout up front. It starts from the first pose of the requested motion, adds the next pose one at a time, and after each pose checks whether another anticipation, contact, follow-through, overshoot, settle, or loop-bridge pose is needed for the motion to read. When the motion is complete, Codex finalizes the frame action list and uses that list length to decide the frame count and layout. It then passes the canonical base and registration guide to `$image-creator` to generate the action sheet, while local scripts use the manifest grid and registration guide metadata for deterministic post-processing: extraction, validation, PNG sheet composition, contact sheets, final WebP animation output, and run summaries.
 
 This skill saves runs and final assets into the current session project by default.
 
@@ -36,7 +36,7 @@ Use the manifest grid and registration guide for deterministic extraction, requi
 - Use complete full-body poses by default. If the user wants a cropped bust, hand, icon, or partial-body animation, record that as an explicit output contract.
 - Treat ground planes, floor lines, cast shadows, contact shadows, oval floor shadows, landing marks, dust, detached effects, glow, motion streaks, repeated still images, clipped body parts, poses crossing into neighboring grid cells, extra labels, extra guide marks, center dashed lines in the generated result, and ghost characters as failures unless explicitly accepted by the user. The raw generated action sheet should keep black cell borders and blue safe-area rectangles, remove gray dashed centerlines and faint guide characters, and use chroma-key background only inside each inner safe area. Extracted final frames must not retain guide lines, borders, safe-area boxes, center dashed lines, or guide background.
 - Remove exact chroma-key pixels everywhere, including holes inside the character silhouette. Remove exposed chroma-family components when they touch transparent/erased background so dark antialias edges and internal background rims are cleaned, while preserving embedded character colors such as mouths or blushes. Reject large remaining chroma-colored shadows, smears, halos, or landing marks during validation.
-- Do not accept deterministic validation alone as final proof. Review the contact sheet or preview for identity drift and visible clipping.
+- Do not accept deterministic validation alone as final proof. Review the contact sheet or final animation for identity drift and visible clipping.
 
 ## Workflow
 
@@ -73,6 +73,8 @@ Use the manifest grid and registration guide for deterministic extraction, requi
    ```
 
    Run this command only after the sequential planning audit is complete. The `--frame-actions` value is the concrete final list Codex prepared, reviewed, and revised in step 2; it is not a user-provided template, a few-shot example, or a first-draft list.
+
+   Pass raw beat descriptions only in `--frame-actions`. Do not include frame numbers, `Frame N:`, `F1:`, bullets, numbering, slot labels, or any other prefix inside the beat text. The scripts add `Frame N:` labels when building the generation prompt.
 
    If `--output-dir` is omitted, the run directory is created under `/absolute/path/to/session/project/animation-runs/`. If a source image exists, pass it with `--source-character /absolute/path/to/image.png`.
 
@@ -132,9 +134,9 @@ Use the manifest grid and registration guide for deterministic extraction, requi
    python "$SKILL_DIR/scripts/finalize_animation_run.py" --run-dir /absolute/path/to/run --action-id <action-id>
    ```
 
-   This checks recorded generated-job files, extracts frames from the known manifest layout, writes `qa/<action-id>-review.json`, composes and validates `final/<action-id>-frames.webp`, creates a contact sheet from that WebP sheet, writes `final/<action-id>.webp`, and records `qa/run-summary.json` with visual review still marked pending until Codex inspects the contact sheet or preview.
+   This checks recorded generated-job files, extracts frames from the known manifest layout, writes `qa/<action-id>-review.json`, composes and validates `final/<action-id>-frames.png`, creates a contact sheet from that PNG sheet, writes the final animated WebP at `final/<action-id>.webp`, and records `qa/run-summary.json` with visual review still marked pending until Codex inspects the contact sheet or final animation.
 
-8. Inspect validation JSON, contact sheet, and WebP preview. Repair only the failed action when possible.
+8. Inspect validation JSON, contact sheet, and final WebP animation. Repair only the failed action when possible.
 
 ## Adding Actions To An Existing Run
 
@@ -171,7 +173,7 @@ Use these when the user does not specify otherwise:
 - unused grid slots: when the recommended grid has more cells than planned frames, extraction ignores those slots even if generation fills them
 - maximum frame count: `16`
 - output format: `webp`
-- final WebP: created by `finalize_animation_run.py` through `render_preview.py --write-final --formats webp`
+- final WebP: created by `finalize_animation_run.py` through `render_preview.py --write-final --final-only --formats webp`
 - background mode: `chroma-key`
 - chroma key: auto-selected safe high-saturation color, defaulting to green when no source image is available
 - loop mode: loop
