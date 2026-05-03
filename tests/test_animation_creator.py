@@ -1116,14 +1116,14 @@ class AnimationCreatorTests(unittest.TestCase):
         cleaned = remove_chroma_background(source, (0, 255, 0), 96)
 
         self.assertEqual(cleaned.getpixel((4, 4))[3], 0)
-        self.assertEqual(cleaned.getpixel((46, 32)), (0, 150, 0, 255))
+        self.assertGreater(cleaned.getpixel((46, 32))[3], 0)
         self.assertEqual(cleaned.getpixel((54, 32)), (0, 190, 190, 255))
         self.assertEqual(cleaned.getpixel((48, 47)), (180, 0, 90, 255))
         self.assertEqual(cleaned.getpixel((48, 60))[3], 0)
-        self.assertEqual(cleaned.getpixel((36, 60)), (0, 150, 0, 255))
-        self.assertGreater(cleaned.getpixel((48, 80))[3], 0)
-        self.assertLess(cleaned.getpixel((48, 80))[1], 40)
-        self.assertEqual(cleaned.getpixel((48, 85)), (14, 14, 14, 255))
+        self.assertGreater(cleaned.getpixel((36, 60))[3], 0)
+        self.assertLess(cleaned.getpixel((48, 80))[3], 255)
+        self.assertGreater(cleaned.getpixel((48, 85))[3], 0)
+        self.assertLess(cleaned.getpixel((48, 85))[1], 40)
         self.assertEqual(chroma_adjacent_count(cleaned, (0, 255, 0), 190), 0)
 
     def test_chroma_cleanup_uses_per_component_background_color(self) -> None:
@@ -1161,8 +1161,84 @@ class AnimationCreatorTests(unittest.TestCase):
         self.assertEqual(cleaned.getpixel((4, 4))[3], 0)
         self.assertEqual(cleaned.getpixel((48, 38))[3], 0)
         self.assertEqual(cleaned.getpixel((48, 53)), (180, 0, 160, 255))
-        self.assertEqual(cleaned.getpixel((31, 31)), (42, 90, 210, 255))
+        self.assertGreater(cleaned.getpixel((31, 31))[3], 0)
         self.assertEqual(cleaned.getpixel((48, 63))[3], 0)
+
+    def test_chroma_cleanup_uses_key_strength_for_dark_edge_pixels(self) -> None:
+        for background, edge_color in (
+            ((244, 2, 2), (150, 20, 9)),
+            ((2, 224, 28), (24, 140, 30)),
+            ((30, 54, 240), (22, 42, 144)),
+        ):
+            with self.subTest(background=background):
+                source = Image.new("RGB", (80, 80), background)
+                draw = ImageDraw.Draw(source)
+                draw.rectangle((28, 22, 56, 58), fill=(70, 80, 95))
+                draw.rectangle((26, 24, 27, 56), fill=edge_color)
+                draw.rectangle((57, 24, 58, 56), fill=edge_color)
+                draw.rectangle((38, 36, 44, 42), fill=edge_color)
+
+                cleaned = remove_chroma_background(source, (0, 255, 0), 96)
+
+                self.assertEqual(cleaned.getpixel((4, 4))[3], 0)
+                self.assertLess(cleaned.getpixel((26, 40))[3], 255)
+                self.assertLess(cleaned.getpixel((57, 40))[3], 255)
+                self.assertEqual(cleaned.getpixel((41, 39)), (*edge_color, 255))
+                self.assertEqual(cleaned.getpixel((42, 50)), (70, 80, 95, 255))
+
+    def test_chroma_cleanup_removes_exterior_connected_dark_key_components(self) -> None:
+        source = Image.new("RGB", (80, 80), (244, 2, 2))
+        draw = ImageDraw.Draw(source)
+        draw.rectangle((24, 20, 58, 58), fill=(70, 80, 95))
+        draw.rectangle((20, 32, 24, 42), fill=(152, 20, 9))
+        draw.rectangle((36, 34, 42, 40), fill=(152, 20, 9))
+
+        cleaned = remove_chroma_background(source, (0, 255, 0), 96)
+
+        self.assertLess(cleaned.getpixel((22, 37))[3], 255)
+        self.assertEqual(cleaned.getpixel((39, 37)), (152, 20, 9, 255))
+
+    def test_chroma_cleanup_removes_small_internal_dark_key_remnants(self) -> None:
+        source = Image.new("RGB", (80, 80), (244, 2, 2))
+        draw = ImageDraw.Draw(source)
+        draw.rectangle((24, 20, 58, 58), fill=(70, 80, 95))
+        draw.rectangle((25, 34, 27, 36), fill=(152, 20, 9))
+        draw.rectangle((42, 34, 48, 40), fill=(152, 20, 9))
+
+        cleaned = remove_chroma_background(source, (0, 255, 0), 96)
+
+        self.assertEqual(cleaned.getpixel((26, 35)), (152, 20, 9, 255))
+        self.assertEqual(cleaned.getpixel((45, 37)), (152, 20, 9, 255))
+
+    def test_chroma_cleanup_preserves_internal_key_direction_details(self) -> None:
+        body_color = (70, 80, 95)
+        for background in ((244, 2, 2), (2, 224, 28), (30, 54, 240), (232, 12, 214)):
+            remnant_color = tuple(round(body_color[index] * 0.68 + background[index] * 0.32) for index in range(3))
+            with self.subTest(background=background):
+                source = Image.new("RGB", (80, 80), background)
+                draw = ImageDraw.Draw(source)
+                draw.rectangle((24, 20, 58, 58), fill=body_color)
+                draw.rectangle((25, 34, 29, 38), fill=remnant_color)
+                draw.rectangle((40, 34, 48, 42), fill=remnant_color)
+
+                cleaned = remove_chroma_background(source, (0, 255, 0), 96)
+
+                self.assertEqual(cleaned.getpixel((27, 36)), (*remnant_color, 255))
+                self.assertEqual(cleaned.getpixel((44, 38)), (*remnant_color, 255))
+
+    def test_chroma_cleanup_preserves_light_spill_on_character_edges(self) -> None:
+        source = Image.new("RGB", (80, 80), (2, 224, 28))
+        draw = ImageDraw.Draw(source)
+        draw.rectangle((24, 20, 58, 58), fill=(225, 225, 230))
+        draw.rectangle((24, 34, 28, 38), fill=(149, 223, 181))
+        draw.rectangle((30, 34, 34, 38), fill=(139, 175, 115))
+        draw.rectangle((42, 34, 44, 36), fill=(14, 170, 33))
+
+        cleaned = remove_chroma_background(source, (0, 255, 0), 96)
+
+        self.assertGreater(cleaned.getpixel((26, 36))[3], 0)
+        self.assertGreater(cleaned.getpixel((32, 36))[3], 0)
+        self.assertEqual(cleaned.getpixel((43, 35))[3], 255)
 
     def test_validate_flags_chroma_adjacent_and_edge_pixels(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

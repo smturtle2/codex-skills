@@ -521,6 +521,28 @@ def detect_inner_safe_boxes(
     }
 
 
+def remove_chroma_background_in_safe_boxes(
+    image: Image.Image,
+    safe_boxes: dict[int, dict[str, object]],
+    chroma_key: tuple[int, int, int],
+    chroma_threshold: float,
+) -> Image.Image:
+    rgba = image.convert("RGBA")
+    for detected in safe_boxes.values():
+        if not isinstance(detected, dict) or not isinstance(detected.get("box"), list) or len(detected["box"]) != 4:
+            continue
+        left, top, right, bottom = [int(value) for value in detected["box"]]
+        left = max(0, min(rgba.width, left))
+        top = max(0, min(rgba.height, top))
+        right = max(left, min(rgba.width, right))
+        bottom = max(top, min(rgba.height, bottom))
+        if right <= left or bottom <= top:
+            continue
+        cleaned = remove_chroma_background(rgba.crop((left, top, right, bottom)), chroma_key, chroma_threshold)
+        rgba.paste(cleaned, (left, top))
+    return rgba
+
+
 def erase_generated_cell_borders(sheet: Image.Image, layout: dict[str, int]) -> Image.Image:
     """Remove visible registration-guide lines before component extraction."""
     image = sheet.convert("RGBA")
@@ -751,16 +773,26 @@ def extract_component_frames(
     seed_ids = {id(seed) for seed in selected}
     noise_threshold = max(12, largest * 0.002)
     for component in components:
-        if id(component) in seed_ids or component["area"] < noise_threshold:
+        if id(component) in seed_ids:
             continue
         index = component_slot_index(component, centers)
         if index < frame_count:
+            if component["area"] < noise_threshold and not component_near_seed(component, selected[index]):
+                continue
             groups[index].append(component)
 
     return [
         component_group_slot_image(sheet, group, crop_boxes[index], output_size)
         for index, group in enumerate(groups)
     ]
+
+
+def component_near_seed(component: dict[str, Any], seed: dict[str, Any], max_gap: int = 10) -> bool:
+    left, top, right, bottom = component["bbox"]
+    seed_left, seed_top, seed_right, seed_bottom = seed["bbox"]
+    horizontal_gap = max(seed_left - right, left - seed_right, 0)
+    vertical_gap = max(seed_top - bottom, top - seed_bottom, 0)
+    return max(horizontal_gap, vertical_gap) <= max_gap
 
 
 def guide_scale(sheet: Image.Image, layout: dict[str, int]) -> tuple[float, float]:
@@ -919,13 +951,14 @@ def main() -> None:
             raise SystemExit(f"missing grid sheet for {state['name']}: {source}")
         with Image.open(source) as opened:
             source_rgb = opened.convert("RGB")
-            sheet = remove_chroma_background(opened, key_rgb, float(chroma["threshold"]))
+            sheet = opened.convert("RGBA")
         frames: list[Image.Image] | None = None
         crop_boxes: list[dict[str, object]] = []
         used_method = args.method
         layout = add_guide_safe_margins(state_layout(state, int(state["frames"])), guides_by_state.get(str(state["name"])))
         validate_sheet_aspect(sheet, layout, str(state["name"]))
         safe_boxes = detect_inner_safe_boxes(source_rgb, layout, int(state["frames"]), key_rgb, float(chroma["threshold"]))
+        sheet = remove_chroma_background_in_safe_boxes(sheet, safe_boxes, key_rgb, float(chroma["threshold"]))
         sheet = erase_generated_cell_borders(sheet, layout)
         sheet = erase_outside_safe_areas(sheet, layout, safe_boxes)
         slot_area = max(1, round((sheet.width / int(layout["columns"])) * (sheet.height / int(layout["rows"]))))
