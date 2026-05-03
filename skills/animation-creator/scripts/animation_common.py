@@ -22,6 +22,7 @@ DEFAULT_SAFE_MARGIN = DEFAULT_SAFE_MARGIN_X
 MAX_RECOMMENDED_GRID_FRAMES = 16
 MIN_FRAME_INSET = 5
 CHROMA_ARTIFACT_THRESHOLD = 190.0
+INTERNAL_CHROMA_HOLE_MAX_PIXELS = 128
 CODEX_IMAGEGEN_MAX_ASPECT_RATIO = 3.0
 
 
@@ -117,6 +118,28 @@ def is_chroma_artifact_color(
         return False
     low_limit = min(artifact_values) * 0.60
     return all(channels[index] <= low_limit for index in range(3) if index not in key_channels)
+
+
+def suppress_chroma_spill_pixel(
+    red: int,
+    green: int,
+    blue: int,
+    alpha: int,
+    key: tuple[int, int, int],
+    allowance: int = 0,
+) -> tuple[int, int, int, int]:
+    channels = [red, green, blue]
+    key_max = max(key)
+    if key_max <= 0:
+        return red, green, blue, alpha
+    key_channels = [index for index, value in enumerate(key) if value >= key_max * 0.75]
+    non_key_channels = [index for index in range(3) if index not in key_channels]
+    if not key_channels or not non_key_channels:
+        return red, green, blue, alpha
+    ceiling = max(channels[index] for index in non_key_channels) + allowance
+    for index in key_channels:
+        channels[index] = min(channels[index], ceiling)
+    return channels[0], channels[1], channels[2], alpha
 
 
 def slugify(value: str) -> str:
@@ -403,11 +426,11 @@ def remove_chroma_background(
             red, green, blue, alpha = pixels[x, y]
             if alpha and color_distance(red, green, blue, chroma_key) <= threshold:
                 pixels[x, y] = (0, 0, 0, 0)
-    remove_chroma_artifact_components(rgba, chroma_key, CHROMA_ARTIFACT_THRESHOLD)
+    suppress_chroma_spill_components(rgba, chroma_key, CHROMA_ARTIFACT_THRESHOLD)
     return rgba
 
 
-def remove_chroma_artifact_components(
+def suppress_chroma_spill_components(
     image: Image.Image,
     chroma_key: tuple[int, int, int],
     threshold: float,
@@ -448,6 +471,11 @@ def remove_chroma_artifact_components(
                     visited[neighbor] = 1
                     stack.append(neighbor)
         if touches_transparent:
+            for pixel_index in component:
+                px = pixel_index % width
+                py = pixel_index // width
+                pixels[px, py] = suppress_chroma_spill_pixel(*pixels[px, py], chroma_key)
+        elif len(component) <= INTERNAL_CHROMA_HOLE_MAX_PIXELS:
             for pixel_index in component:
                 px = pixel_index % width
                 py = pixel_index // width
