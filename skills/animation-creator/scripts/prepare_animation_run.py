@@ -162,8 +162,9 @@ Edit instructions:
 - Keep each pose fully inside its blue safe-area rectangle.
 {chroma_background_requirement}
 - The output must contain only the edited registration guide layout, chroma-key safe-area backgrounds, and character artwork. The words "Frame 1", "Frame 2", and other frame labels are prompt instructions only and must not appear visually. Do not draw sequence numbers, circles, labels, captions, markers, UI badges, text, extra guide marks, center dashed lines, center marks, ghost characters, or watermarks in any slot.
-- Do not include any ground plane, floor line, cast shadow, contact shadow, oval floor shadow, landing mark, dust, glow, speed line, motion trail, motion mark, wave arc, sound-wave curve, action line, smear, detached symbol, loose effect, or scenery.
-- Show contact, weight, or travel only through the character pose. Do not draw floor cues.
+- Do not include any ground plane, floor line, cast shadow, contact shadow, oval floor shadow, landing mark, dust, transparent glow, semi-transparent effect, chroma-colored effect, detached symbol, loose effect, or scenery.
+- Motion arcs, speed lines, motion trails, motion marks, wave arcs, sound-wave curves, action lines, and smears are allowed when they clarify the action, but every effect pixel must be fully opaque, use a solid non-chroma foreground color, and remain inside the same safe-area slot as the pose. Do not draw translucent or faded effects, because semi-transparent effects can be misread as chroma-key spill during extraction.
+- Show contact, weight, or travel primarily through the character pose. Do not draw floor cues.
 - Keep the first and last frames compatible for a clean loop when possible."""
 
 

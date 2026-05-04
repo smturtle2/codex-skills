@@ -40,7 +40,7 @@ Do not accept an animation action until the automatic checks and visual review p
 - Raw generated sheets are expected to keep black cell borders and blue safe-area rectangles, remove gray dashed centerlines and faint guide characters, and use chroma-key background only inside each inner safe area.
 - Raw generated sheets must be reviewed before extraction. If the sheet has the wrong grid, missing requested frames, wrong slot order, obvious duplicate stills, broken identity, disconnected motion, visible labels, extra guide marks, malformed or missing safe-area rectangles, or non-chroma safe-area interiors, regenerate the action sheet instead of trying to fix it with post-processing.
 - No generated cell border, registration-guide, safe-box, or centerline pixels appear in extracted frames.
-- No detached effects create separate components that confuse extraction.
+- Motion arcs, speed lines, motion marks, wave arcs, smears, and other action effects are acceptable when they are fully opaque, non-chroma foreground colors, stay inside the pose's safe-area slot, and do not create semi-transparent chroma-like pixels. Detached effects fail only if they confuse component extraction, cross slot boundaries, or survive as chroma-key halos.
 - No exterior-connected chroma-key remnants or visible background halos remain in character-visible regions. Chroma-like colors embedded inside the character are acceptable when they are not connected to the exterior background.
 
 ## Repair Policy

@@ -366,8 +366,12 @@ class AnimationCreatorTests(unittest.TestCase):
             self.assertIn("missing transition beats were added, redundant duplicate beats were removed", prompt)
             self.assertIn("accumulated result of all previous frame changes", prompt)
             self.assertIn("what visibly changed from the immediately previous slot", prompt)
+            self.assertIn("Motion arcs, speed lines, motion trails, motion marks, wave arcs", prompt)
+            self.assertIn("every effect pixel must be fully opaque", prompt)
+            self.assertIn("Do not draw translucent or faded effects", prompt)
             self.assertNotIn("Slots F6 must contain no character", prompt)
             self.assertNotIn("Fill only slots F1-F5", prompt)
+            self.assertNotIn("Do not include any ground plane, floor line, cast shadow, contact shadow, oval floor shadow, landing mark, dust, glow, speed line", prompt)
             self.assertNotIn("for example", prompt.lower())
             self.assertNotIn("few-shot", prompt.lower())
 
