@@ -516,7 +516,9 @@ def estimate_edge_background_color(image: Image.Image, fallback: tuple[int, int,
     band = max(2, round(min(width, height) * BACKGROUND_EDGE_SAMPLE_BAND_RATIO))
     fallback_strength = key_chroma_strength(fallback, fallback)
     candidates: list[tuple[int, int, int]] = []
+    chroma_clusters: dict[tuple[int, int, int], list[tuple[int, int, int]]] = {}
     buckets: dict[tuple[int, int, int], list[tuple[int, int, int]]] = {}
+    sample_count = 0
     for y in range(height):
         for x in range(width):
             if x >= band and y >= band and x < width - band and y < height - band:
@@ -524,19 +526,22 @@ def estimate_edge_background_color(image: Image.Image, fallback: tuple[int, int,
             red, green, blue, alpha = pixels[x, y]
             if alpha <= 16:
                 continue
+            sample_count += 1
             color = (red, green, blue)
             saturation, value = rgb_saturation_value(color)
             dist_to_fallback = perceptual_background_distance(color, fallback)
             strength = key_chroma_strength(color, fallback)
-            if saturation > 0.35 and value > 0.20 and (
-                dist_to_fallback < 96.0 or (fallback_strength > 1.0 and strength > fallback_strength * 0.35)
-            ):
-                candidates.append(color)
             bucket = (
                 red // BACKGROUND_COLOR_BUCKET_SIZE,
                 green // BACKGROUND_COLOR_BUCKET_SIZE,
                 blue // BACKGROUND_COLOR_BUCKET_SIZE,
             )
+            if saturation > 0.35 and value > 0.20:
+                chroma_clusters.setdefault(bucket, []).append(color)
+            if saturation > 0.35 and value > 0.20 and (
+                dist_to_fallback < 96.0 or (fallback_strength > 1.0 and strength > fallback_strength * 0.35)
+            ):
+                candidates.append(color)
             buckets.setdefault(bucket, []).append((red, green, blue))
     if len(candidates) >= max(12, round((width + height) * 0.06)):
         clustered: dict[tuple[int, int, int], list[tuple[int, int, int]]] = {}
@@ -548,13 +553,16 @@ def estimate_edge_background_color(image: Image.Image, fallback: tuple[int, int,
             )
             clustered.setdefault(bucket, []).append((red, green, blue))
         return median_rgb(max(clustered.values(), key=len))
+    if chroma_clusters:
+        dominant_chroma = max(chroma_clusters.values(), key=len)
+        if len(dominant_chroma) >= max(12, round(sample_count * 0.60)):
+            return median_rgb(dominant_chroma)
     if not buckets:
         return fallback
     estimated = median_rgb(max(buckets.values(), key=len))
     if perceptual_background_distance(estimated, fallback) < 144.0:
         return estimated
-    saturation, value = rgb_saturation_value(estimated)
-    if saturation > 0.35 and value > 0.20:
+    if fallback_strength > 1.0 and key_chroma_strength(estimated, fallback) > fallback_strength * 0.35:
         return estimated
     return fallback
 
@@ -918,13 +926,14 @@ def build_connected_chroma_alpha(
     spill_radius = max(3, round(min_dim / 100))
     alpha_band = sure_image.filter(ImageFilter.MaxFilter(edge_radius * 2 + 1)).tobytes()
     spill_band = sure_image.filter(ImageFilter.MaxFilter(spill_radius * 2 + 1)).tobytes()
+    possible_connected = connected_possible_background_mask(possible_background, sure_background, width, height) if possible_background is not None else None
     pixels = image.load()
     for y in range(height):
         for x in range(width):
             index = y * width + x
             if sure_background[index] or not alpha_band[index]:
                 continue
-            if possible_background is not None and possible_background[index]:
+            if possible_connected is not None and possible_background is not None and possible_background[index] and not possible_connected[index]:
                 continue
             red, green, blue, source_alpha = pixels[x, y]
             if source_alpha <= 16:
@@ -972,6 +981,33 @@ def build_connected_chroma_alpha(
 
 
 DEFAULT_CHROMA_RGB = parse_hex_color(DEFAULT_CHROMA_KEY)
+
+
+def connected_possible_background_mask(
+    possible_background: bytearray,
+    sure_background: bytearray,
+    width: int,
+    height: int,
+) -> bytearray:
+    connected = bytearray(width * height)
+    stack: list[int] = []
+    for index, value in enumerate(sure_background):
+        if value and possible_background[index]:
+            connected[index] = 1
+            stack.append(index)
+    while stack:
+        current = stack.pop()
+        x = current % width
+        y = current // width
+        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                continue
+            neighbor = ny * width + nx
+            if connected[neighbor] or not possible_background[neighbor]:
+                continue
+            connected[neighbor] = 1
+            stack.append(neighbor)
+    return connected
 
 
 def nearest_background_color(

@@ -25,6 +25,7 @@ WAVE_BEATS = [
 
 from animation_common import (  # noqa: E402
     chroma_adjacent_count,
+    estimate_edge_background_color,
     estimate_background_thresholds,
     fit_to_frame,
     recommended_grid,
@@ -893,7 +894,7 @@ class AnimationCreatorTests(unittest.TestCase):
         self.assertEqual(len(components), 1)
         self.assertLess(components[0]["bbox"][2], 312 - safe_x)
 
-    def test_chroma_rect_detector_finds_red_safe_area_despite_green_manifest_key(self) -> None:
+    def test_chroma_rect_detector_finds_red_safe_area_and_ignores_blue_guide(self) -> None:
         cell = Image.new("RGB", (128, 128), "#f7f7f7")
         draw = ImageDraw.Draw(cell)
         draw.rectangle((0, 0, 127, 127), outline="#000000", width=2)
@@ -904,7 +905,7 @@ class AnimationCreatorTests(unittest.TestCase):
 
         box = detect_chroma_rect_in_slot(
             cell,
-            (0, 255, 0),
+            (255, 0, 0),
             expected_left=10,
             expected_top=8,
             expected_right=118,
@@ -917,6 +918,32 @@ class AnimationCreatorTests(unittest.TestCase):
         self.assertLessEqual(abs(box[1] - 12), 8)
         self.assertLessEqual(abs(box[2] - 115), 8)
         self.assertLessEqual(abs(box[3] - 117), 8)
+
+    def test_chroma_rect_detector_rejects_unrelated_saturated_rectangle(self) -> None:
+        cell = Image.new("RGB", (128, 128), "#f7f7f7")
+        draw = ImageDraw.Draw(cell)
+        draw.rectangle((14, 12, 114, 116), fill=(30, 80, 245))
+
+        box = detect_chroma_rect_in_slot(
+            cell,
+            (255, 0, 0),
+            expected_left=10,
+            expected_top=8,
+            expected_right=118,
+            expected_bottom=120,
+        )
+
+        self.assertIsNone(box)
+
+    def test_edge_background_fallback_rejects_unrelated_saturated_border(self) -> None:
+        source = Image.new("RGBA", (80, 80), (255, 0, 0, 255))
+        draw = ImageDraw.Draw(source)
+        draw.rectangle((0, 0, 79, 2), fill=(30, 80, 245, 255))
+        draw.rectangle((0, 77, 79, 79), fill=(30, 80, 245, 255))
+        draw.rectangle((0, 0, 2, 79), fill=(30, 80, 245, 255))
+        draw.rectangle((77, 0, 79, 79), fill=(30, 80, 245, 255))
+
+        self.assertEqual(estimate_edge_background_color(source, (255, 0, 0)), (255, 0, 0))
 
     def test_background_threshold_uses_user_threshold(self) -> None:
         source = Image.new("RGBA", (80, 80), (244, 2, 2, 255))

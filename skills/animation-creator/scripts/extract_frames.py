@@ -18,6 +18,7 @@ from animation_common import (
     load_json,
     manifest_for_run,
     manifest_settings,
+    key_chroma_strength,
     parse_hex_color,
     parse_size,
     perceptual_background_distance,
@@ -281,12 +282,20 @@ def detect_chroma_rect_in_slot(
     pixels = cell.load()
     raw = bytearray(width * height)
     generous_threshold = 96.0
+    fallback_strength = key_chroma_strength(fallback_key, fallback_key)
     for yy in range(height):
         for xx in range(width):
             red, green, blue = pixels[xx, yy]
+            color = (red, green, blue)
             saturation, value = rgb_saturation_value(red, green, blue)
-            close_to_manifest = perceptual_background_distance((red, green, blue), fallback_key) < generous_threshold
-            broad_chroma = saturation > 0.45 and value > 0.35
+            close_to_manifest = perceptual_background_distance(color, fallback_key) < generous_threshold
+            key_direction = key_chroma_strength(color, fallback_key)
+            broad_chroma = (
+                saturation > 0.45
+                and value > 0.35
+                and fallback_strength > 1.0
+                and key_direction > fallback_strength * 0.30
+            )
             if close_to_manifest or broad_chroma:
                 raw[yy * width + xx] = 255
 
