@@ -23,8 +23,14 @@ WAVE_BEATS = [
     "return to the relaxed friendly pose",
 ]
 
-from animation_common import chroma_adjacent_count, fit_to_frame, recommended_grid, remove_chroma_background  # noqa: E402
-from extract_frames import character_components, connected_components  # noqa: E402
+from animation_common import (  # noqa: E402
+    chroma_adjacent_count,
+    estimate_background_thresholds,
+    fit_to_frame,
+    recommended_grid,
+    remove_chroma_background,
+)
+from extract_frames import character_components, connected_components, detect_chroma_rect_in_slot  # noqa: E402
 
 class AnimationCreatorTests(unittest.TestCase):
     def run_script(self, script: str, *args: str, cwd: pathlib.Path) -> subprocess.CompletedProcess[str]:
@@ -886,6 +892,41 @@ class AnimationCreatorTests(unittest.TestCase):
 
         self.assertEqual(len(components), 1)
         self.assertLess(components[0]["bbox"][2], 312 - safe_x)
+
+    def test_chroma_rect_detector_finds_red_safe_area_despite_green_manifest_key(self) -> None:
+        cell = Image.new("RGB", (128, 128), "#f7f7f7")
+        draw = ImageDraw.Draw(cell)
+        draw.rectangle((0, 0, 127, 127), outline="#000000", width=2)
+        draw.rectangle((10, 8, 118, 120), outline="#286DFF", width=3)
+        draw.rectangle((14, 12, 114, 116), fill=(244, 2, 2))
+        draw.rectangle((42, 36, 84, 92), fill=(40, 120, 220))
+        draw.rectangle((1, 60, 126, 62), fill="#111111")
+
+        box = detect_chroma_rect_in_slot(
+            cell,
+            (0, 255, 0),
+            expected_left=10,
+            expected_top=8,
+            expected_right=118,
+            expected_bottom=120,
+        )
+
+        self.assertIsNotNone(box)
+        assert box is not None
+        self.assertLessEqual(abs(box[0] - 14), 8)
+        self.assertLessEqual(abs(box[1] - 12), 8)
+        self.assertLessEqual(abs(box[2] - 115), 8)
+        self.assertLessEqual(abs(box[3] - 117), 8)
+
+    def test_background_threshold_uses_user_threshold(self) -> None:
+        source = Image.new("RGBA", (80, 80), (244, 2, 2, 255))
+
+        low = estimate_background_thresholds(source, (244, 2, 2), 64)
+        high = estimate_background_thresholds(source, (244, 2, 2), 96)
+
+        self.assertLess(low["possible"], high["possible"])
+        self.assertLessEqual(low["possible"], 64)
+        self.assertGreaterEqual(high["possible"], 96 * 0.65)
 
     def test_add_action_preserves_existing_completed_job_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

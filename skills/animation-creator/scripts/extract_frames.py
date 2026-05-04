@@ -9,7 +9,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from animation_common import (
     DEFAULT_SAFE_MARGIN,
@@ -20,6 +20,7 @@ from animation_common import (
     manifest_settings,
     parse_hex_color,
     parse_size,
+    perceptual_background_distance,
     remove_chroma_background,
     resolve_path,
     write_json,
@@ -214,6 +215,118 @@ def is_neutral_canvas_like(red: int, green: int, blue: int) -> bool:
 
 def color_distance(left: tuple[int, int, int], right: tuple[int, int, int]) -> int:
     return max(abs(left[index] - right[index]) for index in range(3))
+
+
+def rgb_saturation_value(red: int, green: int, blue: int) -> tuple[float, float]:
+    high = max(red, green, blue) / 255.0
+    low = min(red, green, blue) / 255.0
+    saturation = 0.0 if high <= 0 else (high - low) / high
+    return saturation, high
+
+
+def mask_components(mask: bytes, width: int, height: int) -> list[dict[str, Any]]:
+    visited = bytearray(width * height)
+    components: list[dict[str, Any]] = []
+    for start, value in enumerate(mask):
+        if visited[start]:
+            continue
+        if value <= 0:
+            visited[start] = 1
+            continue
+        stack = [start]
+        visited[start] = 1
+        pixels: list[int] = []
+        min_x = width
+        min_y = height
+        max_x = 0
+        max_y = 0
+        while stack:
+            current = stack.pop()
+            pixels.append(current)
+            x = current % width
+            y = current // width
+            min_x = min(min_x, x)
+            min_y = min(min_y, y)
+            max_x = max(max_x, x)
+            max_y = max(max_y, y)
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                    continue
+                neighbor = ny * width + nx
+                if visited[neighbor] or mask[neighbor] <= 0:
+                    continue
+                visited[neighbor] = 1
+                stack.append(neighbor)
+        components.append(
+            {
+                "area": len(pixels),
+                "bbox": (min_x, min_y, max_x + 1, max_y + 1),
+            }
+        )
+    return components
+
+
+def detect_chroma_rect_in_slot(
+    cell: Image.Image,
+    fallback_key: tuple[int, int, int],
+    *,
+    expected_left: int,
+    expected_top: int,
+    expected_right: int,
+    expected_bottom: int,
+) -> tuple[int, int, int, int] | None:
+    width, height = cell.size
+    if width <= 0 or height <= 0:
+        return None
+    pixels = cell.load()
+    raw = bytearray(width * height)
+    generous_threshold = 96.0
+    for yy in range(height):
+        for xx in range(width):
+            red, green, blue = pixels[xx, yy]
+            saturation, value = rgb_saturation_value(red, green, blue)
+            close_to_manifest = perceptual_background_distance((red, green, blue), fallback_key) < generous_threshold
+            broad_chroma = saturation > 0.45 and value > 0.35
+            if close_to_manifest or broad_chroma:
+                raw[yy * width + xx] = 255
+
+    radius = max(2, min(7, round(min(width, height) / 96)))
+    mask_image = Image.frombytes("L", (width, height), bytes(raw))
+    mask_image = mask_image.filter(ImageFilter.MaxFilter(radius * 2 + 1)).filter(ImageFilter.MinFilter(radius * 2 + 1))
+    open_radius = max(1, min(5, round(radius * 0.6)))
+    mask_image = mask_image.filter(ImageFilter.MinFilter(open_radius * 2 + 1)).filter(ImageFilter.MaxFilter(open_radius * 2 + 1))
+    mask = mask_image.tobytes()
+
+    expected_center_x = (expected_left + expected_right) / 2
+    expected_center_y = (expected_top + expected_bottom) / 2
+    expected_area = max(1, (expected_right - expected_left) * (expected_bottom - expected_top))
+    min_area = max(64, round(expected_area * 0.18))
+    best_box: tuple[int, int, int, int] | None = None
+    best_score = float("-inf")
+    for component in mask_components(mask, width, height):
+        area = int(component["area"])
+        if area < min_area:
+            continue
+        left, top, right, bottom = [int(value) for value in component["bbox"]]
+        box_width = right - left
+        box_height = bottom - top
+        if box_width <= 0 or box_height <= 0:
+            continue
+        rect_area = box_width * box_height
+        fill_ratio = area / rect_area
+        if fill_ratio < 0.30:
+            continue
+        if box_width < width * 0.25 or box_height < height * 0.25:
+            continue
+        aspect = max(box_width / box_height, box_height / box_width)
+        if aspect > 4.0:
+            continue
+        center_penalty = abs(((left + right) / 2) - expected_center_x) + abs(((top + bottom) / 2) - expected_center_y)
+        score = area + rect_area * 0.3 + fill_ratio * 10000.0 - center_penalty * 20.0
+        if score > best_score:
+            best_score = score
+            best_box = (left, top, right, bottom)
+    return best_box
 
 
 def guide_line_pixel_weight(red: int, green: int, blue: int, ignored_colors: tuple[tuple[int, int, int], ...]) -> int:
@@ -433,6 +546,22 @@ def detect_inner_safe_box(
     )
     if expected_left <= 0 or expected_top <= 0:
         return fallback, "manifest"
+
+    chroma_rect = detect_chroma_rect_in_slot(
+        cell,
+        chroma_key,
+        expected_left=expected_left,
+        expected_top=expected_top,
+        expected_right=expected_right,
+        expected_bottom=expected_bottom,
+    )
+    if chroma_rect is not None:
+        inner_left = left + chroma_rect[0] + inner_pad
+        inner_top = top + chroma_rect[1] + inner_pad
+        inner_right = left + chroma_rect[2] - inner_pad
+        inner_bottom = top + chroma_rect[3] - inner_pad
+        if inner_right > inner_left and inner_bottom > inner_top:
+            return (inner_left, inner_top, inner_right, inner_bottom), "detected-safe-area-inner-fill"
 
     search_pad = max(6, round(min(width, height) / 512 * SAFE_LINE_SEARCH_PAD))
     fill_box = detect_inner_fill_box(
