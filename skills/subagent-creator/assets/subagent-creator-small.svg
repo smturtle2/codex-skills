@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Subagent Creator icon">
+  <rect width="64" height="64" rx="14" fill="#1e1b4b"/>
+  <circle cx="32" cy="20" r="8" fill="#c4b5fd"/>
+  <circle cx="19" cy="43" r="7" fill="#f8fafc"/>
+  <circle cx="45" cy="43" r="7" fill="#f8fafc"/>
+  <path d="M28 26l-7 10M36 26l7 10M26 43h12" fill="none" stroke="#a78bfa" stroke-width="4" stroke-linecap="round"/>
+  <path d="M29 18h6M29 22h6" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+  <path d="M17 42h4M43 42h4" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+</svg>

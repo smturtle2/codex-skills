@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Gomoku icon">
+  <rect width="64" height="64" rx="14" fill="#78350f"/>
+  <rect x="12" y="12" width="40" height="40" rx="4" fill="#f5c16c"/>
+  <path d="M22 12v40M32 12v40M42 12v40M12 22h40M12 32h40M12 42h40" stroke="#92400e" stroke-width="2"/>
+  <circle cx="32" cy="32" r="7" fill="#111827"/>
+  <circle cx="42" cy="22" r="6" fill="#f8fafc"/>
+  <circle cx="22" cy="42" r="6" fill="#111827"/>
+  <circle cx="32" cy="32" r="2" fill="#374151"/>
+</svg>

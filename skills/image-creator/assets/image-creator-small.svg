@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Image Creator icon">
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+  <rect x="14" y="18" width="36" height="28" rx="5" fill="#f8fafc"/>
+  <path d="M18 39l8-9 7 7 5-6 8 8v3H18z" fill="#38bdf8"/>
+  <circle cx="41" cy="26" r="4" fill="#facc15"/>
+  <path d="M18 14l2-5 2 5 5 2-5 2-2 5-2-5-5-2z" fill="#a78bfa"/>
+  <path d="M47 10l1.5-3.5L50 10l3.5 1.5L50 13l-1.5 3.5L47 13l-3.5-1.5z" fill="#22c55e"/>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="UI Blueprint icon">
+  <rect width="64" height="64" rx="14" fill="#075985"/>
+  <path d="M14 16h36v32H14z" fill="none" stroke="#bae6fd" stroke-width="3"/>
+  <path d="M14 26h36M26 26v22" stroke="#bae6fd" stroke-width="3"/>
+  <rect x="18" y="20" width="8" height="3" rx="1.5" fill="#f8fafc"/>
+  <rect x="30" y="31" width="15" height="4" rx="2" fill="#f8fafc"/>
+  <rect x="30" y="39" width="10" height="4" rx="2" fill="#67e8f9"/>
+  <path d="M49 13l2-5 2 5 5 2-5 2-2 5-2-5-5-2z" fill="#facc15"/>
+</svg>
