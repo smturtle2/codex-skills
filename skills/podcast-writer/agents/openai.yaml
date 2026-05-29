@@ -1,0 +1,4 @@
+interface:
+  display_name: "Podcast Writer"
+  short_description: "Create strict one-person podcast scripts"
+  default_prompt: "Use $podcast-writer to turn my sources into a strict one-person podcast script saved as txt."

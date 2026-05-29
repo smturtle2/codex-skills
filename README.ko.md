@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-5-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
+[![Skills](https://img.shields.io/badge/skills-6-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
 
-이미지 생성, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 오목 플레이를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
+이미지 생성, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 오목 플레이를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
 
 각 스킬은 `SKILL.md` 트리거 계약과 필요한 로컬 스크립트, 참조 문서, 에셋, agent 메타데이터를 함께 담는 독립 폴더다.
 
@@ -25,6 +25,7 @@
 | [`animation-creator`](#animation-creator) | 프로젝트 안에 캐릭터 애니메이션 에셋 생성 | 프롬프트, 레이아웃 가이드, 프레임, 검증, contact sheet, preview를 포함한 run 폴더 | [프롬프트](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | 프론트엔드 UI 제작 또는 큰 리디자인 | 생성된 UI mockup, 시각 노트, 구현된 UI | [프롬프트](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | 집중된 Codex 커스텀 서브에이전트 생성 | 검증 가능한 TOML agent 정의 | [프롬프트](#subagent-creator) |
+| [`podcast-writer`](#podcast-writer) | 소스를 1인 팟캐스트 대본으로 변환 | 저장된 `.txt` 대본과 엄격한 내용 품질 평가 | [프롬프트](#podcast-writer) |
 | [`gomoku`](#gomoku) | 로컬 GUI에서 Codex와 오목 대국 | Python 보드와 Codex 착수를 위한 JSON 상태 브리지 | [프롬프트](#gomoku) |
 
 ## 빠른 설치
@@ -117,6 +118,23 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 
 - https://developers.openai.com/codex/subagents
 - https://developers.openai.com/codex/concepts/subagents
+
+### `podcast-writer`
+
+PDF, 텍스트 파일, 웹사이트, YouTube transcript를 1인 팟캐스트 대본으로 만들고 plain text로 저장한다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 위치 | `skills/podcast-writer` |
+| 사용 시점 | Codex가 소스를 수집/전처리하고, 1인 독백형 팟캐스트 대본을 작성한 뒤, 엄격한 내용 품질 평가가 통과될 때까지 수정해야 할 때 |
+| 결과 | 저장된 `.txt` 대본, 소스 처리 정보, 모든 rubric 항목이 pass된 엄격한 subagent 평가 |
+| 피하는 일 | 화자 라벨, 인터뷰/대화 형식, 출처 없는 주장, 최종 대본 안의 메타데이터, TTS나 형식 검사를 evaluator에게 맡기는 일 |
+
+설치:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/podcast-writer
+```
 
 ### `gomoku`
 

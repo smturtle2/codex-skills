@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-5-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
+[![Skills](https://img.shields.io/badge/skills-6-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
 
-A small, installable catalog of Codex skills for image generation, animation assets, UI blueprints, subagent creation, and Gomoku.
+A small, installable catalog of Codex skills for image generation, animation assets, UI blueprints, subagent creation, podcast scripts, and Gomoku.
 
 Each skill is self-contained with a `SKILL.md` trigger contract plus any local scripts, references, assets, and agent metadata it needs.
 
@@ -25,6 +25,7 @@ Languages: English | [한국어](README.ko.md)
 | [`animation-creator`](#animation-creator) | Creating project-local character animation assets | Run folder with prompts, layout guides, frames, validation, contact sheets, and previews | [Prompt](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | Creating one focused Codex custom subagent | Validated TOML agent definition | [Prompt](#subagent-creator) |
+| [`podcast-writer`](#podcast-writer) | Turning sources into one-person podcast scripts | Plain `.txt` script plus strict content-quality evaluation | [Prompt](#podcast-writer) |
 | [`gomoku`](#gomoku) | Playing Gomoku against Codex in a local GUI | Python board plus JSON state bridge for Codex moves | [Prompt](#gomoku) |
 
 ## Quick Install
@@ -117,6 +118,23 @@ Docs:
 
 - https://developers.openai.com/codex/subagents
 - https://developers.openai.com/codex/concepts/subagents
+
+### `podcast-writer`
+
+Turn PDFs, text files, websites, and YouTube transcripts into a one-person podcast script saved as plain text.
+
+| Field | Details |
+| --- | --- |
+| Folder | `skills/podcast-writer` |
+| Use when | You need Codex to collect source material, preprocess it, write a one-person podcast monologue, and keep revising until strict content-quality evaluation passes. |
+| Produces | A saved `.txt` script, source handling notes, and a strict subagent evaluation with all rubric items passing. |
+| Avoids | Speaker labels, interview/dialogue format, source-free claims, final-script metadata, and using the evaluator for TTS or formatting checks. |
+
+Install:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/podcast-writer
+```
 
 ### `gomoku`
 
