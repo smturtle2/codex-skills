@@ -15,6 +15,7 @@ Create a one-person podcast script from supplied source material, then save only
 - After the evaluator returns all-pass, delete temporary working files created by this skill, including downloaded audio, extracted transcripts, scratch source notes, draft scripts, and evaluation handoff files. Do not delete user-provided original source files or the final approved `./scripts/*.txt` output.
 - Follow the user's requested topic, angle, audience, length, tone, emphasis, and exclusions.
 - Ground the script in the provided sources. Do not invent source facts or present speculation as fact.
+- Blend all provided sources into one unified podcast script. Do not mention source boundaries in the final script, such as "in the PDF", "the website says", "the video explains", "source one", or separate source-by-source summaries, unless the user explicitly requests source attribution.
 - Remove preprocessing noise before writing the podcast script: timestamps, repeated captions, navigation text, ads, transcript artifacts, broken subtitle fragments, boilerplate, and duplicate passages.
 - Treat TTS-readability rules as writer obligations, not evaluator duties. Keep the script clean for speech output, but do not ask the evaluator to judge TTS or formatting.
 - Before completion, send the script and source notes to a newly created independent strict subagent for content-quality evaluation using `references/evaluation-rubric.md`.
@@ -41,7 +42,7 @@ Create a one-person podcast script from supplied source material, then save only
   ```
 
   This fallback downloads the YouTube audio with `yt-dlp` and transcribes it with `faster-whisper` on CUDA only. The default model is `turbo`, the faster-whisper alias for Whisper large-v3-turbo. Do not use CPU fallback. If no CUDA GPU is available, stop and report the blocker.
-- Multiple sources: summarize each source first, then identify overlaps, disagreements, chronology, and relative importance before writing.
+- Multiple sources: process each source separately only in private working notes, then merge the useful material into one coherent script. Do not structure the final script as source-by-source explanation or attribution unless the user explicitly requests that format.
 
 ## Workflow
 
@@ -54,7 +55,7 @@ Create a one-person podcast script from supplied source material, then save only
    - source conflicts or uncertainty
    - material to exclude as noise
 4. Choose a central episode message. The script should not be a flat summary; it should have a clear content point.
-5. Draft the one-person podcast script as a polished monologue.
+5. Draft the one-person podcast script as a polished monologue that integrates all selected source material into one narrative. Do not say or imply that the script is walking through separate source files.
 6. Save working drafts outside the final output path while iterating. After strict evaluation passes, save the final approved script body to `./scripts/<descriptive-name>.txt` under the current project root.
 7. Read `references/evaluation-rubric.md`, then create a new independent strict evaluator subagent. Provide file paths, not pasted full script text:
    - path to the candidate script file
@@ -103,6 +104,7 @@ RUBRIC:
 - Logical Coherence: claims, background, evidence, transitions, and conclusions connect cleanly.
 - Non-Repetition: no repeated claim, setup, explanation, example, transition, or conclusion unless it adds new substance.
 - User Intent Fit: user purpose, audience, angle, emphasis, and exclusions shape the content choices.
+- Source Integration: multiple sources are synthesized into one coherent script without source-by-source narration or unnecessary source mentions.
 - Overall Content Value: worth listening to as a finished episode with a clear through-line and message.
 
 Return exactly this structure:
@@ -126,6 +128,9 @@ EVALUATION:
 - User Intent Fit:
   Assessment: ...
   Criterion Result: PASS|FAIL
+- Source Integration:
+  Assessment: ...
+  Criterion Result: PASS|FAIL
 - Overall Content Value:
   Assessment: ...
   Criterion Result: PASS|FAIL
@@ -136,7 +141,7 @@ REQUIRED_FIXES:
 RESULT: PASS|FAIL
 ```
 
-All seven evaluation items must be `PASS` for `RESULT: PASS`. When the evaluator is uncertain, it must choose `FAIL`.
+All eight evaluation items must be `PASS` for `RESULT: PASS`. When the evaluator is uncertain, it must choose `FAIL`.
 For every criterion, write `Assessment` before `Criterion Result`. Do not output a criterion-level `PASS` or `FAIL` before the assessment text.
 
 ## Response

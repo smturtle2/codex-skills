@@ -126,6 +126,10 @@ class PodcastWriterTests(unittest.TestCase):
         self.assertIn("Do not output a criterion-level `PASS` or `FAIL` before the assessment text", contents)
         self.assertNotIn("Reason:", contents)
         self.assertIn("Do not use speaker labels", contents)
+        self.assertIn("Blend all provided sources into one unified podcast script", contents)
+        self.assertIn("Do not mention source boundaries in the final script", contents)
+        self.assertIn("Do not structure the final script as source-by-source explanation", contents)
+        self.assertIn("Source Integration", contents)
         self.assertIn("./scripts/<descriptive-name>.txt", contents)
         self.assertIn("Do not save the podcast output inside `skills/podcast-writer/scripts/`", contents)
         self.assertIn("delete temporary working files", contents)
@@ -153,6 +157,7 @@ class PodcastWriterTests(unittest.TestCase):
             "Logical Coherence",
             "Non-Repetition",
             "User Intent Fit",
+            "Source Integration",
             "Overall Content Value",
         ):
             self.assertIn(criterion, contents)

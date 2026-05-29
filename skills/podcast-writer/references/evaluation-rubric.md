@@ -50,6 +50,12 @@ Pass only if the user's requested purpose, audience, angle, emphasis, and exclus
 
 Fail if the script only matches surface tone while ignoring the requested direction, audience level, or priority.
 
+### Source Integration
+
+Pass only if all provided sources are synthesized into one coherent script.
+
+Fail if the script talks about the sources as separate objects, walks through "source one/source two", says things like "the PDF says" or "the video explains", or otherwise feels like separate source summaries stitched together, unless the user explicitly requested source attribution.
+
 ### Overall Content Value
 
 Pass only if the script feels worth listening to as a finished podcast episode.
@@ -78,6 +84,9 @@ EVALUATION:
   Assessment: ...
   Criterion Result: PASS|FAIL
 - User Intent Fit:
+  Assessment: ...
+  Criterion Result: PASS|FAIL
+- Source Integration:
   Assessment: ...
   Criterion Result: PASS|FAIL
 - Overall Content Value:
