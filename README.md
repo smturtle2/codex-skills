@@ -126,7 +126,7 @@ Turn PDFs, text files, websites, and YouTube transcripts into a one-person podca
 | Field | Details |
 | --- | --- |
 | Folder | `skills/podcast-writer` |
-| Use when | You need Codex to collect source material, preprocess it, write a one-person podcast monologue, and keep revising until strict content-quality evaluation passes. |
+| Use when | You need Codex to collect source material, use YouTube captions or GPU-only Whisper transcription when needed, write a one-person podcast monologue, and keep revising until strict content-quality evaluation passes. |
 | Produces | A saved `.txt` script, source handling notes, and a strict subagent evaluation with all rubric items passing. |
 | Avoids | Speaker labels, interview/dialogue format, source-free claims, final-script metadata, and using the evaluator for TTS or formatting checks. |
 

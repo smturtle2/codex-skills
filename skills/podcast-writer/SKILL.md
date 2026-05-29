@@ -1,6 +1,6 @@
 ---
 name: podcast-writer
-description: Create one-person podcast scripts from user-provided sources such as PDFs, text files, websites, and YouTube links. Use when Codex needs to collect and preprocess source material, fetch YouTube transcripts with the bundled Python helper, write a clean TTS-ready plain-text monologue script, save it as .txt, and run strict subagent content-quality evaluation until every rubric item passes.
+description: Create one-person podcast scripts from user-provided sources such as PDFs, text files, websites, and YouTube links. Use when Codex needs to collect and preprocess source material, fetch YouTube transcripts with the bundled Python helper, fall back to GPU-only local Whisper transcription when YouTube captions are unavailable, write a clean TTS-ready plain-text monologue script, save it as .txt, and run strict subagent content-quality evaluation until every rubric item passes.
 ---
 
 # Podcast Writer
@@ -10,7 +10,9 @@ Create a one-person podcast script from supplied source material, then save only
 ## Hard Rules
 
 - Produce a one-person monologue. Do not use speaker labels such as `화자1:`, `Host:`, `Narrator:`, or dialogue/interview formatting.
+- Save the final approved `.txt` under the current project root as `./scripts/<descriptive-name>.txt`. Do not save the podcast output inside `skills/podcast-writer/scripts/`.
 - Save the final `.txt` with script body only. Do not include headings, metadata, evaluation notes, source notes, or "here is the script" wrappers in the saved script.
+- After the evaluator returns all-pass, delete temporary working files created by this skill, including downloaded audio, extracted transcripts, scratch source notes, draft scripts, and evaluation handoff files. Do not delete user-provided original source files or the final approved `./scripts/*.txt` output.
 - Follow the user's requested topic, angle, audience, length, tone, emphasis, and exclusions.
 - Ground the script in the provided sources. Do not invent source facts or present speculation as fact.
 - Remove preprocessing noise before writing the podcast script: timestamps, repeated captions, navigation text, ads, transcript artifacts, broken subtitle fragments, boilerplate, and duplicate passages.
@@ -25,19 +27,26 @@ Create a one-person podcast script from supplied source material, then save only
 - Local text or Markdown: read the file, separate user-authored content from metadata, and keep relevant structure.
 - PDF: extract text with an appropriate PDF workflow. If extraction quality is uncertain, inspect rendered pages or use OCR only when needed.
 - Website URL: fetch the current page, extract main article/body content, and remove navigation, footer, comments, ads, related links, and cookie text.
-- YouTube URL: use the bundled helper:
+- YouTube URL: first use the bundled transcript helper:
 
   ```bash
   uv run skills/podcast-writer/scripts/fetch_youtube_transcript.py '<youtube-url-or-video-id>' --format text
   ```
 
   The helper accepts normal watch URLs, `youtu.be`, Shorts, embed, and live URL forms. Quote full URLs in shells such as zsh so `?` is not treated as a glob. It preserves transcript segment text, including music cues or lyrics; content filtering happens later during source preprocessing. If `uv` is unavailable, run the script with Python only when `youtube-transcript-api` is already installed.
+- YouTube audio fallback: if the transcript helper fails because captions are unavailable or unusable, use the GPU-only Whisper fallback helper:
+
+  ```bash
+  uv run skills/podcast-writer/scripts/transcribe_youtube_gpu.py '<youtube-url-or-video-id>' --format text
+  ```
+
+  This fallback downloads the YouTube audio with `yt-dlp` and transcribes it with `faster-whisper` on CUDA only. The default model is `turbo`, the faster-whisper alias for Whisper large-v3-turbo. Do not use CPU fallback. If no CUDA GPU is available, stop and report the blocker.
 - Multiple sources: summarize each source first, then identify overlaps, disagreements, chronology, and relative importance before writing.
 
 ## Workflow
 
 1. Identify source inputs, requested output path, language, audience, topic angle, target length, and any explicit exclusions.
-2. Collect source text. Use `fetch_youtube_transcript.py` for YouTube transcripts and preserve a working source-notes file or scratch summary outside the final script.
+2. Collect source text. Use `fetch_youtube_transcript.py` for YouTube transcripts. If captions are unavailable, use `transcribe_youtube_gpu.py`; it must run through `uv run` and must fail instead of using CPU when CUDA is unavailable. Preserve a working source-notes file or scratch summary outside the final script.
 3. Preprocess sources into concise notes:
    - core claims and evidence
    - necessary background
@@ -46,7 +55,7 @@ Create a one-person podcast script from supplied source material, then save only
    - material to exclude as noise
 4. Choose a central episode message. The script should not be a flat summary; it should have a clear content point.
 5. Draft the one-person podcast script as a polished monologue.
-6. Save the draft or final script to the requested `.txt` path. If the user does not provide a path, save a descriptive `.txt` in the current project root.
+6. Save working drafts outside the final output path while iterating. After strict evaluation passes, save the final approved script body to `./scripts/<descriptive-name>.txt` under the current project root.
 7. Read `references/evaluation-rubric.md`, then create a new independent strict evaluator subagent. Provide:
    - the final candidate script
    - concise source notes or source extracts needed to verify content
@@ -54,6 +63,7 @@ Create a one-person podcast script from supplied source material, then save only
    - the fixed output contract from the rubric
 8. If any rubric item is `FAIL`, revise the script according to `REQUIRED_FIXES`, then create another fresh independent evaluator subagent for the revised script. Never re-use the previous evaluator for re-evaluation.
 9. Finish only after the evaluator returns `RESULT: PASS` with every item marked `PASS`.
+10. Delete temporary files created during source collection, preprocessing, audio download, draft writing, and evaluator handoff. Keep only the final approved `./scripts/*.txt` output and any user-provided original source files.
 
 ## Evaluation Delegation Prompt Contract
 
@@ -134,4 +144,5 @@ When finished, report:
 - saved script path
 - sources used and any sources that could not be accessed
 - that strict subagent evaluation passed all rubric items
+- that temporary working files created by the skill were deleted
 - any important source uncertainty preserved in the script

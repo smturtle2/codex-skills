@@ -8,6 +8,7 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "skills" / "podcast-writer" / "scripts" / "fetch_youtube_transcript.py"
+GPU_SCRIPT = REPO_ROOT / "skills" / "podcast-writer" / "scripts" / "transcribe_youtube_gpu.py"
 SKILL = REPO_ROOT / "skills" / "podcast-writer" / "SKILL.md"
 RUBRIC = REPO_ROOT / "skills" / "podcast-writer" / "references" / "evaluation-rubric.md"
 OPENAI_YAML = REPO_ROOT / "skills" / "podcast-writer" / "agents" / "openai.yaml"
@@ -17,6 +18,12 @@ fetch_youtube_transcript = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 sys.modules["fetch_youtube_transcript"] = fetch_youtube_transcript
 spec.loader.exec_module(fetch_youtube_transcript)
+
+gpu_spec = importlib.util.spec_from_file_location("transcribe_youtube_gpu", GPU_SCRIPT)
+transcribe_youtube_gpu = importlib.util.module_from_spec(gpu_spec)
+assert gpu_spec.loader is not None
+sys.modules["transcribe_youtube_gpu"] = transcribe_youtube_gpu
+gpu_spec.loader.exec_module(transcribe_youtube_gpu)
 
 
 class PodcastWriterTests(unittest.TestCase):
@@ -67,6 +74,30 @@ class PodcastWriterTests(unittest.TestCase):
         with self.assertRaises(fetch_youtube_transcript.TranscriptError):
             fetch_youtube_transcript.require_usable_segments([], "dQw4w9WgXcQ")
 
+    def test_gpu_transcription_helper_requires_cuda(self) -> None:
+        self.assertEqual(transcribe_youtube_gpu.require_cuda_gpu(lambda: 1), 1)
+        with self.assertRaises(transcribe_youtube_gpu.GpuTranscriptionError):
+            transcribe_youtube_gpu.require_cuda_gpu(lambda: 0)
+
+    def test_gpu_transcription_helper_uses_youtube_url_for_video_ids(self) -> None:
+        self.assertEqual(
+            transcribe_youtube_gpu.source_to_download_url("dQw4w9WgXcQ"),
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        )
+        self.assertEqual(
+            transcribe_youtube_gpu.source_to_download_url("https://youtu.be/dQw4w9WgXcQ"),
+            "https://youtu.be/dQw4w9WgXcQ",
+        )
+
+    def test_gpu_transcription_helper_declares_uv_cuda_dependencies(self) -> None:
+        contents = GPU_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("nvidia-cublas-cu12", contents)
+        self.assertIn("nvidia-cudnn-cu12", contents)
+        self.assertIn("faster-whisper", contents)
+        self.assertIn("yt-dlp", contents)
+        self.assertNotIn("keep-audio", contents)
+
     def test_skill_contract_mentions_strict_all_pass_evaluation(self) -> None:
         contents = SKILL.read_text(encoding="utf-8")
 
@@ -90,9 +121,16 @@ class PodcastWriterTests(unittest.TestCase):
         self.assertIn("Do not output a criterion-level `PASS` or `FAIL` before the assessment text", contents)
         self.assertNotIn("Reason:", contents)
         self.assertIn("Do not use speaker labels", contents)
+        self.assertIn("./scripts/<descriptive-name>.txt", contents)
+        self.assertIn("Do not save the podcast output inside `skills/podcast-writer/scripts/`", contents)
+        self.assertIn("delete temporary working files", contents)
+        self.assertIn("Do not delete user-provided original source files", contents)
         self.assertIn("Quote full URLs in shells such as zsh", contents)
         self.assertIn("It preserves transcript segment text", contents)
         self.assertIn("fetch_youtube_transcript.py", contents)
+        self.assertIn("transcribe_youtube_gpu.py", contents)
+        self.assertIn("must fail instead of using CPU when CUDA is unavailable", contents)
+        self.assertIn("The default model is `turbo`", contents)
 
     def test_rubric_requires_evaluation_before_result_and_all_pass(self) -> None:
         contents = RUBRIC.read_text(encoding="utf-8")
