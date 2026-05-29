@@ -56,9 +56,9 @@ Create a one-person podcast script from supplied source material, then save only
 4. Choose a central episode message. The script should not be a flat summary; it should have a clear content point.
 5. Draft the one-person podcast script as a polished monologue.
 6. Save working drafts outside the final output path while iterating. After strict evaluation passes, save the final approved script body to `./scripts/<descriptive-name>.txt` under the current project root.
-7. Read `references/evaluation-rubric.md`, then create a new independent strict evaluator subagent. Provide:
-   - the final candidate script
-   - concise source notes or source extracts needed to verify content
+7. Read `references/evaluation-rubric.md`, then create a new independent strict evaluator subagent. Provide file paths, not pasted full script text:
+   - path to the candidate script file
+   - path to concise source notes or source extracts needed to verify content
    - the user's original instructions
    - the fixed output contract from the rubric
 8. If any rubric item is `FAIL`, revise the script according to `REQUIRED_FIXES`, then create another fresh independent evaluator subagent for the revised script. Never re-use the previous evaluator for re-evaluation.
@@ -69,9 +69,9 @@ Create a one-person podcast script from supplied source material, then save only
 
 Ask the evaluator to assess only script content quality. Do not ask it to evaluate TTS formatting, speaker labels, file naming, or source ingestion mechanics.
 
-Use a new independent evaluator subagent for each evaluation attempt. The evaluator should receive only the revised candidate script, source notes needed for verification, user instructions, and this rubric contract. Do not include previous evaluator conclusions unless the user explicitly asks to preserve an audit trail.
+Use a new independent evaluator subagent for each evaluation attempt. The evaluator should receive only paths to the revised candidate script and source notes, user instructions, and this rubric contract. Do not paste the full script content into the prompt. Do not include previous evaluator conclusions unless the user explicitly asks to preserve an audit trail.
 
-Before sending the prompt, replace every `{{...}}` field with the actual task content. Do not leave template variables in the prompt sent to the evaluator.
+Before sending the prompt, replace every `{{...}}` field with the actual task content. `{{SOURCE_NOTES_PATH}}` and `{{CANDIDATE_SCRIPT_PATH}}` must be readable local file paths. Do not leave template variables in the prompt sent to the evaluator.
 
 Use this prompt template for every evaluation and re-evaluation:
 
@@ -89,10 +89,12 @@ USER INSTRUCTIONS:
 {{USER_INSTRUCTIONS}}
 
 SOURCE NOTES:
-{{SOURCE_NOTES}}
+Read the source notes from this local path:
+{{SOURCE_NOTES_PATH}}
 
 CANDIDATE SCRIPT:
-{{CANDIDATE_SCRIPT}}
+Read the candidate script from this local path:
+{{CANDIDATE_SCRIPT_PATH}}
 
 RUBRIC:
 - Source Fidelity: accurate source understanding; no distortion, unsupported facts, or essential omissions.
