@@ -11,6 +11,8 @@ Evaluate only content quality. Do not evaluate TTS readiness, speaker labels, pl
 - If any item is `FAIL`, final result must be `RESULT: FAIL`.
 - When uncertain, choose `FAIL`.
 - Be very strict. Do not pass a script that is merely acceptable, generic, or safely written but weak as podcast content.
+- The first output line must be exactly `EVALUATION:`.
+- If `PASS`, `FAIL`, `RESULT: PASS`, or `RESULT: FAIL` appears before all assessment text is written, the evaluation is invalid and must be treated as `FAIL`.
 
 ## Criteria
 
@@ -100,3 +102,4 @@ RESULT: PASS|FAIL
 ```
 
 Do not output a criterion-level `PASS` or `FAIL` before its assessment text.
+Do not output `PASS`, `FAIL`, `RESULT: PASS`, or `RESULT: FAIL` before the required `EVALUATION` section is complete.

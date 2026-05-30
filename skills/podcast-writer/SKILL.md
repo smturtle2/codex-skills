@@ -63,8 +63,9 @@ Create a one-person podcast script from supplied source material, then save only
    - the user's original instructions
    - the fixed output contract from the rubric
 8. If any rubric item is `FAIL`, revise the script according to `REQUIRED_FIXES`, then create another fresh independent evaluator subagent for the revised script. Never re-use the previous evaluator for re-evaluation.
-9. Finish only after the evaluator returns `RESULT: PASS` with every item marked `PASS`.
-10. Delete temporary files created during source collection, preprocessing, audio download, draft writing, and evaluator handoff. Keep only the final approved `./scripts/*.txt` output and any user-provided original source files.
+9. If an evaluator outputs `PASS`, `FAIL`, `RESULT: PASS`, or `RESULT: FAIL` before writing the required assessment sections, treat that evaluator output as invalid and failed even if it later includes reasons. Start a fresh independent evaluator with the same candidate files and stricter instructions.
+10. Finish only after the evaluator returns `RESULT: PASS` with every item marked `PASS` and no pass/fail judgment appears before the assessment text.
+11. Delete temporary files created during source collection, preprocessing, audio download, draft writing, and evaluator handoff. Keep only the final approved `./scripts/*.txt` output and any user-provided original source files.
 
 ## Evaluation Delegation Prompt Contract
 
@@ -85,6 +86,9 @@ Do not evaluate TTS readiness, speaker labels, plain-text formatting, file paths
 Be very strict. PASS is allowed only when the script is strong as podcast content, not merely acceptable.
 When uncertain, choose FAIL for the affected criterion.
 The final RESULT may be PASS only if every criterion is PASS.
+Your first output line must be exactly `EVALUATION:`.
+Do not write `PASS`, `FAIL`, `RESULT: PASS`, or `RESULT: FAIL` before completing every `Assessment` field.
+If you put any pass/fail judgment before the assessment text, your evaluation is invalid and must be treated as FAIL.
 
 USER INSTRUCTIONS:
 {{USER_INSTRUCTIONS}}
@@ -143,6 +147,7 @@ RESULT: PASS|FAIL
 
 All eight evaluation items must be `PASS` for `RESULT: PASS`. When the evaluator is uncertain, it must choose `FAIL`.
 For every criterion, write `Assessment` before `Criterion Result`. Do not output a criterion-level `PASS` or `FAIL` before the assessment text.
+If the evaluator returns `PASS`, `FAIL`, `RESULT: PASS`, or `RESULT: FAIL` before the assessment text, treat that evaluator output as `FAIL` regardless of any later explanation.
 
 ## Response
 
