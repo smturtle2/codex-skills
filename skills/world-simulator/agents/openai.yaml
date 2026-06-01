@@ -1,0 +1,6 @@
+interface:
+  display_name: "World Simulator"
+  short_description: "Persistent GUI world simulation"
+  icon_small: "./assets/world-simulator-small.svg"
+  icon_large: "./assets/world-simulator.png"
+  default_prompt: "Use $world-simulator to start a persistent world simulation from my concept."

@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-6-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
+[![Skills](https://img.shields.io/badge/skills-7-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
 
-A small, installable catalog of Codex skills for image generation, animation assets, UI blueprints, subagent creation, podcast scripts, and Gomoku.
+A small, installable catalog of Codex skills for image generation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, and Gomoku.
 
 Each skill is self-contained with a `SKILL.md` trigger contract plus any local scripts, references, assets, and agent metadata it needs.
 
@@ -26,6 +26,7 @@ Languages: English | [한국어](README.ko.md)
 | [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | Creating one focused Codex custom subagent | Validated TOML agent definition | [Prompt](#subagent-creator) |
 | [`podcast-writer`](#podcast-writer) | Turning sources into one-person podcast scripts | Plain `.txt` script plus strict content-quality evaluation | [Prompt](#podcast-writer) |
+| [`world-simulator`](#world-simulator) | Running a persistent Codex-managed world simulation | Minimal Python GUI plus durable world, player, story, GM, and turn files | [Prompt](#world-simulator) |
 | [`gomoku`](#gomoku) | Playing Gomoku against Codex in a local GUI | Python board plus JSON state bridge for Codex moves | [Prompt](#gomoku) |
 
 ## Quick Install
@@ -123,6 +124,8 @@ Docs:
 
 Turn PDFs, text files, websites, and YouTube transcripts into a one-person podcast script saved as plain text.
 
+![Podcast Writer workflow](docs/assets/podcast-writer-workflow.png)
+
 | Field | Details |
 | --- | --- |
 | Folder | `skills/podcast-writer` |
@@ -134,6 +137,25 @@ Install:
 
 ```text
 Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/podcast-writer
+```
+
+### `world-simulator`
+
+Run a persistent free-form world simulation through a minimal Python GUI while Codex manages world state, hidden GM notes, and turn progression.
+
+![World Simulator workflow](docs/assets/world-simulator-workflow.png)
+
+| Field | Details |
+| --- | --- |
+| Folder | `skills/world-simulator` |
+| Use when | You want a GUI-mediated narrative sandbox where Codex creates the world, manages the player character, and advances the story from free-form user input. |
+| Produces | A local GUI, durable session folders, visible story state, hidden GM state, and append-only turn records. |
+| Avoids | Story input through chat, fixed RPG stat schemas, story choice buttons, and Python-generated narrative decisions. |
+
+Install:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/world-simulator
 ```
 
 ### `gomoku`
@@ -161,6 +183,7 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 - `skills/*/SKILL.md`: the instruction body Codex reads when a skill is triggered.
 - `skills/*/scripts/`: helper scripts bundled with a skill.
 - `skills/*/references/`: optional supporting references used by a skill.
+- `skills/*/assets/`: skill icon assets and reusable bundled files.
 - `skills/*/agents/`: optional agent/provider metadata for a skill.
 - `docs/assets/`: README images and repository-level documentation assets.
 
@@ -174,6 +197,7 @@ Quality bar:
 - Minimal bundled context.
 - No hidden credentials.
 - Local, auditable scripts.
+- Skill icon assets and agent metadata references when a skill is listed in the catalog.
 - README entry and install prompt.
 
 ## Notes

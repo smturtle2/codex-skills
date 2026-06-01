@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-6-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
+[![Skills](https://img.shields.io/badge/skills-7-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
 
-이미지 생성, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 오목 플레이를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
+이미지 생성, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 세계 시뮬레이션, 오목 플레이를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
 
 각 스킬은 `SKILL.md` 트리거 계약과 필요한 로컬 스크립트, 참조 문서, 에셋, agent 메타데이터를 함께 담는 독립 폴더다.
 
@@ -26,6 +26,7 @@
 | [`ui-blueprint`](#ui-blueprint) | 프론트엔드 UI 제작 또는 큰 리디자인 | 생성된 UI mockup, 시각 노트, 구현된 UI | [프롬프트](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | 집중된 Codex 커스텀 서브에이전트 생성 | 검증 가능한 TOML agent 정의 | [프롬프트](#subagent-creator) |
 | [`podcast-writer`](#podcast-writer) | 소스를 1인 팟캐스트 대본으로 변환 | 저장된 `.txt` 대본과 엄격한 내용 품질 평가 | [프롬프트](#podcast-writer) |
+| [`world-simulator`](#world-simulator) | Codex가 관리하는 지속 세계 시뮬레이션 실행 | 최소 Python GUI와 세계, 플레이어, 스토리, GM, 턴 파일 | [프롬프트](#world-simulator) |
 | [`gomoku`](#gomoku) | 로컬 GUI에서 Codex와 오목 대국 | Python 보드와 Codex 착수를 위한 JSON 상태 브리지 | [프롬프트](#gomoku) |
 
 ## 빠른 설치
@@ -123,6 +124,8 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 
 PDF, 텍스트 파일, 웹사이트, YouTube transcript를 1인 팟캐스트 대본으로 만들고 plain text로 저장한다.
 
+![Podcast Writer 워크플로](docs/assets/podcast-writer-workflow.png)
+
 | 항목 | 내용 |
 | --- | --- |
 | 위치 | `skills/podcast-writer` |
@@ -134,6 +137,25 @@ PDF, 텍스트 파일, 웹사이트, YouTube transcript를 1인 팟캐스트 대
 
 ```text
 Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/podcast-writer
+```
+
+### `world-simulator`
+
+최소 Python GUI를 통해 지속적인 자유 입력형 세계 시뮬레이션을 실행하고, Codex가 세계 상태, 숨은 GM 노트, 턴 진행을 관리한다.
+
+![World Simulator 워크플로](docs/assets/world-simulator-workflow.png)
+
+| 항목 | 내용 |
+| --- | --- |
+| 위치 | `skills/world-simulator` |
+| 사용 시점 | GUI에서 받은 자유 입력으로 Codex가 세계를 만들고, 플레이어 캐릭터를 관리하고, 스토리를 진행하는 narrative sandbox가 필요할 때 |
+| 결과 | 로컬 GUI, 지속 세션 폴더, 공개 스토리 상태, 숨은 GM 상태, append-only 턴 기록 |
+| 피하는 일 | 채팅으로 스토리 입력 받기, 고정 RPG 스탯 스키마, 이야기 선택 버튼, Python으로 서사 판단 생성 |
+
+설치:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/world-simulator
 ```
 
 ### `gomoku`
@@ -161,6 +183,7 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 - `skills/*/SKILL.md`: 스킬이 트리거될 때 Codex가 읽는 지침 본문.
 - `skills/*/scripts/`: 스킬과 함께 배포되는 보조 스크립트.
 - `skills/*/references/`: 스킬이 필요할 때 읽는 참조 문서.
+- `skills/*/assets/`: 스킬 아이콘 에셋과 재사용 가능한 bundled 파일.
 - `skills/*/agents/`: 스킬별 agent/provider 메타데이터.
 - `docs/assets/`: README 이미지와 저장소 수준 문서 에셋.
 
@@ -174,6 +197,7 @@ Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/m
 - 최소한의 bundled context.
 - 숨겨진 credentials 없음.
 - 로컬에서 확인 가능한 스크립트.
+- 카탈로그에 표시되는 스킬의 icon asset과 agent metadata 참조.
 - README 항목과 설치 프롬프트.
 
 ## 메모
