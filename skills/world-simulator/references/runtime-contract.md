@@ -103,12 +103,26 @@ Optional fields:
 - `kind`: optional visual grouping string. The GUI may expose it as a CSS class but must not infer world meaning from it.
 - `image_path`: optional local file path under the session `assets/` directory. For `/show` visual materials, this should normally be a raster image produced through the `image-creator` skill.
 - `caption`: optional string shown with the popup content.
+- `display_asset`: optional Codex-authored metadata object for future reuse checks. Use it when `image_path` is present.
 
 At least one of `markdown`, `image_path`, or `caption` must be present. All user-visible popup text must use the active `language`.
 
 The web GUI renders `popup` inside the current browser page as a modal HUD panel.
 
 Generated `image_path` assets are the visual content shown inside that panel.
+
+`display_asset` object fields:
+
+- `request`: optional original `/show` request text without the command prefix.
+- `subject`: optional concise subject of the displayed image.
+- `purpose`: optional display type or use, such as map, sheet, record, diagram, portrait, or reference.
+- `visible_scope`: optional short description of the player-visible facts represented by the image.
+- `reuse_key`: optional stable human-readable key Codex can use when comparing later display requests.
+- `canon_refs`: optional array of public file names, turn ids, scene labels, or other public references used to make the image.
+- `reuse_tags`: optional array of short public tags useful for future matching.
+- `reuse_notes`: optional public note for future Codex reuse decisions.
+
+`display_asset` must not contain hidden GM-only truth. The script may copy these fields into `ui/display_assets.json`, but it must not decide whether they semantically satisfy a later request.
 
 The GUI renders each section without interpreting genre-specific fields.
 
@@ -184,6 +198,8 @@ Language contract:
 - `status_icon`: optional semantic icon.
 - `input_icon`: optional semantic icon.
 - `popup_close_label`: optional close-button label.
+- `open_image_label`: optional popup action label for opening a popup image asset.
+- `download_image_label`: optional popup action label for downloading a popup image asset.
 - `palette`: required color object.
 
 Required `palette` keys:
@@ -205,6 +221,40 @@ Required `palette` keys:
 `ui/gui_state.json` is maintained by the GUI for draft text, next turn id, and display state. Codex should not treat it as world canon.
 
 `ui/heartbeat.json` is maintained by the GUI while it is open.
+
+`ui/display_assets.json` is maintained by the script when Codex publishes a popup with an `image_path` under the session `assets/` directory.
+
+Required fields:
+
+- `session_id`: string.
+- `items`: array of reusable display image records.
+- `updated_at`: UTC timestamp string.
+
+`items` record fields:
+
+- `id`: string. Usually the popup id that first exposed or last refreshed the asset.
+- `title`: string.
+- `image_path`: string path under the session `assets/` directory, normalized relative to the session root.
+- `caption`: optional string.
+- `request`: optional original `/show` request text without the command prefix.
+- `subject`: optional concise subject of the displayed image.
+- `purpose`: optional display type or use.
+- `visible_scope`: optional short description of the player-visible facts represented by the image.
+- `reuse_key`: optional stable human-readable key for Codex's future comparison.
+- `canon_refs`: optional array of public references used to make the image.
+- `reuse_tags`: optional array of short public tags useful for future matching.
+- `reuse_notes`: optional public note for future Codex reuse decisions.
+- `turn_id`: integer identifying the latest output turn that exposed the asset.
+- `created_at`: UTC timestamp string for the first registry entry.
+- `last_seen_at`: UTC timestamp string for the latest popup publication that referenced the asset.
+
+The registry is a reuse index, not world canon. It exists so Codex can find previously shown display images; it is not a semantic matcher, policy engine, or source of story truth.
+
+During `/show` handling, Codex must read the registry before generating a new image and decide whether to reuse a saved `image_path` by comparing the request against current player-visible canon. Reuse is allowed only when the saved display still matches what the player can know and see. If the registry is empty, broken, stale, or semantically insufficient, Codex should generate or refresh the display instead.
+
+The default web GUI may show registry items in command help and reopen or download their files. Fallback GUI backends must at least expose reusable image paths in help. No GUI backend may infer story meaning from registry fields or decide that a saved image satisfies a new `/show` request.
+
+Missing, malformed, or invalid registry entries must not block the GUI. The script may ignore unusable records, including broken JSON, missing files, or paths outside `assets/`.
 
 ## CLI Contract
 
@@ -298,3 +348,5 @@ Order `status_sections` by play use: player RPG status HUD first, concrete activ
 `input_enabled` should normally be `true` after Codex publishes an output. Set it to `false` only for terminal states, unrecoverable errors, or explicit pause states.
 
 Never copy `gm/` file contents directly into `latest_output.json`.
+
+The GUI must include a compact help control near the input controls. Help content is limited to command mechanics, including `/show MESSAGE`, and may list reusable display images from `ui/display_assets.json`. The default web GUI should provide open and download controls for saved display images; fallback backends may expose the same assets as text paths.

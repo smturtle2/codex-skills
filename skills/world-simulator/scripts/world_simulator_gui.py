@@ -190,6 +190,8 @@ def initial_output(session_id: str) -> dict[str, Any]:
             "input_placeholder": "세계 컨셉을 입력하세요.",
             "input_hint": "Enter: 보내기 · Shift+Enter: 줄바꿈",
             "send_label": "보내기",
+            "processing_message": "Codex가 처리 중",
+            "processing_detail": "보낸 입력을 세계 상태와 숨은 진행에 반영하는 중입니다. 다음 장면이 준비되면 입력창이 비워집니다.",
             "palette": DEFAULT_THEME,
         }
         status_message = "세계 컨셉 대기 중"
@@ -209,6 +211,8 @@ def initial_output(session_id: str) -> dict[str, Any]:
             "input_title": "World Concept",
             "input_placeholder": "Describe the world concept.",
             "send_label": "Send",
+            "processing_message": "Codex is processing",
+            "processing_detail": "Codex is applying the submitted input to the world state. The input box will clear when the next scene is ready.",
             "palette": DEFAULT_THEME,
         }
         status_message = "Waiting for world concept"
@@ -347,6 +351,7 @@ def publish_output(session_path: pathlib.Path, payload_path: pathlib.Path) -> di
     payload.setdefault("status_message", runtime_text(payload, "ready"))
     payload["published_at"] = utc_timestamp()
     atomic_write_json(ui_path(session_path, "latest_output.json"), payload)
+    record_popup_display_asset(session_path, payload)
     return session_status(session_path)
 
 
@@ -372,6 +377,8 @@ def normalized_theme(latest: dict[str, Any] | None) -> dict[str, Any]:
             "processing_message": "Codex가 진행 중",
             "processing_detail": runtime_text(latest, "processing_detail"),
             "popup_close_label": "닫기",
+            "open_image_label": "이미지 열기",
+            "download_image_label": "이미지 다운로드",
         },
         "en": {
             "title": "World Simulator",
@@ -384,6 +391,8 @@ def normalized_theme(latest: dict[str, Any] | None) -> dict[str, Any]:
             "processing_message": "Codex is processing",
             "processing_detail": runtime_text(latest, "processing_detail"),
             "popup_close_label": "Close",
+            "open_image_label": "Open image",
+            "download_image_label": "Download image",
         },
     }[language]
     return {
@@ -397,6 +406,8 @@ def normalized_theme(latest: dict[str, Any] | None) -> dict[str, Any]:
         "processing_message": str(raw_theme.get("processing_message") or defaults["processing_message"]),
         "processing_detail": str(raw_theme.get("processing_detail") or defaults["processing_detail"]),
         "popup_close_label": str(raw_theme.get("popup_close_label") or defaults["popup_close_label"]),
+        "open_image_label": str(raw_theme.get("open_image_label") or defaults["open_image_label"]),
+        "download_image_label": str(raw_theme.get("download_image_label") or defaults["download_image_label"]),
         "header_icon": str(raw_theme.get("header_icon") or ""),
         "history_icon": str(raw_theme.get("history_icon") or ""),
         "status_icon": str(raw_theme.get("status_icon") or ""),
@@ -779,6 +790,7 @@ def run_qt_gui(session_path: pathlib.Path) -> None:
             self.last_output_text = ""
             self.last_popup_key = ""
             self.popup_dialog: Any = None
+            self.help_dialog: Any = None
             self.latest_output: dict[str, Any] = {}
             self.current_theme = normalized_theme({})
             self.awaiting_clear_turn = 0
@@ -851,9 +863,13 @@ def run_qt_gui(session_path: pathlib.Path) -> None:
             self.input_title.setObjectName("panelTitle")
             self.input_hint = QLabel("Enter: send · Shift+Enter: new line")
             self.input_hint.setObjectName("inputHint")
+            self.help_button = QPushButton("?")
+            self.help_button.setFixedSize(30, 30)
+            self.help_button.clicked.connect(self.render_help_popup)
             input_header.addWidget(self.input_title)
             input_header.addStretch(1)
             input_header.addWidget(self.input_hint)
+            input_header.addWidget(self.help_button)
             root_layout.addLayout(input_header)
 
             input_row = QHBoxLayout()
@@ -1116,6 +1132,24 @@ def run_qt_gui(session_path: pathlib.Path) -> None:
             self.popup_dialog = dialog
             dialog.show()
 
+        def render_help_popup(self) -> None:
+            popup = command_help_popup(self.session_path, self.latest_output)
+            if self.help_dialog is not None:
+                self.help_dialog.close()
+            dialog = QDialog(self)
+            dialog.setWindowTitle(str(popup["title"]))
+            dialog.resize(680, 480)
+            layout = QVBoxLayout(dialog)
+            browser = QTextBrowser()
+            browser.setHtml(render_popup_html(popup, self.current_theme, self.session_path))
+            layout.addWidget(browser, 1)
+            close_button = QPushButton(self.current_theme["popup_close_label"])
+            close_button.clicked.connect(dialog.accept)
+            layout.addWidget(close_button)
+            dialog.finished.connect(lambda _result: setattr(self, "help_dialog", None))
+            self.help_dialog = dialog
+            dialog.show()
+
         def render_enabled_state(self, enabled: bool, message: str) -> None:
             phase = str(self.latest_output.get("phase") or "world_concept")
             phase_label = display_phase_label(phase, self.latest_output)
@@ -1172,7 +1206,10 @@ def run_tk_gui(session_path: pathlib.Path) -> None:
             self.last_output_text = ""
             self.last_popup_key = ""
             self.popup_window: Any = None
+            self.help_window: Any = None
             self.draft_after_id: str | None = None
+            gui_state = read_json(ui_path(self.session_path, "gui_state.json"), {}) or {}
+            self.awaiting_clear_turn = int_value(gui_state.get("submitted_turn_waiting_clear"))
             self.latest_output: dict[str, Any] = {}
             self.body_font = choose_text_font(root, 11)
             self.status_font = choose_text_font(root, 10)
@@ -1249,10 +1286,12 @@ def run_tk_gui(session_path: pathlib.Path) -> None:
             self.submit_button = ttk.Button(input_frame, text="Submit", command=self.submit_input)
             self.submit_button.grid(row=0, column=1, sticky="ns")
 
+            self.help_button = ttk.Button(input_frame, text="?", command=self.render_help_popup, width=3)
+            self.help_button.grid(row=0, column=2, sticky="ns", padx=(8, 0))
+
             root.columnconfigure(0, weight=1)
             root.rowconfigure(1, weight=1)
 
-            gui_state = read_json(ui_path(self.session_path, "gui_state.json"), {}) or {}
             draft = gui_state.get("draft", "")
             if draft:
                 self.input_box.insert("1.0", str(draft))
@@ -1303,13 +1342,29 @@ def run_tk_gui(session_path: pathlib.Path) -> None:
                     "session_id": self.session_path.name,
                     "next_turn_id": next_turn + 1,
                     "phase": phase,
-                    "draft": "",
+                    "draft": text,
+                    "submitted_turn_waiting_clear": next_turn,
                     "updated_at": utc_timestamp(),
                 }
             )
             atomic_write_json(ui_path(self.session_path, "gui_state.json"), gui_state)
-            self.input_box.delete("1.0", "end")
+            self.awaiting_clear_turn = next_turn
             self.render_enabled_state(False, runtime_text(latest, "submitted", turn=next_turn))
+
+        def clear_processed_submission(self, latest: dict[str, Any]) -> None:
+            if not self.awaiting_clear_turn:
+                return
+            if turn_id(latest) < self.awaiting_clear_turn or not bool(latest.get("input_enabled", True)):
+                return
+            gui_state = read_json(ui_path(self.session_path, "gui_state.json"), {}) or {}
+            self.awaiting_clear_turn = 0
+            gui_state["draft"] = ""
+            gui_state["submitted_turn_waiting_clear"] = 0
+            gui_state["updated_at"] = utc_timestamp()
+            atomic_write_json(ui_path(self.session_path, "gui_state.json"), gui_state)
+            if str(self.input_box.cget("state")) != "normal":
+                self.input_box.configure(state="normal")
+            self.input_box.delete("1.0", "end")
 
         def poll(self) -> None:
             atomic_write_json(
@@ -1330,6 +1385,8 @@ def run_tk_gui(session_path: pathlib.Path) -> None:
             pending = read_json(ui_path(self.session_path, "pending_input.json"), {}) or {}
             is_processing = turn_id(pending) > turn_id(latest)
             can_input = not is_processing and bool(latest.get("input_enabled", True))
+            if can_input:
+                self.clear_processed_submission(latest)
             if is_processing:
                 message = runtime_text(latest, "processing")
             else:
@@ -1402,6 +1459,47 @@ def run_tk_gui(session_path: pathlib.Path) -> None:
             close_button.grid(row=1, column=0, sticky="e", padx=10, pady=(0, 10))
             popup_window.protocol("WM_DELETE_WINDOW", close_popup_window)
             self.popup_window = popup_window
+
+        def render_help_popup(self) -> None:
+            if self.help_window is not None:
+                try:
+                    self.help_window.destroy()
+                except Exception:
+                    pass
+                self.help_window = None
+            popup = command_help_popup(self.session_path, self.latest_output)
+            help_window = tk.Toplevel(self.root)
+            help_window.title(str(popup["title"]))
+            help_window.geometry("680x480")
+            help_window.configure(bg="#f6f9ff")
+            help_window.columnconfigure(0, weight=1)
+            help_window.rowconfigure(0, weight=1)
+            text_widget = tk.Text(
+                help_window,
+                wrap="word",
+                bg="#ffffff",
+                fg="#102033",
+                padx=14,
+                pady=12,
+                relief="flat",
+                font=self.body_font,
+            )
+            text_widget.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 6))
+            text_widget.insert("1.0", popup_plain_text(popup))
+            text_widget.configure(state="disabled")
+
+            def close_help_window() -> None:
+                self.help_window = None
+                help_window.destroy()
+
+            close_button = ttk.Button(
+                help_window,
+                text=str(normalized_theme(self.latest_output)["popup_close_label"]),
+                command=close_help_window,
+            )
+            close_button.grid(row=1, column=0, sticky="e", padx=10, pady=(0, 10))
+            help_window.protocol("WM_DELETE_WINDOW", close_help_window)
+            self.help_window = help_window
 
         def render_enabled_state(self, enabled: bool, message: str) -> None:
             phase = str(self.latest_output.get("phase") or "world_concept")
@@ -1977,16 +2075,41 @@ WEB_HTML = r"""<!doctype html>
     .input-head {
       display: flex;
       justify-content: space-between;
+      align-items: center;
       gap: 10px;
       margin-bottom: 8px;
       color: var(--accent);
       font-size: 13px;
       font-weight: 850;
     }
+    .input-tools {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
     .hint {
       color: var(--muted);
       font-size: 12px;
       font-weight: 700;
+    }
+    .help-button {
+      width: 30px;
+      min-width: 30px;
+      height: 30px;
+      min-height: 30px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+      background: color-mix(in srgb, var(--panel) 82%, var(--status));
+      color: var(--accent);
+      font-size: 16px;
+      font-weight: 950;
+      line-height: 1;
+    }
+    .help-button:hover:not(:disabled) {
+      border-color: var(--accent);
+      background: var(--status);
     }
     .input-row {
       display: grid;
@@ -2138,12 +2261,65 @@ WEB_HTML = r"""<!doctype html>
       font-size: 12px;
       font-weight: 760;
     }
+    .popup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 10px 0 14px;
+    }
+    .popup-actions a,
+    .asset-row button,
+    .asset-row a {
+      min-height: 30px;
+      padding: 7px 10px;
+      border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--panel) 86%, var(--status));
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 900;
+      text-decoration: none;
+    }
+    .asset-list {
+      display: grid;
+      gap: 9px;
+      margin-top: 10px;
+    }
+    .asset-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--status) 48%, white);
+    }
+    .asset-title {
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .asset-path {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 760;
+      overflow-wrap: anywhere;
+    }
+    .asset-controls {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+    }
     @media (max-width: 860px) {
       .shell { padding: 10px; }
       .hud, .main, .input-row { grid-template-columns: 1fr; }
       .player-vitals, .player-slots, .player-attributes { grid-template-columns: 1fr; }
       .state-badge { min-width: 0; }
       button { min-height: 58px; }
+      .help-button { min-height: 30px; }
+      .asset-row { grid-template-columns: 1fr; }
       .popup-layer { padding: 12px; }
       .popup-dialog { max-height: 84vh; }
     }
@@ -2178,7 +2354,10 @@ WEB_HTML = r"""<!doctype html>
     <section class="input-deck">
       <div class="input-head">
         <span id="inputTitle">Input</span>
-        <span class="hint" id="inputHint"></span>
+        <span class="input-tools">
+          <span class="hint" id="inputHint"></span>
+          <button class="help-button" id="helpButton" type="button" aria-label="Help">?</button>
+        </span>
       </div>
       <div class="input-row">
         <textarea id="inputBox"></textarea>
@@ -2209,6 +2388,7 @@ WEB_HTML = r"""<!doctype html>
       statusTitle: document.getElementById("statusTitle"),
       inputTitle: document.getElementById("inputTitle"),
       inputHint: document.getElementById("inputHint"),
+      helpButton: document.getElementById("helpButton"),
       history: document.getElementById("history"),
       status: document.getElementById("status"),
       inputBox: document.getElementById("inputBox"),
@@ -2224,6 +2404,7 @@ WEB_HTML = r"""<!doctype html>
     let draftTimer = 0;
     let activePopupKey = "";
     let dismissedPopupKey = "";
+    let lastData = window.__INITIAL_STATE__ || {};
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, ch => ({
@@ -2383,6 +2564,71 @@ WEB_HTML = r"""<!doctype html>
     function popupAssetUrl(path) {
       return `/asset?path=${encodeURIComponent(String(path || ""))}`;
     }
+    function assetRows(assets, help) {
+      if (!Array.isArray(assets) || !assets.length) {
+        return `<p>${escapeHtml(help.empty_assets || "No saved display images yet.")}</p>`;
+      }
+      return `<div class="asset-list">${assets.map((asset, index) => {
+        const title = text(asset.title || asset.image_path || "");
+        const path = text(asset.image_path || "");
+        const caption = text(asset.caption || "");
+        const captionHtml = caption ? `<div class="asset-path">${inlineMarkdown(caption)}</div>` : "";
+        const url = popupAssetUrl(path);
+        return `<div class="asset-row">
+          <div>
+            <div class="asset-title">${escapeHtml(title || path)}</div>
+            ${captionHtml}
+            <div class="asset-path">${escapeHtml(help.path_label || "Path")}: <code>${escapeHtml(path)}</code></div>
+          </div>
+          <div class="asset-controls">
+            <button type="button" data-asset-index="${index}">${escapeHtml(help.open_label || "Open")}</button>
+            <a href="${escapeHtml(url)}" download>${escapeHtml(help.download_label || "Download")}</a>
+          </div>
+        </div>`;
+      }).join("")}</div>`;
+    }
+    function bindAssetOpeners(assets, theme) {
+      els.popupBody.querySelectorAll("[data-asset-index]").forEach(button => {
+        button.addEventListener("click", () => {
+          const index = Number(button.getAttribute("data-asset-index"));
+          const asset = Array.isArray(assets) ? assets[index] : null;
+          if (!asset) return;
+          renderPopup({
+            id: `saved-display:${asset.image_path}:${Date.now()}`,
+            title: asset.title || asset.image_path || "Display",
+            image_path: asset.image_path,
+            caption: asset.caption || "",
+          }, theme);
+        });
+      });
+    }
+    function renderHelpPopup(data, theme) {
+      const latest = data.latest || {};
+      const language = latest.language === "ko" ? "ko" : "en";
+      const fallback = {
+        title: language === "ko" ? "도움말" : "Help",
+        markdown: language === "ko"
+          ? "## 명령어\n\n- `/show 요청`: 현재 세계에서 볼 수 있는 표시물을 Codex에게 요청합니다."
+          : "## Commands\n\n- `/show request`: ask Codex to display a visible artifact available in the current world.",
+        assets_title: language === "ko" ? "저장된 표시물" : "Saved Displays",
+        empty_assets: language === "ko" ? "아직 저장된 표시 이미지가 없습니다." : "No saved display images yet.",
+        open_label: language === "ko" ? "열기" : "Open",
+        download_label: language === "ko" ? "다운로드" : "Download",
+        path_label: language === "ko" ? "경로" : "Path",
+      };
+      const help = data.command_help || fallback;
+      const assets = Array.isArray(data.display_assets) ? data.display_assets : [];
+      activePopupKey = "__command_help__";
+      dismissedPopupKey = "";
+      els.popupDialog.className = "popup-dialog command-help";
+      els.popupTitle.innerHTML = label("?", help.title || fallback.title);
+      els.popupBody.innerHTML = `${markdown(help.markdown || fallback.markdown, "")}<h2>${escapeHtml(help.assets_title || fallback.assets_title)}</h2>${assetRows(assets, help)}`;
+      els.popupClose.textContent = theme.popup_close_label || (language === "ko" ? "닫기" : "Close");
+      bindAssetOpeners(assets, theme);
+      els.popupLayer.classList.add("on");
+      els.popupLayer.setAttribute("aria-hidden", "false");
+      els.popupClose.focus();
+    }
     function renderPopup(popup, theme) {
       if (!popup || typeof popup !== "object") {
         activePopupKey = "";
@@ -2401,10 +2647,14 @@ WEB_HTML = r"""<!doctype html>
       const kind = String(popup.kind || "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
       els.popupDialog.className = `popup-dialog${kind ? ` ${kind}` : ""}`;
       els.popupTitle.innerHTML = label(popup.icon, title || theme.title || "Display");
-      const imageHtml = imagePath ? `<img class="popup-image" src="${popupAssetUrl(imagePath)}" alt="${escapeHtml(title || caption || "popup image")}">` : "";
+      const imageUrl = imagePath ? popupAssetUrl(imagePath) : "";
+      const imageHtml = imagePath ? `<img class="popup-image" src="${imageUrl}" alt="${escapeHtml(title || caption || "popup image")}">` : "";
+      const actionHtml = imagePath
+        ? `<div class="popup-actions"><a href="${escapeHtml(imageUrl)}" target="_blank" rel="noopener">${escapeHtml(theme.open_image_label || "Open image")}</a><a href="${escapeHtml(imageUrl)}" download>${escapeHtml(theme.download_image_label || "Download image")}</a><code>${escapeHtml(imagePath)}</code></div>`
+        : "";
       const bodyHtml = body ? markdown(body, popup.icon || "") : "";
       const captionHtml = caption ? `<div class="popup-caption">${inlineMarkdown(caption)}</div>` : "";
-      els.popupBody.innerHTML = `${imageHtml}${bodyHtml}${captionHtml}`;
+      els.popupBody.innerHTML = `${imageHtml}${actionHtml}${bodyHtml}${captionHtml}`;
       els.popupClose.textContent = theme.popup_close_label || "Close";
       activePopupKey = key;
       dismissedPopupKey = "";
@@ -2413,6 +2663,7 @@ WEB_HTML = r"""<!doctype html>
       els.popupClose.focus();
     }
     function render(data) {
+      lastData = data;
       const latest = data.latest || {};
       const theme = data.theme || {};
       applyTheme(theme);
@@ -2438,6 +2689,7 @@ WEB_HTML = r"""<!doctype html>
         renderPopup(latest.popup, theme);
       }
       const language = latest.language === "ko" ? "ko" : "en";
+      els.helpButton.setAttribute("aria-label", (data.command_help && data.command_help.button_label) || (language === "ko" ? "도움말" : "Help"));
       els.metaLine.textContent = `${data.session_id} · ${data.phase_label || latest.phase || ""}`;
       els.stateLabel.textContent = language === "ko" ? "상태" : "STATE";
       els.stateText.textContent = data.processing ? (theme.processing_message || data.status_message) : (data.status_message || "");
@@ -2485,6 +2737,9 @@ WEB_HTML = r"""<!doctype html>
       }, 350);
     }
     els.popupClose.addEventListener("click", closePopup);
+    els.helpButton.addEventListener("click", () => {
+      renderHelpPopup(lastData, lastData.theme || {});
+    });
     els.popupLayer.addEventListener("click", event => {
       if (event.target === els.popupLayer) closePopup();
     });
@@ -2522,6 +2777,7 @@ def web_state(session_path: pathlib.Path) -> dict[str, Any]:
     latest = read_json(ui_path(session_path, "latest_output.json"), {}) or {}
     pending = read_json(ui_path(session_path, "pending_input.json"), {}) or {}
     gui_state = read_json(ui_path(session_path, "gui_state.json"), {}) or {}
+    display_assets = list_display_assets(session_path)
     processing = turn_id(pending) > turn_id(latest)
     clear_input = False
     waiting_clear = int_value(gui_state.get("submitted_turn_waiting_clear"))
@@ -2548,6 +2804,8 @@ def web_state(session_path: pathlib.Path) -> dict[str, Any]:
         "latest": latest,
         "pending": pending,
         "gui_state": gui_state,
+        "display_assets": display_assets,
+        "command_help": command_help_payload(payload_language(latest), display_assets),
         "theme": normalized_theme(latest),
         "processing": processing,
         "clear_input": clear_input,
@@ -2607,6 +2865,18 @@ def save_web_draft(session_path: pathlib.Path, text_value: str) -> dict[str, Any
     return {"ok": True}
 
 
+def display_assets_registry_path(session_path: pathlib.Path) -> pathlib.Path:
+    return ui_path(session_path, "display_assets.json")
+
+
+def read_display_assets_registry(session_path: pathlib.Path) -> dict[str, Any]:
+    try:
+        registry = read_json(display_assets_registry_path(session_path), {}) or {}
+    except json.JSONDecodeError:
+        return {}
+    return registry if isinstance(registry, dict) else {}
+
+
 def resolve_asset_path(session_path: pathlib.Path, requested_path: str) -> pathlib.Path:
     if not requested_path:
         raise WorldSimulatorError("asset path is empty")
@@ -2623,6 +2893,160 @@ def resolve_asset_path(session_path: pathlib.Path, requested_path: str) -> pathl
     if not resolved.is_file():
         raise WorldSimulatorError("asset not found")
     return resolved
+
+
+def normalized_asset_reference(session_path: pathlib.Path, requested_path: str) -> str:
+    resolved = resolve_asset_path(session_path, requested_path)
+    relative = resolved.relative_to(session_path.resolve())
+    return pathlib.PurePosixPath(*relative.parts).as_posix()
+
+
+def list_display_assets(session_path: pathlib.Path) -> list[dict[str, Any]]:
+    registry = read_display_assets_registry(session_path)
+    raw_items = registry.get("items")
+    if not isinstance(raw_items, list):
+        return []
+
+    items: list[dict[str, Any]] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        image_path = str(raw_item.get("image_path") or "").strip()
+        if not image_path:
+            continue
+        try:
+            normalized_path = normalized_asset_reference(session_path, image_path)
+        except WorldSimulatorError:
+            continue
+        item = {
+            "id": str(raw_item.get("id") or normalized_path),
+            "title": str(raw_item.get("title") or pathlib.Path(normalized_path).name),
+            "image_path": normalized_path,
+            "caption": str(raw_item.get("caption") or ""),
+            "request": str(raw_item.get("request") or ""),
+            "subject": str(raw_item.get("subject") or ""),
+            "purpose": str(raw_item.get("purpose") or ""),
+            "visible_scope": str(raw_item.get("visible_scope") or ""),
+            "reuse_key": str(raw_item.get("reuse_key") or ""),
+            "canon_refs": string_list(raw_item.get("canon_refs")),
+            "reuse_tags": string_list(raw_item.get("reuse_tags")),
+            "reuse_notes": str(raw_item.get("reuse_notes") or ""),
+            "turn_id": int_value(raw_item.get("turn_id")),
+            "created_at": str(raw_item.get("created_at") or ""),
+            "last_seen_at": str(raw_item.get("last_seen_at") or ""),
+        }
+        items.append(item)
+    return items
+
+
+def command_help_payload(language: str, display_assets: list[dict[str, Any]]) -> dict[str, Any]:
+    if normalized_language(language) == "ko":
+        return {
+            "title": "도움말",
+            "markdown": (
+                "## 명령어\n\n"
+                "- `/show 요청`: 현재 세계에서 볼 수 있는 지도, 기록, 이미지, 시트 같은 표시물을 Codex에게 요청합니다.\n"
+                "- Codex가 만든 표시 이미지는 이 세션에 저장되며, 아래 저장된 표시물 목록에서 다시 열 수 있습니다."
+            ),
+            "assets_title": "저장된 표시물",
+            "empty_assets": "아직 저장된 표시 이미지가 없습니다.",
+            "open_label": "열기",
+            "download_label": "다운로드",
+            "path_label": "경로",
+            "button_label": "도움말",
+        }
+    return {
+        "title": "Help",
+        "markdown": (
+            "## Commands\n\n"
+            "- `/show request`: ask Codex to display a visible map, record, image, sheet, or other artifact available in the current world.\n"
+            "- Display images created by Codex are saved in this session and can be reopened from the saved displays list below."
+        ),
+        "assets_title": "Saved Displays",
+        "empty_assets": "No saved display images yet.",
+        "open_label": "Open",
+        "download_label": "Download",
+        "path_label": "Path",
+        "button_label": "Help",
+    }
+
+
+def command_help_popup(session_path: pathlib.Path, latest: dict[str, Any]) -> dict[str, Any]:
+    display_assets = list_display_assets(session_path)
+    help_payload = command_help_payload(payload_language(latest), display_assets)
+    lines = [str(help_payload["markdown"]), "", f"## {help_payload['assets_title']}"]
+    if display_assets:
+        for asset in display_assets:
+            title = str(asset.get("title") or asset.get("image_path") or "")
+            image_path = str(asset.get("image_path") or "")
+            caption = str(asset.get("caption") or "")
+            detail = f" - {caption}" if caption else ""
+            lines.append(f"- {title}: `{image_path}`{detail}")
+    else:
+        lines.append(str(help_payload["empty_assets"]))
+    return {
+        "id": "__command_help__",
+        "title": str(help_payload["title"]),
+        "markdown": "\n".join(lines),
+    }
+
+
+def string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item or "").strip()]
+
+
+def display_asset_metadata(popup: dict[str, Any], existing: dict[str, Any]) -> dict[str, Any]:
+    raw_metadata = popup.get("display_asset")
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+    return {
+        "request": str(metadata.get("request") or existing.get("request") or ""),
+        "subject": str(metadata.get("subject") or existing.get("subject") or ""),
+        "purpose": str(metadata.get("purpose") or existing.get("purpose") or ""),
+        "visible_scope": str(metadata.get("visible_scope") or existing.get("visible_scope") or ""),
+        "reuse_key": str(metadata.get("reuse_key") or existing.get("reuse_key") or ""),
+        "canon_refs": string_list(metadata.get("canon_refs") or existing.get("canon_refs")),
+        "reuse_tags": string_list(metadata.get("reuse_tags") or existing.get("reuse_tags")),
+        "reuse_notes": str(metadata.get("reuse_notes") or existing.get("reuse_notes") or ""),
+    }
+
+
+def record_popup_display_asset(session_path: pathlib.Path, payload: dict[str, Any]) -> None:
+    popup = payload.get("popup")
+    if not isinstance(popup, dict):
+        return
+    image_path = str(popup.get("image_path") or "").strip()
+    if not image_path:
+        return
+    try:
+        normalized_path = normalized_asset_reference(session_path, image_path)
+    except WorldSimulatorError:
+        return
+
+    existing_items = list_display_assets(session_path)
+    existing = next((item for item in existing_items if item.get("image_path") == normalized_path), {})
+    now = utc_timestamp()
+    metadata = display_asset_metadata(popup, existing)
+    item = {
+        "id": str(popup.get("id") or existing.get("id") or normalized_path),
+        "title": str(popup.get("title") or existing.get("title") or pathlib.Path(normalized_path).name),
+        "image_path": normalized_path,
+        "caption": str(popup.get("caption") or existing.get("caption") or ""),
+        **metadata,
+        "turn_id": turn_id(payload),
+        "created_at": str(existing.get("created_at") or payload.get("published_at") or now),
+        "last_seen_at": now,
+    }
+    items = [item] + [other for other in existing_items if other.get("image_path") != normalized_path]
+    atomic_write_json(
+        display_assets_registry_path(session_path),
+        {
+            "session_id": session_path.name,
+            "items": items,
+            "updated_at": now,
+        },
+    )
 
 
 def run_web_gui(session_path: pathlib.Path, host: str, port: int, open_browser: bool) -> None:

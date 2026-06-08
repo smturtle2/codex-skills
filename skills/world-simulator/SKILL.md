@@ -20,6 +20,7 @@ The GUI must stay minimal and world-agnostic. Codex defines each world's status 
 - Codex must define the visible GUI tone through `ui_theme`; the script must render that theme without making genre decisions.
 - Persist state to files every turn. Do not rely on conversation memory as the source of truth.
 - Keep `gm/` private to Codex. Never render hidden GM files directly in the GUI.
+- The skill contract and reference procedures are the source of truth. The Python script is a deterministic bridge for input, rendering, persistence, and validation; it must stay aligned with the skill, not define world-manager behavior by itself.
 - During skill development or live testing, every UI behavior change must update both the bundled script and the skill contract/reference files. Do not treat script-only fixes as complete.
 
 ## Commands
@@ -97,6 +98,7 @@ input
 - `History` shows the visible story as narrative prose. It must read like an unfolding scene, not a system log, bullet recap, status dump, or GM note.
 - `Status` shows compact world-specific playable state written by Codex.
 - `Input` is a multiline free-form text box with a submit command.
+- A compact `?` help control must be available near the input controls. It explains command mechanics such as `/show` and exposes saved display images without adding story choices.
 - After submission, the GUI must visibly show that Codex is processing.
 - Submitted text must remain visible while Codex is processing and clear only when the next input is available.
 - Do not hardcode RPG stats or genre-specific fields in the GUI.
@@ -165,6 +167,8 @@ Optional `ui_theme` fields:
 - `input_icon`
 - `input_hint`
 - `popup_close_label`
+- `open_image_label`
+- `download_image_label`
 
 `palette` keys:
 
@@ -199,10 +203,14 @@ When the user submits `/show MESSAGE`, Codex must:
 
 - Read the current session state before deciding what to show.
 - Treat `MESSAGE` as a request for a visible artifact, reference, diagram, sheet, map, note, record, or other world-appropriate display.
+- Before generating a new image, Codex must run a display-reuse check: read `ui/display_assets.json`, compare saved displays against the request and current player-visible canon, and reuse a saved `image_path` when it still satisfies the request.
+- The Python script only records and renders reusable assets. It must not be treated as the reuse policy, semantic matcher, or source of story truth.
 - For visual display requests, use the `image-creator` skill to generate or edit a raster image and save it under the session `assets/` directory before publishing the popup.
 - The image prompt must describe the requested display content directly: subject, visible structure, labels, known locations, relative positions, player knowledge, visual tone, and established setting limits.
 - The generated image is the content shown inside the GUI popup.
-- Publish the requested display in `latest_output.json.popup`, usually with `image_path` pointing at the generated asset and `markdown` or `caption` giving only necessary context.
+- Publish the requested display in `latest_output.json.popup`, usually with `image_path` pointing at the generated asset, `display_asset` metadata for future Codex reuse checks, and `markdown` or `caption` giving only necessary context.
+- When reusing a saved display, publish a fresh popup `id` with the existing `image_path`, localized title, and current context instead of invoking image generation.
+- Every popup `image_path` under `assets/` is a reusable candidate. Codex-authored `display_asset` metadata should describe the request, subject, purpose, visible canon scope, and reuse key without hidden information. The script records that metadata in `ui/display_assets.json`. The default web GUI help panel must let the user reopen or download saved display images; fallback backends must at least list reusable image paths.
 - Keep hidden GM-only truth out of the popup unless the player has earned that information.
 - Keep the current story state stable unless the display request itself reasonably changes what the character does in-world.
 - Persist any durable generated artifact under `assets/`, `world/`, `player/`, or `story/` as appropriate.

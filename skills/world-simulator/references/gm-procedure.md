@@ -72,10 +72,16 @@ If the latest GUI input starts with `/show `:
 
 - Treat the remaining text as a display request, not as spoken dialogue or physical action.
 - Decide what the player can see from public state, discovered facts, character knowledge, and available artifacts.
-- For visual materials, invoke the `image-creator` skill and save the raster output under the session `assets/` directory.
+- Run the reuse check before any generation call.
+- Build the candidate set from `ui/display_assets.json`, each candidate's Codex-authored reuse metadata, the current public session files, and any relevant durable artifact records under `assets/`, `world/`, `player/`, or `story/`.
+- Treat a saved display as reusable only when all conditions hold: the file path is still valid under `assets/`; the requested subject and purpose match; the visible content is still true under player-visible canon; the image does not expose hidden or unearned information; and the display has not been superseded by a later public state change.
+- If a candidate is reusable, do not invoke `image-creator`. Publish a new `popup.id` with the existing `image_path`, a localized title, and only the current context needed to understand the reused display.
+- If no candidate passes the reuse check, generate or edit a new visual material with the `image-creator` skill and save the raster output under the session `assets/` directory.
 - Build the image prompt from current session canon: concrete known places, relative positions, character knowledge limits, and visual tone.
 - Write the image prompt as a direct description of the requested display content.
 - Publish a `popup` object with a new `id`, a localized `title`, and either `markdown`, `image_path`, or `caption`.
+- For any popup with an `image_path`, include `display_asset` metadata with no hidden information: the original display request, subject, purpose, player-visible scope, stable reuse key, relevant public canon references, and any reuse notes future Codex should consider.
+- Record in the turn notes whether the display was reused, generated, or refreshed because an older image was no longer accurate.
 - Do not reveal `gm/` secrets just because the requested display name points near a hidden truth.
 - Do not let the script decide what the request means. Codex authors the popup content.
 - Expect the web GUI to show the result as an in-page popup panel over the current HUD.
