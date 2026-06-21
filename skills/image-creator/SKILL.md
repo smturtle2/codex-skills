@@ -1,6 +1,6 @@
 ---
 name: image-creator
-description: Generate or edit raster images through the same generation path as imagegen by rewriting the user's image request into a model-friendly prompt while preserving meaning, intent, exact rendered text, referenced input-image roles, and explicit constraints, then save the resulting file to the requested destination or the current project root.
+description: Generate or edit raster images through the same generation path as imagegen by rewriting the user's image request into a model-friendly prompt while preserving meaning, intent, exact rendered text, referenced input-image roles, and explicit constraints, then save the resulting file to the requested destination, current project root, or a world-simulator session assets directory for inline History illustrations.
 ---
 
 # Image Creator
@@ -60,6 +60,25 @@ Built-in save-path rules:
 - Do not rely on OS temp, `$CODEX_HOME/generated_images`, or any generated-image filesystem directory.
 - Do not rely on a destination-path argument on the built-in `image_gen` tool. Generate first, then save the returned image payload with the helper.
 - If the output is meant for the current project, always write the returned payload to the requested project-local destination.
+
+## World Simulator Inline Illustrations
+
+When this skill is used by `world-simulator` for `/show` or Codex-initiated inline illustrations:
+
+- Save the generated raster image under the active session's `assets/` directory.
+- Prefer a stable, descriptive destination path such as `world-runs/<session>/assets/<purpose>-<subject>.png` unless the caller gives an exact path.
+- Use the helper with `--relative-to <session-path> --json` so the saved `image_path` can be copied directly into `history_entry.blocks[].image_path`.
+- The `relative_path` returned by the helper is the history illustration `image_path`; it must look like `assets/...`.
+- Do not inspect, describe, or evaluate the generated image to produce world-simulator metadata.
+- If world-simulator needs `display_asset.visual_summary`, derive it from the user's request, public canon, and the final prompt intent, not from raw image inspection.
+- Do not publish `history_entry`, edit `ui/history_log.json`, or update `ui/display_assets.json` from this skill unless the caller explicitly assigned that broader world-simulator task. Normally this skill only creates and saves the asset, then reports the handoff values.
+
+World-simulator handoff report:
+
+- `saved_path`: filesystem path printed by the helper.
+- `image_path`: helper `relative_path`, relative to the session root.
+- `final_prompt`: exact prompt sent to image generation.
+- `visual_summary`: public text summary from prompt intent or caller-provided canon, if requested.
 
 ## When To Use
 
@@ -148,6 +167,8 @@ Options:
 - Use `--rollout-path <path>` only when the current thread rollout cannot be discovered from `CODEX_THREAD_ID`.
 - Use `--base64-stdin` only when an image payload is available directly on stdin.
 - Use `--overwrite` only when the user explicitly asked to replace an existing file.
+- Use `--json` to print structured save metadata instead of only the saved path.
+- Use `--relative-to <path>` with `--json` to include a POSIX `relative_path` from that root. For world-simulator sessions, pass the session root and use the returned `relative_path` as the inline illustration `image_path`.
 
 The helper reads the newest `image_gen` payload recorded in the current thread rollout at or after `--since`, decodes it, writes it to the destination, creates parent directories as needed, and prints the saved path. If it fails, report the actual helper error, such as a missing rollout, missing `image_gen` payload after `--since`, or invalid image payload.
 

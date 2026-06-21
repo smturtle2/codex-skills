@@ -299,6 +299,49 @@ class SaveGeneratedImageTests(unittest.TestCase):
             self.assertEqual(pathlib.Path(result.stdout.strip()), destination)
             self.assertEqual(destination.read_bytes(), PNG_BYTES)
 
+    def test_json_output_includes_relative_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            destination = root / "world-runs" / "session" / "assets" / "map.png"
+            session_root = root / "world-runs" / "session"
+
+            result = self.run_helper(
+                "--base64-stdin",
+                "--destination",
+                str(destination),
+                "--relative-to",
+                str(session_root),
+                "--json",
+                input_text=PNG_BASE64,
+                cwd=root,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(pathlib.Path(payload["saved_path"]), destination)
+            self.assertEqual(payload["relative_path"], "assets/map.png")
+            self.assertEqual(payload["suffix"], ".png")
+
+    def test_relative_to_requires_saved_image_under_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            destination = root / "outside" / "map.png"
+            session_root = root / "world-runs" / "session"
+
+            result = self.run_helper(
+                "--base64-stdin",
+                "--destination",
+                str(destination),
+                "--relative-to",
+                str(session_root),
+                "--json",
+                input_text=PNG_BASE64,
+                cwd=root,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Saved image is not under --relative-to root", result.stderr)
+
     def test_invalid_base64_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = pathlib.Path(tmpdir)

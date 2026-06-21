@@ -1,6 +1,6 @@
 ---
 name: world-simulator
-description: Create and run persistent free-form world simulation sessions through a local Python GUI where all story input is submitted from the GUI, Codex acts as the world manager/GM, builds the world from a user concept, creates or helps create the player character, advances the story from open-ended user actions without menu choices, and updates visible world state, hidden GM notes, foreshadowing, faction clocks, consequences, and turn logs every turn. Use when the user wants an interactive world simulator, narrative sandbox, RPG-like story manager, persistent fictional world, or Codex-managed worldbuilding session with local visualization and durable session files.
+description: Create and run persistent free-form world simulation sessions through a local Python GUI where all story input is submitted from the GUI, Codex acts as the world manager/GM, builds the world from a user concept, creates or helps create the player character, advances the story as serial novel-like prose from open-ended user actions without menu choices, and updates visible world state, hidden GM notes, foreshadowing, faction clocks, consequences, and turn logs every turn. Use when the user wants an interactive world simulator, narrative sandbox, RPG-like story manager, persistent fictional world, or Codex-managed worldbuilding session with local visualization and durable session files.
 ---
 
 # World Simulator
@@ -25,47 +25,71 @@ The GUI must stay minimal and world-agnostic. Codex defines each world's status 
 
 ## Commands
 
-Start or resume the GUI from the project root:
+Create a new temporary session skeleton from the project root:
 
 ```bash
-python3 skills/world-simulator/scripts/world_simulator_gui.py --gui --session <session-slug>
+python3 skills/world-simulator/scripts/world_simulator_gui.py --init-session
 ```
 
-The default GUI backend is the local browser HUD served by Python. Use `--backend qt` or `--backend tk` only as fallback.
+Publish the Codex-authored initial GUI output:
+
+```bash
+python3 skills/world-simulator/scripts/world_simulator_gui.py --publish-output <payload.json>
+```
+
+Launch the GUI for that auto-created session:
+
+```bash
+python3 skills/world-simulator/scripts/world_simulator_gui.py --gui --session <auto-created-session-slug-or-path>
+```
+
+The `--session` value above is an internal handle read from the `--init-session` status output, not something to ask from the user. When that handle is a temporary `pending-world-*` session, the web GUI follows the active session after `--rename-session` instead of staying pinned to the old temporary path. The default GUI backend is the local browser HUD served by Python. Use `--backend qt` or `--backend tk` only as fallback. To resume a known existing final session, Codex may add `--session <existing-session-slug-or-path>`.
 
 Wait indefinitely for the next GUI-submitted input:
 
 ```bash
-python3 skills/world-simulator/scripts/world_simulator_gui.py --wait-for-input --session <session-slug>
+python3 skills/world-simulator/scripts/world_simulator_gui.py --wait-for-input
 ```
 
 Inspect session status:
 
 ```bash
-python3 skills/world-simulator/scripts/world_simulator_gui.py --status --session <session-slug>
+python3 skills/world-simulator/scripts/world_simulator_gui.py --status
 ```
 
 Publish a Codex-authored GUI output payload:
 
 ```bash
-python3 skills/world-simulator/scripts/world_simulator_gui.py --publish-output <payload.json> --session <session-slug>
+python3 skills/world-simulator/scripts/world_simulator_gui.py --publish-output <payload.json>
+```
+
+Rename the temporary session after the first world concept is processed:
+
+```bash
+python3 skills/world-simulator/scripts/world_simulator_gui.py --rename-session <world-derived-session-name>
 ```
 
 Use `--root <dir>` to store sessions somewhere other than `world-runs/`.
 
+Do not ask the user to choose a session name. When `--session` is omitted, `--gui` and `--init-session` create a new temporary `pending-world-*` session and record it as the active session. Bridge commands without `--session` use that active session. After the first GUI world concept gives the world enough identity, Codex must choose a concise public world-derived session name and run `--rename-session` before publishing the first world output. Use `--session <existing-session-slug-or-path>` only when Codex is explicitly resuming or recovering a known existing session.
+
+The script must not publish a built-in starting prompt, default story text, default status content, or language-specific template. For a cold start, Codex must author the initial GUI output from scratch in the current user language and publish it with `--publish-output` before the GUI is shown to the user or before waiting for user input. That initial payload defines `language`, `history_entry`, `status_sections`, `ui_theme`, `status_message`, and `input_enabled`.
+
 ## Session Flow
 
-1. Launch the GUI and tell the user the window is ready.
-2. Run `--wait-for-input` and keep it blocking until the user submits from the GUI.
-3. When the wait command returns JSON, read the session files before writing any story response.
-4. If this is the first input, create the world from the user's concept.
-5. Set the active user language from the latest GUI input and keep all user-visible output in that language.
-6. If the phase is character creation, create or refine the player character from the user's GUI input. If the user asks for a random character, generate narrative randomness yourself; do not use code RNG for story content.
-7. If the latest GUI input starts with `/show `, treat the remaining text as a display request and publish a `popup` object. Do not interpret it as a character action.
-8. If the phase is play, advance the story from the user's open-ended action.
-9. Update `current/`, `world/`, `player/`, `story/`, `gm/`, and `turns/` as needed.
-10. Publish `ui/latest_output.json` through `--publish-output`.
-11. Immediately start `--wait-for-input` again while the session is active.
+1. Create a temporary session skeleton with `--init-session`; read the returned `session_path` or `session_id`.
+2. Publish a Codex-authored initial GUI output from scratch in the current user language. Do not use a reusable text template for this.
+3. Launch the GUI for that auto-created session and tell the user the window is ready.
+4. Run `--wait-for-input` and keep it blocking until the user submits from the GUI.
+5. When the wait command returns JSON, read the session files before writing any story response.
+6. If this is the first input, create the world from the user's concept, derive a concise public session name from that world, and rename the temporary session before publishing the world output.
+7. Set the active user language from the latest GUI input and keep all user-visible output in that language.
+8. If the phase is character creation, create or refine the player character from the user's GUI input. If the user asks for a random character, generate narrative randomness yourself; do not use code RNG for story content.
+9. If the latest GUI input starts with `/show `, treat the remaining text as a display request and publish an inline `illustration` block in `history_entry.blocks`. Do not interpret it as a character action.
+10. If the phase is play, advance the story from the user's open-ended action.
+11. Update `current/`, `world/`, `player/`, `story/`, `gm/`, and `turns/` as needed.
+12. Publish `ui/latest_output.json` through `--publish-output`.
+13. Immediately start `--wait-for-input` again while the session is active.
 
 Do not send a final response while an active session is waiting for the user unless the GUI is closed, the user stops the session, or you are only reporting an operational failure.
 
@@ -95,7 +119,7 @@ history | status
 input
 ```
 
-- `History` shows the visible story as narrative prose. It must read like an unfolding scene, not a system log, bullet recap, status dump, or GM note.
+- `History` shows the visible story as serial prose plus inline illustrations when a display is requested or Codex judges one is useful. It must read like a continuing novel scene, not a system log, bullet recap, status dump, outcome report, or GM note.
 - `Status` shows compact world-specific playable state written by Codex.
 - `Input` is a multiline free-form text box with a submit command.
 - A compact `?` help control must be available near the input controls. It explains command mechanics such as `/show` and exposes saved display images without adding story choices.
@@ -103,7 +127,7 @@ input
 - Submitted text must remain visible while Codex is processing and clear only when the next input is available.
 - Do not hardcode RPG stats or genre-specific fields in the GUI.
 - Do not add story action buttons.
-- Display requests use the exact text command prefix `/show `. The GUI submits the command like any other input; Codex handles the meaning and the GUI only renders the resulting `popup` payload.
+- Display requests use the exact text command prefix `/show `. The GUI submits the command like any other input; Codex handles the meaning and the GUI renders the resulting inline history illustration.
 - Render the interface as a lightweight world HUD, not a generic form. The HUD identity must come from `ui_theme`, not from hardcoded genre decoration.
 - Do not use lined-paper, notebook, parchment, or ruled backgrounds unless explicitly requested.
 - Keep the layout stable while letting `ui_theme` control color, labels, icons, processing copy, and tone.
@@ -113,39 +137,53 @@ input
 
 The status panel should read like a role-playing game player status screen by default, but every stat, resource, skill, condition, and objective label must be derived from the active world concept. Codex controls the content; the GUI only provides the status-screen grammar.
 
-Status sections must be decision-useful and player-centered. They should expose the player character's current identity, role, condition, usable capabilities, constraints, player-attached immediate risks, resources carried by or bound to the player, and unresolved objectives selected from the current world state. Avoid pure lore summaries in the status panel.
+Status sections must be decision-useful and player-centered. The first completed-player section with `kind: "player"` must read as the player's RPG character status screen reskinned through the active world concept. It is not a generic summary card. It should expose the player character's current identity, role, condition, usable capabilities, constraints, player-attached immediate risks, resources carried by or bound to the player, and unresolved objectives selected from the current world state. Avoid pure lore summaries in the status panel.
 
 The player status HUD must not carry global world symptoms, faction clocks, scene danger, or setting exposition as if they were player resources. Put those in separate `world`, `threat`, `clock`, or `scene` sections. If a player character does not exist yet, publish a `setup` section for character creation instead of a fake `player` HUD with world meters.
 
 Status ordering contract:
 
 - Put player character state first as the main RPG status HUD: name, role/archetype, current condition, player-bound variables, capabilities, weaknesses, objectives, and resources attached to the character.
-- For the first `player` section, use `subtitle` for role/archetype, `summary` for the current status line, `meters` for world-specific resources, `stats` for world-specific abilities/attributes, `groups` for concept-specific skills/equipment/conditions/objectives, and `tags` for short flags.
+- For the first `kind: "player"` section, generate a world-specific character sheet. Use `title` for the character name, callsign, or current identity; `subtitle` for the world's equivalent of class, role, rank, origin, faction, or archetype; `summary` for one current-status line; `meters` for character-bound resources or burdens; `vitals` for the most important current condition slots; `stats` for world-specific abilities or attributes; `groups` for skills, equipment, powers, conditions, objectives, relationships, permissions, or other character-sheet categories; `fields` only for short secondary slots; and `tags` for short flags.
+- The `kind: "player"` section must feel like opening the character sheet for this specific world. Rename every resource, attribute, skill, item, condition, and objective into the world's own vocabulary.
 - After player state, show only concrete in-world stakes that currently affect play. Name them by what they are in the fiction, not by generic GM terms.
 - Use meters only when they track a named world condition, resource, objective, relationship, or clock. The section title and fields must make clear why the meter matters.
 - Put scene facts and inventory after player state and any concrete active stake.
 - Keep status values short enough to scan during play.
-- Use RPG status-screen structure generally, but never force one universal schema (`HP`, `MP`, `STR`). Choose only the resources, attributes, skills, equipment, conditions, and objectives that fit the current world, and rename them in the world's own vocabulary.
+- Never force one universal schema (`HP`, `MP`, `STR`, `class`, `level`) unless the active world actually uses those concepts. Use the RPG status-screen grammar, but choose only the resources, attributes, skills, equipment, conditions, and objectives that fit the current world.
 
 History prose contract:
 
 - Write in the active user language.
-- Prefer immersive scene narration, sensory detail, character stakes, consequences, and dialogue when appropriate.
-- Separate visible turns through structured UI turn metadata, not literal turn labels inside prose.
+- Treat `type: "prose"` as the main story text. It must read like a novel continuing from the previous visible scene.
+- Advance the story through scene action, sensory detail, character perception, dialogue, implication, and consequence. Do not merely announce the result of the user's input.
+- Keep the player character's viewpoint or immediate dramatic focus clear unless the current world intentionally uses another narrative viewpoint.
+- Show consequences in the fiction before summarizing them. If a door opens, an NPC reacts, a wound worsens, a clue appears, or a clock advances, render what the character notices first.
+- Use exposition only when it is anchored to the current scene: an object, spoken line, memory, inscription, rumor, or visible change.
+- "Newly visible content" means the next readable passage of the serial scene, not a synopsis of what changed.
+- Publish only the newly visible content for the current turn in `history_entry.blocks`. Do not resend the full accumulated history in `latest_output.json`.
+- `history_entry.blocks` is an ordered array. Use `type: "prose"` for narrative prose and `type: "illustration"` for inline maps, diagrams, portraits, records, sheets, or other visual displays.
+- The Python bridge appends or upserts `history_entry` into `ui/history_log.json`; the GUI renders that cumulative log.
+- Treat `ui/history_log.json` as display history, not as the context Codex must reread every turn. Maintain compact playable context in `current/` and durable story summaries in `story/`.
+- Treat illustration images as user-visible history assets, not automatic Codex context. Codex must not inspect raw image pixels on later turns unless the current turn explicitly requires visual confirmation, reuse validation, correction, or user-requested display handling.
+- Separate visible turns through structured history entry metadata, not literal turn labels inside prose.
 - Use dialogue lines and selective `**bold**` emphasis to make speech, stakes, discoveries, and important sensory details easy to scan.
 - Do not overuse emphasis. Bold only what changes the user's reading of the scene or immediate decision.
-- Do not put hidden GM truth, file-management commentary, schema labels, or operational status in `history_markdown`.
+- Do not use bold as a ledger marker, heading, outcome label, stat change, or status callout inside prose. Bold may emphasize words already embedded in a natural sentence or dialogue line.
+- Do not put hidden GM truth, file-management commentary, schema labels, operational status, status recaps, or raw mechanics in `history_entry.blocks`.
+- Do not write ledger prose such as "You succeed", "The result is", "Status updated", "Current objective", or "Available actions" unless those words are part of in-world speech, signage, documents, or interface fiction.
 - Do not use menu choices or numbered actions.
 - End in a live situation where the user can freely act.
-- Keep mechanical facts in `status_sections`; keep story experience in `history_markdown`.
-- If the UI needs turn separation, publish `history_turns` with `turn_id`, optional `label`, and `markdown`. The prose inside each turn must not say `턴 N` unless a character literally says it.
-- For `/show` display requests, keep `history_markdown` on the current scene. Store display handling notes in turn files, not in visible story prose.
+- Keep mechanical facts in `status_sections`; keep story experience and inline illustrations in `history_entry.blocks`.
+- `status_sections` is the compact HUD for scan-ready state: condition, resources, objectives, risks, inventory, clocks, and scene facts. Do not restate the HUD as prose in History unless the information is being experienced by a character in the scene.
+- Use `history_entry.label` only for short scene or beat labels. Prose blocks must not say `Turn N` or `턴 N` unless a character literally says it.
+- For `/show` display requests, publish a `history_entry` with an inline `illustration` block. Omit prose blocks unless the display request itself changes the visible scene. Store display handling notes in turn files, not visible story prose.
 
 ## UI Theme Contract
 
 Every `latest_output.json` payload must include `language` and `ui_theme`.
 
-`language` is the active user-facing language for the published output. `history_markdown`, `status_sections`, `status_message`, and all `ui_theme` text fields must use that language.
+`language` is the active user-facing language for the published output. User-visible `history_entry.blocks` text, `history_entry.label`, `status_sections`, `status_message`, and all `ui_theme` text fields must use that language.
 
 Required `ui_theme` fields:
 
@@ -197,7 +235,7 @@ The GUI processing state is mandatory.
 - When Codex publishes a matching or newer `latest_output.turn_id` with `input_enabled: true`, clear the submitted input, restore focus, and return to the normal send label.
 - The processing text must follow the active user language and current world tone through `ui_theme`.
 
-## Popup Contract
+## Inline Illustration Contract
 
 When the user submits `/show MESSAGE`, Codex must:
 
@@ -205,17 +243,19 @@ When the user submits `/show MESSAGE`, Codex must:
 - Treat `MESSAGE` as a request for a visible artifact, reference, diagram, sheet, map, note, record, or other world-appropriate display.
 - Before generating a new image, Codex must run a display-reuse check: read `ui/display_assets.json`, compare saved displays against the request and current player-visible canon, and reuse a saved `image_path` when it still satisfies the request.
 - The Python script only records and renders reusable assets. It must not be treated as the reuse policy, semantic matcher, or source of story truth.
-- For visual display requests, use the `image-creator` skill to generate or edit a raster image and save it under the session `assets/` directory before publishing the popup.
+- For visual display requests, use the `image-creator` skill to generate or edit a raster image and save it under the session `assets/` directory before publishing the history entry.
 - The image prompt must describe the requested display content directly: subject, visible structure, labels, known locations, relative positions, player knowledge, visual tone, and established setting limits.
-- The generated image is the content shown inside the GUI popup.
-- Publish the requested display in `latest_output.json.popup`, usually with `image_path` pointing at the generated asset, `display_asset` metadata for future Codex reuse checks, and `markdown` or `caption` giving only necessary context.
-- When reusing a saved display, publish a fresh popup `id` with the existing `image_path`, localized title, and current context instead of invoking image generation.
-- Every popup `image_path` under `assets/` is a reusable candidate. Codex-authored `display_asset` metadata should describe the request, subject, purpose, visible canon scope, and reuse key without hidden information. The script records that metadata in `ui/display_assets.json`. The default web GUI help panel must let the user reopen or download saved display images; fallback backends must at least list reusable image paths.
-- Keep hidden GM-only truth out of the popup unless the player has earned that information.
+- The generated image is shown inline in `History`, not in a `/show` popup.
+- Publish the requested display as a `history_entry.blocks[]` item with `type: "illustration"`, `image_path`, localized `title`, optional `caption`, `source: "user_show"`, `codex_visibility: "manual_only"`, and `display_asset` metadata for future Codex reuse checks.
+- When reusing a saved display, publish a new inline illustration block with the existing `image_path`, localized title, and current context instead of invoking image generation.
+- Every inline illustration `image_path` under `assets/` is a reusable candidate. Codex-authored `display_asset` metadata should describe the request, subject, purpose, visible canon scope, visual summary, and reuse key without hidden information. The script records that metadata in `ui/display_assets.json`. The default web GUI help panel must let the user reopen or download saved display images; fallback backends must at least list reusable image paths.
+- Keep hidden GM-only truth out of the illustration and its metadata unless the player has earned that information.
 - Keep the current story state stable unless the display request itself reasonably changes what the character does in-world.
 - Persist any durable generated artifact under `assets/`, `world/`, `player/`, or `story/` as appropriate.
 
-The web GUI renders `popup` as a clean in-HUD popup panel over the current browser page. Codex authors the meaning of `MESSAGE`; the Python script renders the authored payload.
+Codex may also add `source: "codex_initiated"` illustration blocks without a `/show` request when a visual artifact materially improves play: a newly important map, diagram, portrait, document, creature, device, clue layout, or spatial relationship that is likely to be reused.
+
+Codex must write enough public `display_asset.visual_summary` metadata to reason about the asset later without looking at the raw image. On later turns, Codex may inspect the raw image only when the current turn requires visual confirmation, reuse validation, correction, or user-requested display handling.
 
 ## Waiting Rules
 

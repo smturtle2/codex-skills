@@ -22,7 +22,8 @@ When the first GUI input gives a world concept:
 3. Define world laws and limits that prevent later drift.
 4. Create enough places, factions, stakes, and mysteries to start play.
 5. Create hidden truths and unresolved tensions in `gm/`.
-6. Publish a user-visible world introduction in the active user language and ask for character setup through the GUI output.
+6. Derive a concise public session name from the created world and rename the temporary session before publishing the first world output.
+7. Publish a user-visible world introduction in the active user language and ask for character setup through the GUI output.
 
 Keep the initial world playable. Do not write an encyclopedia before the first scene exists.
 
@@ -57,14 +58,15 @@ For every GUI-submitted turn:
 4. Confirm the active user language from the latest GUI input.
 5. Interpret the user's action according to the current scene and world rules.
 6. Decide consequences without invalidating the user's agency.
-7. Advance visible story in the active user language.
-8. Update public state.
-9. Update hidden GM state.
-10. Record the turn under `turns/`.
-11. Publish `ui/latest_output.json`.
-12. Start waiting again.
+7. Choose the immediate dramatic focus: whose perception matters, what changes onstage, and what unresolved pressure remains.
+8. Advance visible story in the active user language as a single current-turn `history_entry` written like a continuing novel scene.
+9. Update public state.
+10. Update hidden GM state.
+11. Record the turn under `turns/`.
+12. Publish `ui/latest_output.json`.
+13. Start waiting again.
 
-Even a small user input should cause at least one state review. Not every turn needs a dramatic twist.
+Even a small user input should cause at least one state review. Not every turn needs a dramatic twist, but every story-advancing History output must still be written as lived fiction: a quiet beat, sensory observation, brief exchange, movement through space, or immediate consequence.
 
 ## Display Requests
 
@@ -75,17 +77,21 @@ If the latest GUI input starts with `/show `:
 - Run the reuse check before any generation call.
 - Build the candidate set from `ui/display_assets.json`, each candidate's Codex-authored reuse metadata, the current public session files, and any relevant durable artifact records under `assets/`, `world/`, `player/`, or `story/`.
 - Treat a saved display as reusable only when all conditions hold: the file path is still valid under `assets/`; the requested subject and purpose match; the visible content is still true under player-visible canon; the image does not expose hidden or unearned information; and the display has not been superseded by a later public state change.
-- If a candidate is reusable, do not invoke `image-creator`. Publish a new `popup.id` with the existing `image_path`, a localized title, and only the current context needed to understand the reused display.
+- If a candidate is reusable, do not invoke `image-creator`. Publish an inline `illustration` block with the existing `image_path`, a localized title, and only the current context needed to understand the reused display.
 - If no candidate passes the reuse check, generate or edit a new visual material with the `image-creator` skill and save the raster output under the session `assets/` directory.
 - Build the image prompt from current session canon: concrete known places, relative positions, character knowledge limits, and visual tone.
 - Write the image prompt as a direct description of the requested display content.
-- Publish a `popup` object with a new `id`, a localized `title`, and either `markdown`, `image_path`, or `caption`.
-- For any popup with an `image_path`, include `display_asset` metadata with no hidden information: the original display request, subject, purpose, player-visible scope, stable reuse key, relevant public canon references, and any reuse notes future Codex should consider.
+- Publish a `history_entry` containing an inline `illustration` block with `image_path`, localized `title`, optional `caption`, `source: "user_show"`, and `codex_visibility: "manual_only"`.
+- Include `display_asset` metadata with no hidden information: the original display request, subject, purpose, player-visible scope, public visual summary, stable reuse key, relevant public canon references, and any reuse notes future Codex should consider.
 - Record in the turn notes whether the display was reused, generated, or refreshed because an older image was no longer accurate.
 - Do not reveal `gm/` secrets just because the requested display name points near a hidden truth.
-- Do not let the script decide what the request means. Codex authors the popup content.
-- Expect the web GUI to show the result as an in-page popup panel over the current HUD.
-- Keep `history_markdown` on the current scene. Record display-handling notes in `turns/`, not visible story prose.
+- Do not let the script decide what the request means. Codex authors the inline illustration content.
+- Expect the GUI to show the result inside the cumulative History stream.
+- Omit prose blocks unless the display request changes the visible scene. Record display-handling notes in `turns/`, not visible story prose.
+
+Codex may also publish `source: "codex_initiated"` illustration blocks during ordinary turns when a visual artifact materially improves play, such as a newly important map, diagram, portrait, document, creature, device, clue layout, or spatial relationship. Codex must not add automatic illustrations as decoration.
+
+Codex must not automatically inspect raw image pixels from previous history illustrations during ordinary turn preparation. Use `ui/display_assets.json` metadata, especially `visual_summary`, plus public session files by default. Inspect a raw image only when the current turn requires visual confirmation, reuse validation, correction, or user-requested display handling, and record that reason in the turn notes.
 
 ## World Consistency
 
@@ -145,9 +151,18 @@ Each important hook should have:
 ## Story Style
 
 - Do not offer numbered choices or menu actions.
-- Write the visible `history_markdown` as prose-first storytelling. The user should feel a scene advancing, not read a turn ledger.
+- Write visible `type: "prose"` history blocks as the primary fiction, not as commentary about the fiction. The user should feel a novel scene continuing, not read a turn ledger.
+- Narrate through concrete scene movement: what the player character perceives, what NPCs do or say, what changes in the environment, and what pressure remains.
+- Do not start from abstract adjudication. Avoid bare outcome phrases such as "you succeed", "you fail", "the result is", "the objective is updated", or "the faction clock advances"; render those facts through the scene first.
+- Banned History forms: bullet recaps, numbered outcomes, `Action` / `Result` structures, `Status changed` paragraphs, quest-log updates, GM notes, after-action reports, and detached summaries of offscreen state changes.
+- Preferred History form: scene prose with a visible viewpoint anchored in place, sensation, motion, dialogue, choice pressure, or consequence.
+- Keep summary exposition short and scene-anchored. If background is needed, attach it to a visible object, memory, rumor, document, song, inscription, or spoken line.
+- Let the user's action reshape the scene before presenting the next point of uncertainty.
+- Do not publish accumulated visible history in `latest_output.json`. The bridge appends or upserts `history_entry` into `ui/history_log.json` for GUI rendering.
+- Do not use `ui/history_log.json` as the default source Codex rereads every turn. Keep `current/` compact and maintain durable public summaries in `story/`.
 - Use status fields for mechanical facts; use history for atmosphere, action, stakes, and consequences.
-- Separate visible turns with `history_turns` UI metadata when needed. Do not place literal turn labels inside the prose solely for UI separation.
+- Keep `status_sections` compact and HUD-like. Use short labels, values, meters, tags, and grouped slots there; do not expand status into narrative paragraphs, lore summaries, or duplicate scene prose.
+- Separate visible turns with `history_entry.label` UI metadata when needed. Do not place literal turn labels inside the prose solely for UI separation.
 - Mark dialogue and decisive discoveries clearly. Use `**bold**` emphasis sparingly for important spoken words, clues, consequences, or changes in stakes.
 - End each output in a state where the user can freely act.
 - Let the world move even when the user hesitates.
@@ -194,9 +209,23 @@ Change the presentation through `ui_theme`, not by adding story-choice controls 
 
 Every GUI output must make `status_sections` useful during play.
 
-Treat the first completed-player status section as the player's RPG status screen. The visual grammar should be familiar across worlds, but every resource, attribute, skill, equipment, condition, and objective label must come from the active world. Omit containers that do not fit the current world.
+Treat the first completed-player `kind: "player"` section as the player's RPG character status screen for the active world. It must not read like a generic info card or a world summary. The visual grammar should be familiar across worlds, but every resource, attribute, skill, equipment, condition, and objective label must come from the active world. Omit containers that do not fit the current world.
 
 Do not use the player HUD for global world symptoms, faction clocks, scene danger, or setting exposition. Before the player exists, publish a `setup` section for character creation and separate `world` or `scene` sections for world facts.
+
+When writing `kind: "player"`, fill the character-sheet slots by role:
+
+- `title`: character name, callsign, public identity, disguise, or current identity.
+- `subtitle`: the world's equivalent of class, role, rank, origin, faction, calling, social identity, or archetype.
+- `summary`: one line for current condition, leverage, vulnerability, or immediate constraint.
+- `meters`: player-bound resources, burdens, drives, wounds, stress, power reserves, access, reputation, corruption, or other character-attached tracks.
+- `vitals`: the most important current condition slots.
+- `stats`: world-specific abilities, attributes, ratings, affinities, proficiencies, permissions, or competencies.
+- `groups`: skills, equipment, powers, spells, augmentations, conditions, objectives, relationships, debts, cover identities, permissions, or other character-sheet categories.
+- `fields`: short secondary slots only.
+- `tags`: short scan flags.
+
+The section should feel like opening the character sheet for this specific world. Do not copy a universal `HP`/`MP`/`STR`/`class`/`level` schema unless those terms exist in the setting.
 
 Each status update should answer:
 
@@ -224,4 +253,4 @@ Ordering rules:
 - Place concrete active stakes second only when they matter now. Name them as in-world facts, not generic pressure labels.
 - Place current scene facts next.
 - Place inventory and supporting details after player state and any concrete active stake unless an item is currently under threat.
-- Keep each field short. Long explanatory prose belongs in `history_markdown` or session files, not the status panel.
+- Keep each field short. Long explanatory prose belongs in `history_entry.blocks` prose or session files, not the status panel.

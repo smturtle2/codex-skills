@@ -16,7 +16,8 @@ import webbrowser
 from typing import Any
 
 DEFAULT_ROOT = pathlib.Path("world-runs")
-DEFAULT_SESSION = "default-world"
+ACTIVE_SESSION_FILE = ".active_session.json"
+TEMP_SESSION_PREFIX = "pending-world"
 SESSION_DIRS = ("current", "world", "player", "story", "gm", "turns", "ui", "assets")
 DEFAULT_THEME = {
     "app_background": "#f6f9ff",
@@ -87,11 +88,151 @@ def read_json(path: pathlib.Path, default: Any = None) -> Any:
         return json.load(handle)
 
 
-def resolve_session(root: pathlib.Path, session: str) -> pathlib.Path:
+def session_path_from_value(root: pathlib.Path, session: str) -> pathlib.Path:
     session_path = pathlib.Path(session)
     if session_path.is_absolute() or len(session_path.parts) > 1:
         return session_path
     return root / session
+
+
+def generate_session_slug(root: pathlib.Path, prefix: str = TEMP_SESSION_PREFIX) -> str:
+    root.mkdir(parents=True, exist_ok=True)
+    base = time.strftime(f"{prefix}-%Y%m%d-%H%M%S", time.localtime())
+    candidate = base
+    suffix = 2
+    while (root / candidate).exists():
+        candidate = f"{base}-{suffix:02d}"
+        suffix += 1
+    return candidate
+
+
+def active_session_marker_path(root: pathlib.Path) -> pathlib.Path:
+    return root / ACTIVE_SESSION_FILE
+
+
+def session_reference(root: pathlib.Path, session_path: pathlib.Path) -> str:
+    try:
+        relative = session_path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return str(session_path)
+    if len(relative.parts) == 1:
+        return relative.as_posix()
+    return str(session_path)
+
+
+def is_temporary_session(session_path: pathlib.Path) -> bool:
+    return session_path.name.startswith(f"{TEMP_SESSION_PREFIX}-")
+
+
+def write_active_session(root: pathlib.Path, session_path: pathlib.Path) -> None:
+    atomic_write_json(
+        active_session_marker_path(root),
+        {
+            "session_id": session_path.name,
+            "session": session_reference(root, session_path),
+            "session_path": str(session_path),
+            "temporary": is_temporary_session(session_path),
+            "updated_at": utc_timestamp(),
+        },
+    )
+
+
+def read_active_session(root: pathlib.Path) -> pathlib.Path:
+    marker = read_json(active_session_marker_path(root), None)
+    if not isinstance(marker, dict):
+        raise WorldSimulatorError("no active session; launch --gui or --init-session first, or pass --session to resume")
+    session_value = marker.get("session") or marker.get("session_path") or marker.get("session_id")
+    if not session_value:
+        raise WorldSimulatorError("active session marker is missing its session reference")
+    return session_path_from_value(root, str(session_value))
+
+
+def resolve_session(root: pathlib.Path, session: str | None, create_new: bool = False) -> pathlib.Path:
+    if session:
+        return session_path_from_value(root, session)
+    if create_new:
+        return root / generate_session_slug(root)
+    return read_active_session(root)
+
+
+def normalize_session_slug(value: str) -> str:
+    parts: list[str] = []
+    previous_dash = False
+    for character in value.strip().lower():
+        if character.isalnum():
+            parts.append(character)
+            previous_dash = False
+        elif not previous_dash:
+            parts.append("-")
+            previous_dash = True
+    slug = "".join(parts).strip("-")
+    if not slug:
+        raise WorldSimulatorError("new session name must contain at least one letter or number")
+    return slug
+
+
+def rename_target_path(root: pathlib.Path, requested_name: str) -> pathlib.Path:
+    raw_path = pathlib.Path(requested_name)
+    if raw_path.is_absolute() or len(raw_path.parts) > 1:
+        return raw_path
+    return root / normalize_session_slug(requested_name)
+
+
+def refresh_session_identity(session_path: pathlib.Path) -> None:
+    for name in (
+        "gui_state.json",
+        "pending_input.json",
+        "input_ack.json",
+        "latest_output.json",
+        "history_log.json",
+        "display_assets.json",
+        "heartbeat.json",
+    ):
+        path = ui_path(session_path, name)
+        try:
+            payload = read_json(path, None)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and payload.get("session_id") != session_path.name:
+            payload["session_id"] = session_path.name
+            atomic_write_json(path, payload)
+
+
+def rename_session(root: pathlib.Path, session_path: pathlib.Path, requested_name: str) -> pathlib.Path:
+    init_session(session_path)
+    target_path = rename_target_path(root, requested_name)
+    if target_path == session_path:
+        refresh_session_identity(session_path)
+        write_active_session(root, session_path)
+        return session_path
+    if target_path.exists():
+        raise WorldSimulatorError(f"target session already exists: {target_path}")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.rename(target_path)
+    refresh_session_identity(target_path)
+    write_active_session(root, target_path)
+    return target_path
+
+
+def active_or_launch_session(root: pathlib.Path, launch_session_path: pathlib.Path, follow_active: bool) -> pathlib.Path:
+    should_follow_active = follow_active or is_temporary_session(launch_session_path)
+    if should_follow_active:
+        try:
+            return read_active_session(root)
+        except WorldSimulatorError:
+            pass
+    return launch_session_path
+
+
+def should_write_gui_active_session(root: pathlib.Path, session_path: pathlib.Path, explicit_session: bool) -> bool:
+    if explicit_session and is_temporary_session(session_path):
+        try:
+            active_path = read_active_session(root)
+        except WorldSimulatorError:
+            return True
+        if active_path.exists() and not is_temporary_session(active_path):
+            return False
+    return True
 
 
 def ui_path(session_path: pathlib.Path, name: str) -> pathlib.Path:
@@ -171,74 +312,16 @@ def validate_popup(popup: Any) -> None:
         raise WorldSimulatorError("popup requires markdown, image_path, or caption")
 
 
-def initial_output(session_id: str) -> dict[str, Any]:
-    language = default_interface_language()
-    if language == "ko":
-        history_markdown = (
-            "# 세계 설정\n\n"
-            "입력 영역에 세계 컨셉을 적어 보내세요. Codex가 그 언어를 따라 세계를 만들고, "
-            "세계관에 맞는 화면 테마와 캐릭터 설정 단계로 이어갑니다."
-        )
-        status_body = "첫 세계 컨셉을 기다리는 중입니다."
-        phase_label = "세계 컨셉"
-        input_label = "자유 입력"
-        theme = {
-            "title": "월드 시뮬레이터",
-            "history_title": "기록",
-            "status_title": "상태",
-            "input_title": "세계 컨셉",
-            "input_placeholder": "세계 컨셉을 입력하세요.",
-            "input_hint": "Enter: 보내기 · Shift+Enter: 줄바꿈",
-            "send_label": "보내기",
-            "processing_message": "Codex가 처리 중",
-            "processing_detail": "보낸 입력을 세계 상태와 숨은 진행에 반영하는 중입니다. 다음 장면이 준비되면 입력창이 비워집니다.",
-            "palette": DEFAULT_THEME,
-        }
-        status_message = "세계 컨셉 대기 중"
-    else:
-        history_markdown = (
-            "# World Setup\n\n"
-            "Submit a world concept in the input panel. Codex will create the world, choose a matching interface theme, "
-            "and move into character setup."
-        )
-        status_body = "Waiting for the first world concept."
-        phase_label = "World concept"
-        input_label = "Free text"
-        theme = {
-            "title": "World Simulator",
-            "history_title": "History",
-            "status_title": "Status",
-            "input_title": "World Concept",
-            "input_placeholder": "Describe the world concept.",
-            "send_label": "Send",
-            "processing_message": "Codex is processing",
-            "processing_detail": "Codex is applying the submitted input to the world state. The input box will clear when the next scene is ready.",
-            "palette": DEFAULT_THEME,
-        }
-        status_message = "Waiting for world concept"
-    return {
-        "phase": "world_concept",
-        "turn_id": 0,
-        "language": language,
-        "history_markdown": history_markdown,
-        "status_sections": [
-            {
-                "kind": "setup",
-                "title": "Session" if language == "en" else "세션",
-                "body": status_body,
-                "fields": [
-                    {"label": "Session", "value": session_id},
-                    {"label": "Phase" if language == "en" else "단계", "value": phase_label},
-                    {"label": "Input" if language == "en" else "입력", "value": input_label},
-                ],
-                "tags": ["persistent", "open-ended"] if language == "en" else ["지속 세션", "자유 입력"],
-            }
-        ],
-        "ui_theme": theme,
-        "input_enabled": True,
-        "status_message": status_message,
-        "published_at": utc_timestamp(),
-    }
+def validate_history_entry(session_path: pathlib.Path, payload: dict[str, Any]) -> None:
+    if "history_entry" not in payload:
+        if payload.get("popup"):
+            return
+        raise WorldSimulatorError("output payload missing history_entry")
+    entry = payload.get("history_entry")
+    if not isinstance(entry, dict):
+        raise WorldSimulatorError("history_entry must be a JSON object")
+    if not normalize_history_blocks(session_path, entry, strict=True):
+        raise WorldSimulatorError("history_entry missing blocks")
 
 
 def init_session(session_path: pathlib.Path) -> dict[str, Any]:
@@ -259,17 +342,7 @@ def init_session(session_path: pathlib.Path) -> dict[str, Any]:
             },
         )
 
-    latest_output_path = ui_path(session_path, "latest_output.json")
-    if not latest_output_path.exists():
-        atomic_write_json(latest_output_path, initial_output(session_id))
-
-    current_note = session_path / "current" / "start-here.md"
-    if not current_note.exists():
-        atomic_write_text(
-            current_note,
-            "# Current Context\n\n"
-            "Codex should keep this directory compact and update it with the minimum context needed to resume the next turn.\n",
-        )
+    ensure_history_log(session_path)
 
     return session_status(session_path)
 
@@ -299,6 +372,7 @@ def session_status(session_path: pathlib.Path) -> dict[str, Any]:
     ack = read_json(ui_path(session_path, "input_ack.json"), None)
     gui_state = read_json(ui_path(session_path, "gui_state.json"), None)
     heartbeat = read_json(ui_path(session_path, "heartbeat.json"), None)
+    history_log = read_history_log(session_path)
     pending_turn = turn_id(pending)
     latest_turn = turn_id(latest)
     return {
@@ -312,6 +386,8 @@ def session_status(session_path: pathlib.Path) -> dict[str, Any]:
         "has_unprocessed_input": bool(pending_turn and pending_turn > latest_turn),
         "gui_heartbeat": heartbeat,
         "status_message": (latest or {}).get("status_message"),
+        "history_count": len(history_log.get("items", [])) if isinstance(history_log.get("items"), list) else 0,
+        "history_last_seq": int_value(history_log.get("last_seq")),
     }
 
 
@@ -337,26 +413,328 @@ def publish_output(session_path: pathlib.Path, payload_path: pathlib.Path) -> di
     payload = read_json(payload_path)
     if not isinstance(payload, dict):
         raise WorldSimulatorError("output payload must be a JSON object")
-    if "history_markdown" not in payload:
-        raise WorldSimulatorError("output payload missing history_markdown")
     if "status_sections" not in payload:
         raise WorldSimulatorError("output payload missing status_sections")
     if "turn_id" not in payload:
         raise WorldSimulatorError("output payload missing turn_id")
     if "language" not in payload:
         raise WorldSimulatorError("output payload missing language")
-    validate_popup(payload.get("popup"))
     payload.setdefault("phase", "play")
     payload.setdefault("input_enabled", True)
     payload.setdefault("status_message", runtime_text(payload, "ready"))
+    validate_history_entry(session_path, payload)
+    validate_popup(payload.get("popup"))
     payload["published_at"] = utc_timestamp()
     atomic_write_json(ui_path(session_path, "latest_output.json"), payload)
+    record_history_entry(session_path, payload)
+    record_history_display_assets(session_path, payload)
     record_popup_display_asset(session_path, payload)
     return session_status(session_path)
 
 
 def display_text(value: Any) -> str:
     return str(value).replace("\\n", "\n")
+
+
+def history_log_path(session_path: pathlib.Path) -> pathlib.Path:
+    return ui_path(session_path, "history_log.json")
+
+
+def empty_history_log(session_path: pathlib.Path) -> dict[str, Any]:
+    return {
+        "session_id": session_path.name,
+        "version": 1,
+        "last_seq": 0,
+        "items": [],
+        "updated_at": utc_timestamp(),
+    }
+
+
+def read_history_log(session_path: pathlib.Path) -> dict[str, Any]:
+    try:
+        log = read_json(history_log_path(session_path), {}) or {}
+    except json.JSONDecodeError:
+        return empty_history_log(session_path)
+    if not isinstance(log, dict):
+        return empty_history_log(session_path)
+    items = log.get("items")
+    if not isinstance(items, list):
+        items = []
+    return {
+        "session_id": str(log.get("session_id") or session_path.name),
+        "version": int_value(log.get("version")) or 1,
+        "last_seq": int_value(log.get("last_seq")),
+        "items": [item for item in items if isinstance(item, dict)],
+        "updated_at": str(log.get("updated_at") or ""),
+    }
+
+
+def normalize_history_blocks(session_path: pathlib.Path, raw_entry: dict[str, Any], strict: bool = False) -> list[dict[str, Any]]:
+    raw_blocks = raw_entry.get("blocks")
+    if not isinstance(raw_blocks, list):
+        if strict:
+            raise WorldSimulatorError("history_entry.blocks must be a JSON array")
+        markdown = display_text(raw_entry.get("markdown", "")).strip()
+        return [{"type": "prose", "markdown": markdown}] if markdown else []
+
+    blocks: list[dict[str, Any]] = []
+    for raw_block in raw_blocks:
+        if not isinstance(raw_block, dict):
+            if strict:
+                raise WorldSimulatorError("history_entry.blocks items must be JSON objects")
+            continue
+        block_type = str(raw_block.get("type") or "").strip().lower()
+        if block_type == "prose":
+            markdown = display_text(raw_block.get("markdown", "")).strip()
+            if not markdown:
+                if strict:
+                    raise WorldSimulatorError("history prose block missing markdown")
+                continue
+            blocks.append({"type": "prose", "markdown": markdown})
+            continue
+        if block_type == "illustration":
+            image_path = str(raw_block.get("image_path") or "").strip()
+            if not image_path:
+                if strict:
+                    raise WorldSimulatorError("history illustration block missing image_path")
+                continue
+            try:
+                normalized_path = normalized_asset_reference(session_path, image_path)
+            except WorldSimulatorError:
+                if strict:
+                    raise
+                normalized_path = image_path
+            codex_visibility = str(raw_block.get("codex_visibility") or "manual_only").strip()
+            if strict and codex_visibility != "manual_only":
+                raise WorldSimulatorError("history illustration codex_visibility must be manual_only")
+            raw_metadata = raw_block.get("display_asset")
+            metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+            block = {
+                "type": "illustration",
+                "asset_id": str(
+                    raw_block.get("asset_id")
+                    or raw_block.get("id")
+                    or metadata.get("reuse_key")
+                    or normalized_path
+                ),
+                "image_path": normalized_path,
+                "title": str(raw_block.get("title") or "").strip(),
+                "caption": display_text(raw_block.get("caption") or "").strip(),
+                "alt": str(raw_block.get("alt") or raw_block.get("title") or "").strip(),
+                "source": str(raw_block.get("source") or "codex_initiated").strip(),
+                "codex_visibility": "manual_only",
+            }
+            if metadata:
+                block["display_asset"] = {
+                    "request": str(metadata.get("request") or ""),
+                    "subject": str(metadata.get("subject") or ""),
+                    "purpose": str(metadata.get("purpose") or ""),
+                    "visible_scope": str(metadata.get("visible_scope") or ""),
+                    "visual_summary": str(metadata.get("visual_summary") or ""),
+                    "reuse_key": str(metadata.get("reuse_key") or ""),
+                    "canon_refs": string_list(metadata.get("canon_refs")),
+                    "reuse_tags": string_list(metadata.get("reuse_tags")),
+                    "reuse_notes": str(metadata.get("reuse_notes") or ""),
+                }
+            blocks.append(block)
+            continue
+        if strict:
+            raise WorldSimulatorError(f"unknown history block type: {block_type or 'missing'}")
+    return blocks
+
+
+def normalize_history_entry(session_path: pathlib.Path, payload: dict[str, Any]) -> dict[str, Any] | None:
+    raw_entry = payload.get("history_entry")
+    if not isinstance(raw_entry, dict):
+        return None
+    blocks = normalize_history_blocks(session_path, raw_entry)
+    if not blocks:
+        return None
+    raw_turn = raw_entry.get("turn_id", payload.get("turn_id", 0))
+    entry_turn = int_value(raw_turn)
+    raw_seq = raw_entry.get("seq")
+    entry_id = str(raw_entry.get("id") or f"turn:{entry_turn}").strip()
+    phase = str(raw_entry.get("phase") or payload.get("phase") or "").strip()
+    label = str(raw_entry.get("label") or "").strip()
+    timestamp = str(raw_entry.get("created_at") or payload.get("published_at") or utc_timestamp())
+    entry = {
+        "id": entry_id,
+        "turn_id": entry_turn,
+        "phase": phase,
+        "label": label,
+        "blocks": blocks,
+        "created_at": timestamp,
+        "updated_at": str(payload.get("published_at") or utc_timestamp()),
+    }
+    seq = int_value(raw_seq)
+    if seq:
+        entry["seq"] = seq
+    return entry
+
+
+def ensure_history_log(session_path: pathlib.Path) -> None:
+    if history_log_path(session_path).exists():
+        return
+    log = empty_history_log(session_path)
+    latest = read_json(ui_path(session_path, "latest_output.json"), {}) or {}
+    if isinstance(latest, dict):
+        entry = normalize_history_entry(session_path, latest)
+        if entry:
+            entry["seq"] = 1
+            log["last_seq"] = 1
+            log["items"] = [entry]
+            log["updated_at"] = str(entry.get("updated_at") or utc_timestamp())
+    atomic_write_json(history_log_path(session_path), log)
+
+
+def record_history_entry(session_path: pathlib.Path, payload: dict[str, Any]) -> None:
+    entry = normalize_history_entry(session_path, payload)
+    if entry is None:
+        return
+    log = read_history_log(session_path)
+    items = log.get("items", [])
+    existing_index = None
+    entry_id = str(entry.get("id") or "")
+    entry_turn = int_value(entry.get("turn_id"))
+    for index, item in enumerate(items):
+        item_id = str(item.get("id") or "")
+        item_turn = int_value(item.get("turn_id"))
+        if (entry_id and item_id == entry_id) or (entry_turn and item_turn == entry_turn):
+            existing_index = index
+            break
+    now = utc_timestamp()
+    if existing_index is None:
+        seq = max([int_value(item.get("seq")) for item in items] + [int_value(log.get("last_seq"))]) + 1
+        entry["seq"] = seq
+        entry.setdefault("created_at", now)
+        items.append(entry)
+    else:
+        existing = items[existing_index]
+        entry["seq"] = int_value(existing.get("seq")) or int_value(entry.get("seq")) or int_value(log.get("last_seq")) + 1
+        entry["created_at"] = str(existing.get("created_at") or entry.get("created_at") or now)
+        items[existing_index] = entry
+    for item in items:
+        item["updated_at"] = str(item.get("updated_at") or now)
+    items.sort(key=lambda item: int_value(item.get("seq")))
+    last_seq = max([int_value(item.get("seq")) for item in items] + [0])
+    atomic_write_json(
+        history_log_path(session_path),
+        {
+            "session_id": session_path.name,
+            "version": 1,
+            "last_seq": last_seq,
+            "items": items,
+            "updated_at": now,
+        },
+    )
+
+
+def list_history_entries(session_path: pathlib.Path, after_seq: int = 0) -> list[dict[str, Any]]:
+    log = read_history_log(session_path)
+    entries: list[dict[str, Any]] = []
+    for raw_item in log.get("items", []):
+        if not isinstance(raw_item, dict):
+            continue
+        seq = int_value(raw_item.get("seq"))
+        if seq <= after_seq:
+            continue
+        blocks = normalize_history_blocks(session_path, raw_item)
+        if not blocks:
+            continue
+        entries.append(
+            {
+                "seq": seq,
+                "id": str(raw_item.get("id") or f"turn:{int_value(raw_item.get('turn_id'))}"),
+                "turn_id": int_value(raw_item.get("turn_id")),
+                "phase": str(raw_item.get("phase") or ""),
+                "label": str(raw_item.get("label") or ""),
+                "blocks": blocks,
+                "created_at": str(raw_item.get("created_at") or ""),
+                "updated_at": str(raw_item.get("updated_at") or ""),
+            }
+        )
+    entries.sort(key=lambda item: int_value(item.get("seq")))
+    return entries
+
+
+def history_log_metadata(session_path: pathlib.Path) -> dict[str, Any]:
+    log = read_history_log(session_path)
+    items = log.get("items", [])
+    return {
+        "last_seq": int_value(log.get("last_seq")),
+        "count": len(items) if isinstance(items, list) else 0,
+        "updated_at": str(log.get("updated_at") or ""),
+    }
+
+
+def web_history(session_path: pathlib.Path, after_seq: int = 0) -> dict[str, Any]:
+    metadata = history_log_metadata(session_path)
+    return {
+        "session_id": session_path.name,
+        **metadata,
+        "items": list_history_entries(session_path, after_seq),
+    }
+
+
+def history_block_plain_text(block: dict[str, Any]) -> str:
+    block_type = str(block.get("type") or "")
+    if block_type == "prose":
+        return display_text(block.get("markdown", "")).strip()
+    if block_type == "illustration":
+        title = str(block.get("title") or block.get("asset_id") or "Illustration").strip()
+        image_path = str(block.get("image_path") or "").strip()
+        caption = display_text(block.get("caption") or "").strip()
+        parts = [f"[{title}]", f"asset: {image_path}"]
+        if caption:
+            parts.append(caption)
+        return "\n".join(parts)
+    return ""
+
+
+def history_entries_markdown(session_path: pathlib.Path) -> str:
+    parts: list[str] = []
+    for entry in list_history_entries(session_path):
+        label = str(entry.get("label") or "").strip()
+        if label:
+            parts.append(f"## {label}")
+        for block in entry.get("blocks", []):
+            if isinstance(block, dict):
+                parts.append(history_block_plain_text(block))
+    return "\n\n".join(part for part in parts if part).strip()
+
+
+def render_history_block_html(session_path: pathlib.Path, block: dict[str, Any], theme: dict[str, Any]) -> str:
+    block_type = str(block.get("type") or "")
+    if block_type == "prose":
+        return simple_markdown_to_html(block.get("markdown", ""), title_icon=theme["header_icon"])
+    if block_type != "illustration":
+        return ""
+    title = html.escape(str(block.get("title") or block.get("asset_id") or "").strip())
+    caption = html.escape(display_text(block.get("caption") or "").strip())
+    image_path = str(block.get("image_path") or "").strip()
+    try:
+        image_uri = resolve_asset_path(session_path, image_path).as_uri()
+        alt = html.escape(str(block.get("alt") or block.get("title") or block.get("caption") or "illustration"))
+        image_html = f'<img src="{html.escape(image_uri)}" alt="{alt}">'
+    except WorldSimulatorError:
+        image_html = f'<div class="history-illustration-missing">{html.escape(image_path)}</div>'
+    title_html = f'<figcaption class="history-illustration-title">{title}</figcaption>' if title else ""
+    caption_html = f'<div class="history-illustration-caption">{caption}</div>' if caption else ""
+    return f'<figure class="history-illustration">{image_html}{title_html}{caption_html}</figure>'
+
+
+def render_history_html(session_path: pathlib.Path, entries: list[dict[str, Any]], theme: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for entry in entries:
+        label = html.escape(str(entry.get("label") or "").strip())
+        label_html = f'<div class="history-turn-meta">{label}</div>' if label else ""
+        body = "".join(
+            render_history_block_html(session_path, block, theme)
+            for block in entry.get("blocks", [])
+            if isinstance(block, dict)
+        )
+        parts.append(f'<section class="history-turn">{label_html}{body}</section>')
+    return html_document("".join(parts), theme)
 
 
 def normalized_theme(latest: dict[str, Any] | None) -> dict[str, Any]:
@@ -510,6 +888,38 @@ def html_document(body: str, theme: dict[str, Any], compact: bool = False) -> st
         }}
         li {{
           margin: 4px 0;
+        }}
+        .history-turn {{
+          margin: 0 0 22px 0;
+        }}
+        .history-turn-meta {{
+          margin: 0 0 10px 0;
+          color: {palette["accent"]};
+          font-size: 12px;
+          font-weight: 800;
+        }}
+        .history-illustration {{
+          margin: 14px 0 18px 0;
+          padding: 10px;
+          border: 1px solid {palette["border"]};
+          border-radius: 8px;
+          background: {palette["status_background"]};
+        }}
+        .history-illustration img {{
+          display: block;
+          max-width: 100%;
+          margin: 0 auto 8px auto;
+        }}
+        .history-illustration-title {{
+          color: {palette["accent"]};
+          font-weight: 800;
+          margin-top: 4px;
+        }}
+        .history-illustration-caption,
+        .history-illustration-missing {{
+          color: {palette["muted_text"]};
+          font-size: 12px;
+          margin-top: 5px;
         }}
         .section-card {{
           margin: 0 0 12px 0;
@@ -1093,16 +1503,10 @@ def run_qt_gui(session_path: pathlib.Path) -> None:
             )
             self.input_hint.setText(self.current_theme["input_hint"])
             self.input_box.setPlaceholderText(self.current_theme["input_placeholder"])
-            history_text = display_text(latest.get("history_markdown", ""))
             sections = latest.get("status_sections", [])
             if not isinstance(sections, list):
                 sections = [sections]
-            self.history.setHtml(
-                html_document(
-                    simple_markdown_to_html(history_text, title_icon=self.current_theme["header_icon"]),
-                    self.current_theme,
-                )
-            )
+            self.history.setHtml(render_history_html(self.session_path, list_history_entries(self.session_path), self.current_theme))
             self.history.moveCursor(QTextCursor.MoveOperation.End)
             self.status.setHtml(render_status_html(sections, self.current_theme))
             self.render_popup(latest)
@@ -1395,7 +1799,7 @@ def run_tk_gui(session_path: pathlib.Path) -> None:
             self.root.after(1000, self.poll)
 
         def render_latest(self, latest: dict[str, Any]) -> None:
-            history_text = display_text(latest.get("history_markdown", ""))
+            history_text = history_entries_markdown(self.session_path)
             sections = latest.get("status_sections", [])
             if not isinstance(sections, list):
                 sections = [sections]
@@ -1721,6 +2125,33 @@ WEB_HTML = r"""<!doctype html>
       color: var(--accent);
       font-size: 12px;
       font-weight: 900;
+    }
+    .history-illustration {
+      margin: 16px 0 20px;
+      padding: 12px;
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--status) 58%, white);
+    }
+    .history-illustration-image {
+      display: block;
+      max-width: 100%;
+      max-height: 560px;
+      margin: 0 auto 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      object-fit: contain;
+    }
+    .history-illustration-title {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .history-illustration-caption {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
     }
     #history .dialogue {
       margin: 10px 0 14px;
@@ -2405,6 +2836,9 @@ WEB_HTML = r"""<!doctype html>
     let activePopupKey = "";
     let dismissedPopupKey = "";
     let lastData = window.__INITIAL_STATE__ || {};
+    let historyLastSeq = 0;
+    let historyUpdatedAt = "";
+    let historyLoading = false;
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, ch => ({
@@ -2464,15 +2898,79 @@ WEB_HTML = r"""<!doctype html>
       flushPara(); flushList();
       return out.join("");
     }
-    function renderHistory(latest, theme) {
-      if (Array.isArray(latest.history_turns) && latest.history_turns.length) {
-        return latest.history_turns.map(turn => {
-          const labelText = turn.label || "";
-          const labelHtml = labelText ? `<div class="history-turn-meta">${escapeHtml(labelText)}</div>` : "";
-          return `<section class="history-turn">${labelHtml}${markdown(turn.markdown || "", theme.header_icon || "")}</section>`;
-        }).join("");
+    function renderHistoryEntries(entries, theme) {
+      if (!Array.isArray(entries)) return "";
+      return entries.map(entry => {
+        const labelText = entry.label || "";
+        const labelHtml = labelText ? `<div class="history-turn-meta">${escapeHtml(labelText)}</div>` : "";
+        const blocks = Array.isArray(entry.blocks)
+          ? entry.blocks
+          : [{type: "prose", markdown: entry.markdown || ""}];
+        const body = blocks.map(block => renderHistoryBlock(block, theme)).join("");
+        return `<section class="history-turn">${labelHtml}${body}</section>`;
+      }).join("");
+    }
+    function renderHistoryBlock(block, theme) {
+      if (!block || typeof block !== "object") return "";
+      const type = String(block.type || "");
+      if (type === "prose") {
+        return markdown(block.markdown || "", theme.header_icon || "");
       }
-      return markdown(latest.history_markdown || "", theme.header_icon || "");
+      if (type !== "illustration") return "";
+      const title = text(block.title || block.asset_id || "");
+      const caption = text(block.caption || "");
+      const imagePath = text(block.image_path || "");
+      const imageUrl = popupAssetUrl(imagePath);
+      const imageHtml = imagePath
+        ? `<img class="history-illustration-image" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(block.alt || title || caption || "illustration")}">`
+        : "";
+      const titleHtml = title ? `<figcaption class="history-illustration-title">${escapeHtml(title)}</figcaption>` : "";
+      const captionHtml = caption ? `<div class="history-illustration-caption">${inlineMarkdown(caption)}</div>` : "";
+      return `<figure class="history-illustration">${imageHtml}${titleHtml}${captionHtml}</figure>`;
+    }
+    function scrollHistoryEnd() {
+      const turns = els.history.querySelectorAll(".history-turn");
+      if (turns.length) {
+        turns[turns.length - 1].scrollIntoView({block: "start"});
+      } else {
+        els.history.scrollTop = els.history.scrollHeight;
+      }
+    }
+    async function loadHistory(afterSeq, replace, theme) {
+      if (historyLoading) return;
+      historyLoading = true;
+      try {
+        const response = await fetch(`/api/history?after_seq=${encodeURIComponent(afterSeq)}`, {cache: "no-store"});
+        const data = await response.json();
+        const html = renderHistoryEntries(data.items || [], theme || {});
+        if (replace) {
+          els.history.innerHTML = html;
+        } else if (html) {
+          els.history.insertAdjacentHTML("beforeend", html);
+        }
+        historyLastSeq = Number(data.last_seq || historyLastSeq || 0);
+        historyUpdatedAt = String(data.updated_at || historyUpdatedAt || "");
+        scrollHistoryEnd();
+      } catch (error) {
+        els.stateText.textContent = "History unavailable";
+      } finally {
+        historyLoading = false;
+      }
+    }
+    function refreshHistory(data, theme) {
+      const history = data.history || {};
+      const nextSeq = Number(history.last_seq || 0);
+      const nextUpdatedAt = String(history.updated_at || "");
+      if (!nextSeq && historyLastSeq) {
+        els.history.innerHTML = "";
+        historyLastSeq = 0;
+        historyUpdatedAt = nextUpdatedAt;
+        return;
+      }
+      if (nextUpdatedAt && nextUpdatedAt !== historyUpdatedAt) {
+        const replace = nextSeq <= historyLastSeq;
+        loadHistory(replace ? 0 : historyLastSeq, replace, theme);
+      }
     }
     function applyTheme(theme) {
       const palette = theme.palette || {};
@@ -2608,8 +3106,8 @@ WEB_HTML = r"""<!doctype html>
       const fallback = {
         title: language === "ko" ? "도움말" : "Help",
         markdown: language === "ko"
-          ? "## 명령어\n\n- `/show 요청`: 현재 세계에서 볼 수 있는 표시물을 Codex에게 요청합니다."
-          : "## Commands\n\n- `/show request`: ask Codex to display a visible artifact available in the current world.",
+          ? "## 명령어\n\n- `/show 요청`: 현재 세계에서 볼 수 있는 표시물을 히스토리 삽화로 요청합니다."
+          : "## Commands\n\n- `/show request`: ask Codex to add a visible artifact as a History illustration.",
         assets_title: language === "ko" ? "저장된 표시물" : "Saved Displays",
         empty_assets: language === "ko" ? "아직 저장된 표시 이미지가 없습니다." : "No saved display images yet.",
         open_label: language === "ko" ? "열기" : "Open",
@@ -2678,16 +3176,10 @@ WEB_HTML = r"""<!doctype html>
       const outputKey = JSON.stringify(latest);
       if (outputKey !== lastOutput) {
         lastOutput = outputKey;
-        els.history.innerHTML = renderHistory(latest, theme);
         els.status.innerHTML = renderStatus(latest.status_sections || []);
-        const turns = els.history.querySelectorAll(".history-turn");
-        if (turns.length) {
-          turns[turns.length - 1].scrollIntoView({block: "start"});
-        } else {
-          els.history.scrollTop = els.history.scrollHeight;
-        }
         renderPopup(latest.popup, theme);
       }
+      refreshHistory(data, theme);
       const language = latest.language === "ko" ? "ko" : "en";
       els.helpButton.setAttribute("aria-label", (data.command_help && data.command_help.button_label) || (language === "ko" ? "도움말" : "Help"));
       els.metaLine.textContent = `${data.session_id} · ${data.phase_label || latest.phase || ""}`;
@@ -2695,10 +3187,11 @@ WEB_HTML = r"""<!doctype html>
       els.stateText.textContent = data.processing ? (theme.processing_message || data.status_message) : (data.status_message || "");
       els.processingBanner.classList.toggle("on", Boolean(data.processing));
       els.processingText.textContent = `${theme.processing_message || data.status_message || ""} · ${theme.processing_detail || ""}`;
-      els.inputBox.readOnly = Boolean(data.processing) || !latest.input_enabled;
-      els.sendButton.disabled = Boolean(data.processing) || !latest.input_enabled;
+      const inputEnabled = latest.input_enabled !== false;
+      els.inputBox.readOnly = Boolean(data.processing) || !inputEnabled;
+      els.sendButton.disabled = Boolean(data.processing) || !inputEnabled;
       els.sendButton.textContent = data.processing ? (language === "ko" ? "처리 중..." : "Processing...") : (theme.send_label || "Send");
-      if (data.clear_input || (localSubmittedTurn && Number(latest.turn_id || 0) >= localSubmittedTurn && !data.processing && latest.input_enabled)) {
+      if (data.clear_input || (localSubmittedTurn && Number(latest.turn_id || 0) >= localSubmittedTurn && !data.processing && inputEnabled)) {
         els.inputBox.value = "";
         localSubmittedTurn = 0;
         els.inputBox.focus();
@@ -2778,6 +3271,7 @@ def web_state(session_path: pathlib.Path) -> dict[str, Any]:
     pending = read_json(ui_path(session_path, "pending_input.json"), {}) or {}
     gui_state = read_json(ui_path(session_path, "gui_state.json"), {}) or {}
     display_assets = list_display_assets(session_path)
+    history = history_log_metadata(session_path)
     processing = turn_id(pending) > turn_id(latest)
     clear_input = False
     waiting_clear = int_value(gui_state.get("submitted_turn_waiting_clear"))
@@ -2805,6 +3299,7 @@ def web_state(session_path: pathlib.Path) -> dict[str, Any]:
         "pending": pending,
         "gui_state": gui_state,
         "display_assets": display_assets,
+        "history": history,
         "command_help": command_help_payload(payload_language(latest), display_assets),
         "theme": normalized_theme(latest),
         "processing": processing,
@@ -2927,6 +3422,7 @@ def list_display_assets(session_path: pathlib.Path) -> list[dict[str, Any]]:
             "subject": str(raw_item.get("subject") or ""),
             "purpose": str(raw_item.get("purpose") or ""),
             "visible_scope": str(raw_item.get("visible_scope") or ""),
+            "visual_summary": str(raw_item.get("visual_summary") or ""),
             "reuse_key": str(raw_item.get("reuse_key") or ""),
             "canon_refs": string_list(raw_item.get("canon_refs")),
             "reuse_tags": string_list(raw_item.get("reuse_tags")),
@@ -2945,8 +3441,8 @@ def command_help_payload(language: str, display_assets: list[dict[str, Any]]) ->
             "title": "도움말",
             "markdown": (
                 "## 명령어\n\n"
-                "- `/show 요청`: 현재 세계에서 볼 수 있는 지도, 기록, 이미지, 시트 같은 표시물을 Codex에게 요청합니다.\n"
-                "- Codex가 만든 표시 이미지는 이 세션에 저장되며, 아래 저장된 표시물 목록에서 다시 열 수 있습니다."
+                "- `/show 요청`: 현재 세계에서 볼 수 있는 지도, 기록, 이미지, 시트 같은 표시물을 히스토리에 삽화로 요청합니다.\n"
+                "- Codex가 히스토리에 넣은 표시 이미지는 이 세션에 저장되며, 아래 저장된 표시물 목록에서 다시 열 수 있습니다."
             ),
             "assets_title": "저장된 표시물",
             "empty_assets": "아직 저장된 표시 이미지가 없습니다.",
@@ -2959,8 +3455,8 @@ def command_help_payload(language: str, display_assets: list[dict[str, Any]]) ->
         "title": "Help",
         "markdown": (
             "## Commands\n\n"
-            "- `/show request`: ask Codex to display a visible map, record, image, sheet, or other artifact available in the current world.\n"
-            "- Display images created by Codex are saved in this session and can be reopened from the saved displays list below."
+            "- `/show request`: ask Codex to add a visible map, record, image, sheet, or other artifact as a History illustration.\n"
+            "- Display images added to History by Codex are saved in this session and can be reopened from the saved displays list below."
         ),
         "assets_title": "Saved Displays",
         "empty_assets": "No saved display images yet.",
@@ -2997,14 +3493,15 @@ def string_list(value: Any) -> list[str]:
     return [str(item) for item in value if str(item or "").strip()]
 
 
-def display_asset_metadata(popup: dict[str, Any], existing: dict[str, Any]) -> dict[str, Any]:
-    raw_metadata = popup.get("display_asset")
+def display_asset_metadata(reference: dict[str, Any], existing: dict[str, Any]) -> dict[str, Any]:
+    raw_metadata = reference.get("display_asset")
     metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
     return {
         "request": str(metadata.get("request") or existing.get("request") or ""),
         "subject": str(metadata.get("subject") or existing.get("subject") or ""),
         "purpose": str(metadata.get("purpose") or existing.get("purpose") or ""),
         "visible_scope": str(metadata.get("visible_scope") or existing.get("visible_scope") or ""),
+        "visual_summary": str(metadata.get("visual_summary") or existing.get("visual_summary") or ""),
         "reuse_key": str(metadata.get("reuse_key") or existing.get("reuse_key") or ""),
         "canon_refs": string_list(metadata.get("canon_refs") or existing.get("canon_refs")),
         "reuse_tags": string_list(metadata.get("reuse_tags") or existing.get("reuse_tags")),
@@ -3012,11 +3509,12 @@ def display_asset_metadata(popup: dict[str, Any], existing: dict[str, Any]) -> d
     }
 
 
-def record_popup_display_asset(session_path: pathlib.Path, payload: dict[str, Any]) -> None:
-    popup = payload.get("popup")
-    if not isinstance(popup, dict):
-        return
-    image_path = str(popup.get("image_path") or "").strip()
+def record_display_asset_reference(
+    session_path: pathlib.Path,
+    payload: dict[str, Any],
+    reference: dict[str, Any],
+) -> None:
+    image_path = str(reference.get("image_path") or "").strip()
     if not image_path:
         return
     try:
@@ -3027,12 +3525,12 @@ def record_popup_display_asset(session_path: pathlib.Path, payload: dict[str, An
     existing_items = list_display_assets(session_path)
     existing = next((item for item in existing_items if item.get("image_path") == normalized_path), {})
     now = utc_timestamp()
-    metadata = display_asset_metadata(popup, existing)
+    metadata = display_asset_metadata(reference, existing)
     item = {
-        "id": str(popup.get("id") or existing.get("id") or normalized_path),
-        "title": str(popup.get("title") or existing.get("title") or pathlib.Path(normalized_path).name),
+        "id": str(reference.get("asset_id") or reference.get("id") or existing.get("id") or normalized_path),
+        "title": str(reference.get("title") or existing.get("title") or pathlib.Path(normalized_path).name),
         "image_path": normalized_path,
-        "caption": str(popup.get("caption") or existing.get("caption") or ""),
+        "caption": str(reference.get("caption") or existing.get("caption") or ""),
         **metadata,
         "turn_id": turn_id(payload),
         "created_at": str(existing.get("created_at") or payload.get("published_at") or now),
@@ -3049,8 +3547,33 @@ def record_popup_display_asset(session_path: pathlib.Path, payload: dict[str, An
     )
 
 
-def run_web_gui(session_path: pathlib.Path, host: str, port: int, open_browser: bool) -> None:
-    init_session(session_path)
+def record_history_display_assets(session_path: pathlib.Path, payload: dict[str, Any]) -> None:
+    entry = normalize_history_entry(session_path, payload)
+    if not entry:
+        return
+    for block in entry.get("blocks", []):
+        if isinstance(block, dict) and block.get("type") == "illustration":
+            record_display_asset_reference(session_path, payload, block)
+
+
+def record_popup_display_asset(session_path: pathlib.Path, payload: dict[str, Any]) -> None:
+    popup = payload.get("popup")
+    if isinstance(popup, dict):
+        record_display_asset_reference(session_path, payload, popup)
+
+
+def run_web_gui(
+    root: pathlib.Path,
+    session_path: pathlib.Path,
+    host: str,
+    port: int,
+    open_browser: bool,
+    follow_active: bool,
+) -> None:
+    def current_session_path() -> pathlib.Path:
+        return active_or_launch_session(root, session_path, follow_active)
+
+    init_session(current_session_path())
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, _format: str, *args: Any) -> None:
@@ -3083,8 +3606,9 @@ def run_web_gui(session_path: pathlib.Path, host: str, port: int, open_browser: 
 
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
+            active_session_path = current_session_path()
             if parsed.path == "/":
-                data = web_html(session_path).encode("utf-8")
+                data = web_html(active_session_path).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
@@ -3093,12 +3617,17 @@ def run_web_gui(session_path: pathlib.Path, host: str, port: int, open_browser: 
                 self.wfile.write(data)
                 return
             if parsed.path == "/api/state":
-                self.send_json(web_state(session_path))
+                self.send_json(web_state(active_session_path))
+                return
+            if parsed.path == "/api/history":
+                params = urllib.parse.parse_qs(parsed.query)
+                after_seq = int_value(str((params.get("after_seq") or ["0"])[0]))
+                self.send_json(web_history(active_session_path, after_seq))
                 return
             if parsed.path == "/asset":
                 try:
                     params = urllib.parse.parse_qs(parsed.query)
-                    asset_path = resolve_asset_path(session_path, str((params.get("path") or [""])[0]))
+                    asset_path = resolve_asset_path(active_session_path, str((params.get("path") or [""])[0]))
                     self.send_file(asset_path)
                 except Exception as exc:
                     self.send_error(404, str(exc))
@@ -3108,12 +3637,13 @@ def run_web_gui(session_path: pathlib.Path, host: str, port: int, open_browser: 
         def do_POST(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
             try:
+                active_session_path = current_session_path()
                 payload = self.read_body_json()
                 if parsed.path == "/api/submit":
-                    self.send_json(submit_web_input(session_path, str(payload.get("text") or "")))
+                    self.send_json(submit_web_input(active_session_path, str(payload.get("text") or "")))
                     return
                 if parsed.path == "/api/draft":
-                    self.send_json(save_web_draft(session_path, str(payload.get("text") or "")))
+                    self.send_json(save_web_draft(active_session_path, str(payload.get("text") or "")))
                     return
             except Exception as exc:
                 self.send_json({"error": str(exc)}, status=400)
@@ -3141,17 +3671,27 @@ def run_web_gui(session_path: pathlib.Path, host: str, port: int, open_browser: 
         server.server_close()
 
 
-def run_gui(session_path: pathlib.Path, backend: str, host: str, port: int, open_browser: bool) -> None:
+def run_gui(
+    root: pathlib.Path,
+    session_path: pathlib.Path,
+    backend: str,
+    host: str,
+    port: int,
+    open_browser: bool,
+    follow_active: bool,
+) -> None:
     if backend in {"auto", "web"}:
-        run_web_gui(session_path, host, port, open_browser)
+        run_web_gui(root, session_path, host, port, open_browser, follow_active)
         return
     if backend in {"auto", "qt"}:
         try:
+            init_session(session_path)
             run_qt_gui(session_path)
             return
         except ImportError:
             if backend == "qt":
                 raise
+    init_session(session_path)
     run_tk_gui(session_path)
 
 
@@ -3163,8 +3703,16 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--status", action="store_true", help="Print session status JSON")
     mode.add_argument("--wait-for-input", action="store_true", help="Block until the GUI submits input")
     mode.add_argument("--publish-output", metavar="PAYLOAD_JSON", help="Publish Codex output to the GUI")
+    mode.add_argument("--rename-session", metavar="SESSION_NAME", help="Rename the active or selected session")
     parser.add_argument("--root", default=str(DEFAULT_ROOT), help="Session root directory")
-    parser.add_argument("--session", default=DEFAULT_SESSION, help="Session slug or explicit session path")
+    parser.add_argument(
+        "--session",
+        default=None,
+        help=(
+            "Existing session slug or explicit session path. Omit it to create a new session for "
+            "--gui/--init-session or to use the active session for bridge commands."
+        ),
+    )
     parser.add_argument("--poll-interval", type=float, default=0.5, help="Polling interval for --wait-for-input")
     parser.add_argument("--backend", choices=("auto", "web", "qt", "tk"), default="auto", help="GUI backend")
     parser.add_argument("--host", default="127.0.0.1", help="Web GUI host")
@@ -3176,10 +3724,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    session_path = resolve_session(pathlib.Path(args.root), args.session)
 
     try:
+        root_path = pathlib.Path(args.root)
+        create_new_session = bool((args.gui or args.init_session) and not args.session)
+        session_path = resolve_session(root_path, args.session, create_new=create_new_session)
         if args.init_session:
+            write_active_session(root_path, session_path)
             print(json.dumps(init_session(session_path), ensure_ascii=False, indent=2, sort_keys=True))
             return 0
         if args.status:
@@ -3194,8 +3745,23 @@ def main(argv: list[str] | None = None) -> int:
             status = publish_output(session_path, pathlib.Path(args.publish_output))
             print(json.dumps(status, ensure_ascii=False, indent=2, sort_keys=True))
             return 0
+        if args.rename_session:
+            renamed_path = rename_session(root_path, session_path, args.rename_session)
+            print(json.dumps(session_status(renamed_path), ensure_ascii=False, indent=2, sort_keys=True))
+            return 0
         if args.gui:
-            run_gui(session_path, args.backend, args.host, args.port, not args.no_open_browser)
+            if should_write_gui_active_session(root_path, session_path, bool(args.session)):
+                write_active_session(root_path, session_path)
+            print(f"world-simulator session: {session_path}", flush=True)
+            run_gui(
+                root_path,
+                session_path,
+                args.backend,
+                args.host,
+                args.port,
+                not args.no_open_browser,
+                not bool(args.session),
+            )
             return 0
     except KeyboardInterrupt:
         return 130

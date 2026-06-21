@@ -54,6 +54,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Replace an existing destination file.",
     )
+    parser.add_argument(
+        "--relative-to",
+        help="When used with --json, include a POSIX path for the saved image relative to this directory.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print a JSON object instead of only the saved path.",
+    )
     args = parser.parse_args(argv)
 
     if not args.base64_stdin and args.since is None:
@@ -259,6 +268,17 @@ def write_image(image_bytes: bytes, destination: pathlib.Path, overwrite: bool) 
     return final_path
 
 
+def relative_reference(path: pathlib.Path, root: str | None) -> str | None:
+    if not root:
+        return None
+    root_path = pathlib.Path(root).expanduser().resolve()
+    try:
+        relative = path.resolve().relative_to(root_path)
+    except ValueError as exc:
+        raise SaveGeneratedImageError(f"Saved image is not under --relative-to root: {root_path}") from exc
+    return pathlib.PurePosixPath(*relative.parts).as_posix()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
@@ -280,11 +300,25 @@ def main(argv: list[str] | None = None) -> int:
             suffix,
         )
         saved = write_image(image_bytes, destination, args.overwrite)
+        relative_path = relative_reference(saved, args.relative_to)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    print(saved)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "saved_path": str(saved),
+                    "relative_path": relative_path,
+                    "suffix": suffix,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(saved)
     return 0
 
 
