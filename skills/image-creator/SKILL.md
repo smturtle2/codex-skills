@@ -19,7 +19,7 @@ Skill behavior:
 
 1. Split the creative request from the save destination.
 2. Rewrite the creative request into a concise English generation prompt.
-3. Record the timestamp, call built-in `image_gen` once, then copy the new generated file into `docs/assets/workflow.png`.
+3. Record the timestamp, call built-in `image_gen` once, then save the returned image payload into `docs/assets/workflow.png`.
 4. Report the saved path, final prompt, image inputs if any, generation mode, and overwrite status.
 
 ## Hard Rules
@@ -46,7 +46,7 @@ Skill behavior:
 
 ## Generation Path
 
-Use the same tool and save mechanics as `imagegen`. Do not inherit `imagegen` taxonomy, quality assessment, or prompt-shaping behavior:
+Use the same generation path as `imagegen`, then save built-in results with this skill's payload helper. Do not inherit `imagegen` taxonomy, quality assessment, or prompt-shaping behavior:
 
 - Use the built-in `image_gen` tool by default for normal generation and editing. This path does not require `OPENAI_API_KEY`.
 - Never switch to the CLI fallback automatically.
@@ -56,10 +56,10 @@ Use the same tool and save mechanics as `imagegen`. Do not inherit `imagegen` ta
 
 Built-in save-path rules:
 
-- In built-in mode, generated images are saved under `$CODEX_HOME/*` by default.
-- Do not rely on OS temp as the default built-in destination.
-- Do not rely on a destination-path argument on the built-in `image_gen` tool. Generate first, then copy or move the selected output from `$CODEX_HOME/generated_images/...`.
-- If the output is meant for the current project, never leave it only in the default `$CODEX_HOME/*` location.
+- In built-in mode, `image_gen` returns the image to the Codex UI and records the image payload in the current thread rollout.
+- Do not rely on OS temp, `$CODEX_HOME/generated_images`, or any generated-image filesystem directory.
+- Do not rely on a destination-path argument on the built-in `image_gen` tool. Generate first, then save the returned image payload with the helper.
+- If the output is meant for the current project, always write the returned payload to the requested project-local destination.
 
 ## When To Use
 
@@ -124,12 +124,12 @@ Prefer another workflow instead of this skill when the requested output is not a
    - Example: `START_EPOCH=$(date +%s)`.
 8. For built-in mode, immediately call `image_gen` with only the final rewritten prompt and no added skill-layer safety or censorship-style check, review, or preflight content.
 9. For explicit CLI fallback mode, follow the `imagegen` CLI execution workflow with only the final rewritten prompt and any user-requested CLI controls.
-10. Confirm only whether the generation path returned an image that can be saved. Do not inspect the generated image for subjective fit, quality, style, modesty, exposure, appropriateness, or whether it should be regenerated. If the generation path returns no image or an error, report that actual tool result without replacing it with this skill's own explanation.
+10. Confirm only whether the generation path returned an image payload that can be saved. Do not inspect the generated image for subjective fit, quality, style, modesty, exposure, appropriateness, or whether it should be regenerated. If the generation path returns no image or an error, report that actual tool result without replacing it with this skill's own explanation.
 11. Save the output:
    - If the user gave a file path, save there.
    - If the user gave a directory, save inside it with a descriptive non-overwriting filename.
    - If the user gave no destination, save in the current project root.
-   - In built-in mode, use `scripts/save_generated_image.py` to locate the new generated image and copy it to the destination.
+   - In built-in mode, use `scripts/save_generated_image.py` to read the new `image_gen` payload from the current thread rollout and write it to the destination.
    - In explicit CLI fallback mode, use the CLI output controls from the `imagegen` fallback workflow.
 12. Report the saved path, the final rewritten prompt sent to the generation path, the input images used, and whether built-in mode or explicit CLI fallback was used.
 
@@ -145,10 +145,11 @@ Options:
 
 - Omit `--destination` to save in the project root.
 - Use `--project-root <path>` when the current working directory is not the intended project root.
-- Use `--generated-root <path>` only when the generated image directory is known and the default lookup fails.
+- Use `--rollout-path <path>` only when the current thread rollout cannot be discovered from `CODEX_THREAD_ID`.
+- Use `--base64-stdin` only when an image payload is available directly on stdin.
 - Use `--overwrite` only when the user explicitly asked to replace an existing file.
 
-The helper searches for the newest generated image created at or after `--since`, copies it to the destination, creates parent directories as needed, and prints the saved path.
+The helper reads the newest `image_gen` payload recorded in the current thread rollout at or after `--since`, decodes it, writes it to the destination, creates parent directories as needed, and prints the saved path. If it fails, report the actual helper error, such as a missing rollout, missing `image_gen` payload after `--since`, or invalid image payload.
 
 ## Response
 
