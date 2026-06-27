@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mafia Game"
+  short_description: "Server-mediated autonomous Mafia"
+  default_prompt: "Use $mafia-game to start a server-mediated 8-player Mafia game where I play in the web UI and autonomous subagents play through seat scripts."
