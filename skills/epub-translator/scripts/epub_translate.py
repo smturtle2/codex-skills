@@ -24,6 +24,8 @@ XHTML_NS = "http://www.w3.org/1999/xhtml"
 EPUB_NS = "http://www.idpf.org/2007/ops"
 
 TEXT_SCHEMA_VERSION = 2
+DEFAULT_CHUNK_MAX_CHARS = 48_000
+DEFAULT_CHUNK_MAX_SEGMENTS = 640
 TEXT_ATTRS = ("alt", "title", "aria-label")
 SKIP_TEXT_TAGS = {"script", "style"}
 RUBY_NOTE_TAGS = {"rt", "rp"}
@@ -426,8 +428,8 @@ def chunk_segments(
     segments: list[dict],
     units: list[dict],
     chunks_dir: Path,
-    max_chars: int = 6000,
-    max_segments: int = 80,
+    max_chars: int = DEFAULT_CHUNK_MAX_CHARS,
+    max_segments: int = DEFAULT_CHUNK_MAX_SEGMENTS,
 ) -> int:
     chunks_dir.mkdir(parents=True, exist_ok=True)
     chunk: list[dict] = []
