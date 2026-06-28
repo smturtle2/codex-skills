@@ -38,7 +38,7 @@ The helper script must not read, OCR, transcribe, classify, translate, or propos
 
 Main-agent-owned work:
 
-- translate text;
+- translate all prose, content, metadata, and chunk text directly;
 - infer source and target language policy;
 - use optional glossary or terminology hints;
 - directly read the translated prose and decide target-language paragraphing, visual paragraph separation, line break, dialogue/narration rhythm, and XHTML composition;
@@ -69,7 +69,7 @@ Set `<skill-dir>` to the installed `epub-translator` skill directory.
 
 2. Infer the translation and target-edition layout policy from metadata, user context, and early prose. Maintain `<run-dir>/translation-notes.md` as the lead translator's state file when useful.
 
-3. Translate `chunks/chunk-*.json` in chunk order into matching `translations/chunk-*.json` files.
+3. Translate `chunks/chunk-*.json` in chunk order into matching `translations/chunk-*.json` files. The main translator must produce every text translation row directly and sequentially.
 
 4. Apply text:
 
@@ -272,22 +272,16 @@ Rules:
 
 ## Text Ownership and Parallelism
 
-Default mode is sequential, lead-owned translation.
+Content translation is sequential, main-owned translation.
 
 - The main translator owns final prose quality, terminology, character voice, punctuation style, and continuity.
 - Work through chunks in numeric order.
 - Before starting a chunk, use previous translated prose and `translation-notes.md` for continuity.
 - After finishing a chunk, update `translation-notes.md` only for reusable decisions.
-- Do not use parallel subagents to produce text chunks by default.
-- Use subagents for text only when the user explicitly requests parallel speed or independent review.
-
-If the user explicitly requests parallel text translation:
-
-- Create a shared style sheet from `translation-notes.md` before delegation.
-- Give every text worker the same target language, term policy, punctuation policy, and voice policy.
-- Assign non-overlapping chunk ranges.
-- Require valid chunk JSON output only.
-- Do not consider the text complete until the lead translator performs a reconciliation pass for terminology, voice, punctuation, register, and flow across all ranges.
+- Do not delegate prose, content, metadata, or chunk translation to parallel agents, text-worker subagents, or background workers.
+- Context preservation is part of translation quality: character voice, terminology, relationship dynamics, foreshadowing, pacing, punctuation style, and unresolved decisions evolve across chunks and must stay in one lead translator's working context.
+- Do not use speed, chunk independence, or later reconciliation as a reason to split content translation across agents.
+- A subagent must not draft, rewrite, fill, reconcile, or produce translation rows for content chunks.
 
 ## Unit and Slot Method
 
@@ -481,7 +475,7 @@ Unsupported image media types are reported in `<run-dir>/manifest.json` as `unsu
 
 - All chunk translation files exist and `apply-text` succeeds.
 - The post-translation target-structure pass is applied, even when the plan is an explicit no-op.
-- Text was translated sequentially by default, or an explicitly requested parallel run has a lead reconciliation pass.
+- Text was translated directly by the main translator in chunk order, without text-worker subagents or parallel content translation.
 - Source-edition layout that conflicts with the target-language edition is changed through an explicit layout plan.
 - Every editable image job is resolved through the per-image contract.
 - `package` writes a new EPUB path that is not the source EPUB.
