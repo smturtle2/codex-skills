@@ -16,7 +16,7 @@ Translate an EPUB as a book, not as a set of isolated strings. Use the bundled h
 - Treat user-provided glossaries, notes, sample translations, or adjacent files as optional context for Codex decisions.
 - Always produce a new EPUB at a path distinct from the source EPUB.
 - Treat original EPUB layout as source-edition structure. Preserve book semantics and archive integrity, while adapting reading direction, writing mode, CSS, XHTML structure, ruby/furigana handling, spacing, and punctuation layout for the target-language edition.
-- Use chunk JSON as the text source of truth, `build-segment-translations` as the official unit-to-segment conversion mechanism, and `apply-text` as the write-back mechanism.
+- Use chunk JSON as the text source of truth and `apply-text` as the write-back mechanism.
 - Every editable image job must end as `skipped_no_text` or `edited`.
 - For raster image text, use direct visual review by the main agent. Do not use OCR or automated image-text extraction.
 
@@ -29,7 +29,6 @@ The helper script is an EPUB mechanics tool. It may:
 - extract text units and safe write-back slots;
 - export editable raster images as source files;
 - apply completed slot translations;
-- convert Codex-authored unit translation placements into completed slot translations;
 - export translated XHTML structure blocks for Codex-owned target-structure planning;
 - apply an explicit Codex-authored target-structure plan to translated XHTML;
 - apply an explicit target-edition layout plan to OPF, CSS, or XHTML;
@@ -72,21 +71,15 @@ Set `<skill-dir>` to the installed `epub-translator` skill directory.
 
 2. Infer the translation and target-edition layout policy from metadata, user context, and early prose. Maintain `<run-dir>/translation-notes.md` as the lead translator's state file when useful.
 
-3. Translate `chunks/chunk-*.json` in chunk order into matching `unit-translations/chunk-*.json` files. The main translator must produce every unit translation and segment placement directly and sequentially.
+3. Translate `chunks/chunk-*.json` in chunk order into matching `translations/chunk-*.json` files. The main translator must write every final segment row directly and sequentially.
 
-4. Convert unit-first translation placements into segment translation files:
-
-   ```bash
-   uv run --script <skill-dir>/scripts/epub_translate.py build-segment-translations --workdir <run-dir> --unit-translations <run-dir>/unit-translations --output <run-dir>/translations
-   ```
-
-5. Apply text:
+4. Apply text:
 
    ```bash
    uv run --script <skill-dir>/scripts/epub_translate.py apply-text --workdir <run-dir> --translations <run-dir>/translations
    ```
 
-6. Export the translated XHTML structure, directly read the translated prose, perform Codex-authored cleanup and composition target-structure passes, and apply the resulting plans:
+5. Export the translated XHTML structure, directly read the translated prose, perform Codex-authored cleanup and composition target-structure passes, and apply the resulting plans:
 
    ```bash
    uv run --script <skill-dir>/scripts/epub_translate.py export-target-structure --workdir <run-dir> --output <run-dir>/target-structure-source.json
@@ -95,15 +88,15 @@ Set `<skill-dir>` to the installed `epub-translator` skill directory.
    uv run --script <skill-dir>/scripts/epub_translate.py apply-target-structure --workdir <run-dir> --plan <run-dir>/target-structure-composition-plan.json
    ```
 
-7. If the original EPUB layout does not fit the target-language edition, write `<run-dir>/layout-plan.json` and apply it:
+6. If the original EPUB layout does not fit the target-language edition, write `<run-dir>/layout-plan.json` and apply it:
 
    ```bash
    uv run --script <skill-dir>/scripts/epub_translate.py apply-layout --workdir <run-dir> --plan <run-dir>/layout-plan.json
    ```
 
-8. Resolve each editable image job from `<run-dir>/image-jobs.json` using the image job contract below.
+7. Resolve each editable image job from `<run-dir>/image-jobs.json` using the image job contract below.
 
-9. Package and validate:
+8. Package and validate:
 
    ```bash
    uv run --script <skill-dir>/scripts/epub_translate.py package --workdir <run-dir> --output <translated.epub>
@@ -311,7 +304,7 @@ For each chunk:
 - Preserve punctuation once. Move or replace punctuation according to target-language publishing convention.
 - Translate `xhtml_attribute` slots as concise accessibility/UI text, not literary prose.
 - Treat `opf_metadata` as book metadata. Use book-level context for title, creator, publisher, description, and subject consistency.
-- Write unit-first placement files and use the official `build-segment-translations` helper command to create segment-level translation files. Do not create run-local Python, JavaScript, shell, or one-off conversion scripts for this step.
+- Write the final segment rows directly in `translations/chunk-*.json`. Use `units[]` for translation judgment; do not create intermediate unit placement files or run-local conversion scripts for segment distribution.
 
 Quality gate before writing each chunk:
 
@@ -352,39 +345,7 @@ Each segment contains:
 - `child_index`: present only for `xhtml_tail`.
 - `attribute`: present only for `xhtml_attribute`.
 
-Unit placement files must contain:
-
-```json
-{
-  "schema_version": 1,
-  "chunk_index": 1,
-  "units": [
-    {
-      "unit_id": "u000001",
-      "mode": "segments",
-      "segments": [
-        {"id": "t000001", "translation": "..."}
-      ]
-    },
-    {
-      "unit_id": "u000002",
-      "mode": "first_segment",
-      "segment_id": "t000002",
-      "translation": "...",
-      "empty_segment_ids": ["t000003"]
-    }
-  ]
-}
-```
-
-Rules:
-
-- Use `mode: "segments"` when preserving inline distribution matters. Include one row for every segment ID in that unit.
-- Use `mode: "first_segment"` only when Codex has decided the whole target unit belongs in one segment and the named remaining segments should be empty.
-- The helper must only expand and validate Codex-authored placement. It must not choose a mode, infer where prose belongs, translate text, or rewrite translations.
-- The helper must reject missing units, duplicate units, unknown units, missing segments, duplicate segments, unknown segments, cross-unit segment IDs, and chunk index mismatches.
-
-Generated segment translation files must contain:
+Output translation files must contain:
 
 ```json
 {
@@ -517,7 +478,7 @@ Unsupported image media types are reported in `<run-dir>/manifest.json` as `unsu
 
 ## Completion Criteria
 
-- All unit placement files exist, `build-segment-translations` succeeds, generated segment translation files exist, and `apply-text` succeeds.
+- All chunk translation files exist and `apply-text` succeeds.
 - The post-translation target-structure pass is applied, even when the plan is an explicit no-op.
 - Text was translated directly by the main translator in chunk order, without text-worker subagents or parallel content translation.
 - Source-edition layout that conflicts with the target-language edition is changed through an explicit layout plan.

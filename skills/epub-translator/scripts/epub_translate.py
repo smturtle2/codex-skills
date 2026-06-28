@@ -24,7 +24,6 @@ XHTML_NS = "http://www.w3.org/1999/xhtml"
 EPUB_NS = "http://www.idpf.org/2007/ops"
 
 TEXT_SCHEMA_VERSION = 2
-UNIT_TRANSLATION_SCHEMA_VERSION = 1
 DEFAULT_CHUNK_MAX_CHARS = 48_000
 DEFAULT_CHUNK_MAX_SEGMENTS = 640
 TEXT_ATTRS = ("alt", "title", "aria-label")
@@ -664,189 +663,6 @@ def read_translation_map(translations_dir: Path) -> dict[str, str]:
                 raise EpubTranslatorError(f"Duplicate translation id: {segment_id}")
             translations[segment_id] = normalize_text(str(row["translation"]))
     return translations
-
-
-def read_chunks(workdir: Path) -> list[dict]:
-    chunks = []
-    for path in sorted((workdir / "chunks").glob("chunk-*.json")):
-        chunk = read_json(path)
-        chunk["_path"] = path
-        chunks.append(chunk)
-    return chunks
-
-
-def validate_string(value, message: str) -> str:
-    if not isinstance(value, str):
-        raise EpubTranslatorError(message)
-    return value
-
-
-def add_unit_translation_row(
-    translations: dict[str, str],
-    segment_id: str,
-    translation: str,
-    unit_id: str,
-    allowed_segment_ids: set[str],
-) -> None:
-    if segment_id not in allowed_segment_ids:
-        raise EpubTranslatorError(f"Segment {segment_id} does not belong to unit {unit_id}")
-    if segment_id in translations:
-        raise EpubTranslatorError(f"Duplicate translation id: {segment_id}")
-    translations[segment_id] = normalize_text(translation)
-
-
-def expand_unit_translation(entry: dict, source_unit: dict, translations: dict[str, str]) -> None:
-    unit_id = source_unit["id"]
-    allowed_segment_ids = set(source_unit.get("segment_ids", []))
-    mode = entry.get("mode")
-    if mode == "segments":
-        rows = entry.get("segments")
-        if not isinstance(rows, list):
-            raise EpubTranslatorError(f"Unit {unit_id} mode=segments requires segments[]")
-        row_ids = []
-        for row in rows:
-            if not isinstance(row, dict):
-                raise EpubTranslatorError(f"Unit {unit_id} segment entries must be objects")
-            segment_id = validate_string(row.get("id"), f"Unit {unit_id} segment row requires string id")
-            translation = validate_string(
-                row.get("translation"),
-                f"Unit {unit_id} segment {segment_id} requires string translation",
-            )
-            row_ids.append(segment_id)
-            add_unit_translation_row(translations, segment_id, translation, unit_id, allowed_segment_ids)
-        if set(row_ids) != allowed_segment_ids:
-            missing = sorted(allowed_segment_ids - set(row_ids))
-            extra = sorted(set(row_ids) - allowed_segment_ids)
-            detail = []
-            if missing:
-                detail.append(f"missing {', '.join(missing[:8])}")
-            if extra:
-                detail.append(f"extra {', '.join(extra[:8])}")
-            raise EpubTranslatorError(f"Unit {unit_id} does not cover its exact segment_ids: {'; '.join(detail)}")
-    elif mode == "first_segment":
-        segment_id = validate_string(entry.get("segment_id"), f"Unit {unit_id} mode=first_segment requires segment_id")
-        translation = validate_string(
-            entry.get("translation"),
-            f"Unit {unit_id} mode=first_segment requires string translation",
-        )
-        empty_segment_ids = entry.get("empty_segment_ids")
-        if not isinstance(empty_segment_ids, list) or not all(isinstance(item, str) for item in empty_segment_ids):
-            raise EpubTranslatorError(f"Unit {unit_id} mode=first_segment requires empty_segment_ids[] strings")
-        row_ids = [segment_id, *empty_segment_ids]
-        if len(row_ids) != len(set(row_ids)):
-            raise EpubTranslatorError(f"Unit {unit_id} has duplicate segment ids")
-        if set(row_ids) != allowed_segment_ids:
-            missing = sorted(allowed_segment_ids - set(row_ids))
-            extra = sorted(set(row_ids) - allowed_segment_ids)
-            detail = []
-            if missing:
-                detail.append(f"missing {', '.join(missing[:8])}")
-            if extra:
-                detail.append(f"extra {', '.join(extra[:8])}")
-            raise EpubTranslatorError(f"Unit {unit_id} does not cover its exact segment_ids: {'; '.join(detail)}")
-        add_unit_translation_row(translations, segment_id, translation, unit_id, allowed_segment_ids)
-        for empty_segment_id in empty_segment_ids:
-            add_unit_translation_row(translations, empty_segment_id, "", unit_id, allowed_segment_ids)
-    else:
-        raise EpubTranslatorError(f"Unit {unit_id} has unsupported mode: {mode}")
-
-
-def build_segment_translations(args: argparse.Namespace) -> int:
-    workdir = Path(args.workdir).expanduser().resolve()
-    unit_translations_dir = Path(args.unit_translations).expanduser().resolve()
-    output_dir = Path(args.output).expanduser().resolve()
-    if output_dir == unit_translations_dir:
-        raise EpubTranslatorError("Output directory must be distinct from unit-translations directory")
-    chunks = read_chunks(workdir)
-    if not chunks:
-        raise EpubTranslatorError(f"No chunk files found: {workdir / 'chunks'}")
-    if not unit_translations_dir.is_dir():
-        raise EpubTranslatorError(f"Unit translations directory not found: {unit_translations_dir}")
-
-    expected_names = {Path(chunk["_path"]).name for chunk in chunks}
-    actual_names = {path.name for path in unit_translations_dir.glob("chunk-*.json")}
-    missing_files = sorted(expected_names - actual_names)
-    extra_files = sorted(actual_names - expected_names)
-    if missing_files:
-        raise EpubTranslatorError(f"Missing unit translation files: {', '.join(missing_files[:8])}")
-    if extra_files:
-        raise EpubTranslatorError(f"Unexpected unit translation files: {', '.join(extra_files[:8])}")
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stale_outputs = sorted(path.name for path in output_dir.glob("chunk-*.json") if path.name not in expected_names)
-    if stale_outputs:
-        raise EpubTranslatorError(f"Unexpected existing output translation files: {', '.join(stale_outputs[:8])}")
-    pending_outputs: list[tuple[Path, dict]] = []
-    written = []
-    total_rows = 0
-    for chunk in chunks:
-        source_path = Path(chunk["_path"])
-        unit_path = unit_translations_dir / source_path.name
-        data = read_json(unit_path)
-        if data.get("schema_version") != UNIT_TRANSLATION_SCHEMA_VERSION:
-            raise EpubTranslatorError(
-                f"Unit translation schema_version must be {UNIT_TRANSLATION_SCHEMA_VERSION}: {unit_path}"
-            )
-        if data.get("chunk_index") != chunk.get("chunk_index"):
-            raise EpubTranslatorError(f"Unit translation chunk_index mismatch: {unit_path}")
-        entries = data.get("units")
-        if not isinstance(entries, list):
-            raise EpubTranslatorError(f"Unit translation file must contain units[]: {unit_path}")
-
-        source_units = chunk.get("units", [])
-        units_by_id = {unit["id"]: unit for unit in source_units}
-        seen_units = set()
-        translations: dict[str, str] = {}
-        for entry in entries:
-            if not isinstance(entry, dict):
-                raise EpubTranslatorError(f"Unit translation entries must be objects: {unit_path}")
-            unit_id = validate_string(entry.get("unit_id"), f"Unit translation entry requires string unit_id: {unit_path}")
-            if unit_id in seen_units:
-                raise EpubTranslatorError(f"Duplicate unit_id in {unit_path}: {unit_id}")
-            if unit_id not in units_by_id:
-                raise EpubTranslatorError(f"Unknown unit_id in {unit_path}: {unit_id}")
-            seen_units.add(unit_id)
-            expand_unit_translation(entry, units_by_id[unit_id], translations)
-
-        missing_units = sorted(set(units_by_id) - seen_units)
-        if missing_units:
-            raise EpubTranslatorError(f"Missing unit translations in {unit_path}: {', '.join(missing_units[:8])}")
-
-        segment_ids = [segment["id"] for segment in chunk.get("segments", [])]
-        missing_segments = sorted(set(segment_ids) - set(translations))
-        extra_segments = sorted(set(translations) - set(segment_ids))
-        if missing_segments:
-            raise EpubTranslatorError(f"Missing segment translations in {unit_path}: {', '.join(missing_segments[:8])}")
-        if extra_segments:
-            raise EpubTranslatorError(f"Unexpected segment translations in {unit_path}: {', '.join(extra_segments[:8])}")
-
-        rows = [{"id": segment_id, "translation": translations[segment_id]} for segment_id in segment_ids]
-        output_path = output_dir / source_path.name
-        pending_outputs.append(
-            (
-                output_path,
-                {
-                    "schema_version": TEXT_SCHEMA_VERSION,
-                    "chunk_index": chunk["chunk_index"],
-                    "translations": rows,
-                },
-            )
-        )
-        written.append(str(output_path))
-        total_rows += len(rows)
-
-    for output_path, data in pending_outputs:
-        write_json(output_path, data)
-
-    print(
-        json.dumps(
-            {"chunk_count": len(written), "translation_count": total_rows, "outputs": written},
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
-    )
-    return 0
 
 
 def preserve_boundary_whitespace(source: str, translation: str) -> str:
@@ -1529,9 +1345,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "EPUB mechanics helper: inspect, prepare safe text slots, apply completed "
-            "translations, convert unit placements into segment translations, export "
-            "and apply explicit target-structure plans, apply layout plans, record "
-            "finished image results, package, and validate."
+            "translations, export and apply explicit target-structure plans, apply "
+            "layout plans, record finished image results, package, and validate."
         )
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1548,15 +1363,6 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--epub", required=True)
     prepare_parser.add_argument("--workdir", required=True)
     prepare_parser.set_defaults(func=prepare_run)
-
-    build_segment_parser = subparsers.add_parser(
-        "build-segment-translations",
-        help="Convert Codex-authored unit translation placements into segment translation JSON",
-    )
-    build_segment_parser.add_argument("--workdir", required=True)
-    build_segment_parser.add_argument("--unit-translations", required=True)
-    build_segment_parser.add_argument("--output", required=True)
-    build_segment_parser.set_defaults(func=build_segment_translations)
 
     apply_parser = subparsers.add_parser(
         "apply-text",
