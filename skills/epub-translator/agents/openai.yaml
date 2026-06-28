@@ -1,0 +1,6 @@
+interface:
+  display_name: "EPUB Translator"
+  short_description: "Natural EPUB translation workflow"
+  icon_small: "./assets/epub-translator-small.svg"
+  icon_large: "./assets/epub-translator.svg"
+  default_prompt: "Use $epub-translator to translate this EPUB into natural published prose in my language, directly read the translated prose to author target-structure plans with explicit paragraph-break tags when needed, adapt EPUB layout, and handle image text through main-agent visual triage with required one-image-per-subagent $image-creator execution."

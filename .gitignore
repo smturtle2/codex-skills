@@ -1,8 +1,8 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.epub_translator/
 
 animation-runs/
 ui-blueprints/
 world-runs/
-mafia-runs/

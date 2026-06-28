@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="EPUB Translator logo">
+  <rect width="512" height="512" rx="96" fill="#1f2937"/>
+  <path d="M120 88h208c42 0 76 34 76 76v260H196c-42 0-76-34-76-76z" fill="#f9fafb"/>
+  <path d="M176 168h140M176 216h168M176 264h108" stroke="#1f2937" stroke-width="24" stroke-linecap="round"/>
+  <path d="M360 112h56v312h-56z" fill="#38bdf8"/>
+  <path d="M304 368h144" stroke="#10b981" stroke-width="32" stroke-linecap="round"/>
+  <path d="M360 312l56 56-56 56" fill="none" stroke="#10b981" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="160" y="390" fill="#ef4444" font-size="70" font-family="Arial, sans-serif" font-weight="700">KO</text>
+</svg>

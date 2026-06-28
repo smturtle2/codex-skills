@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-7-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
+[![Skills](https://img.shields.io/badge/skills-8-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
 
-A small, installable catalog of Codex skills for image generation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, and Gomoku.
+A small, installable catalog of Codex skills for image generation, EPUB translation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, and Gomoku.
 
 Each skill is self-contained with a `SKILL.md` trigger contract plus any local scripts, references, assets, and agent metadata it needs.
 
@@ -22,6 +22,7 @@ Languages: English | [한국어](README.ko.md)
 | Skill | Best for | Output | Install |
 | --- | --- | --- | --- |
 | [`image-creator`](#image-creator) | Generating or editing project-local raster images | Saved image file plus the exact rewritten prompt | [Prompt](#image-creator) |
+| [`epub-translator`](#epub-translator) | Naturally translating EPUB books with text-slot extraction and text-bearing images | New translated `.epub`, run folder, chunk translations, image job ledger, and validation summary | [Prompt](#epub-translator) |
 | [`animation-creator`](#animation-creator) | Creating project-local character animation assets | Run folder with prompts, layout guides, frames, validation, contact sheets, and previews | [Prompt](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | Creating one focused Codex custom subagent | Validated TOML agent definition | [Prompt](#subagent-creator) |
@@ -56,6 +57,26 @@ Install:
 
 ```text
 Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/image-creator
+```
+
+### `epub-translator`
+
+Translate EPUB books into natural target-language prose with text-slot replacement, structure preservation, and image job tracking.
+
+![EPUB Translator workflow](docs/assets/epub-translator-workflow.png)
+
+| Field | Details |
+| --- | --- |
+| Folder | `skills/epub-translator` |
+| Use when | You need to translate an EPUB into a natural new target-language EPUB, preserve XHTML/EPUB structure, and handle editable embedded images that contain text. |
+| Produces | A new translated `.epub`, run folder, text-slot chunk JSON files, image job ledger, packaging step, and validation summary. |
+| Avoids | Overwriting the source EPUB, whole-XHTML rewrites, untracked image edits, and using image generation for images with no text to translate. |
+
+Install `$image-creator` as well when image text translation is needed:
+
+```text
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/image-creator
+Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/epub-translator
 ```
 
 ### `animation-creator`
