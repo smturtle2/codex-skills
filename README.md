@@ -35,7 +35,7 @@ Languages: English | [한국어](README.ko.md)
 Use the preinstalled `$skill-installer` system skill, then restart Codex so the installed skill is picked up.
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/<skill-name>
+Use $skill-installer to install skills/<skill-name> from https://github.com/smturtle2/codex-skills.
 ```
 
 ## Catalog
@@ -56,7 +56,7 @@ Generate or edit raster images and save them into the current project.
 Install:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/image-creator
+Use $skill-installer to install skills/image-creator from https://github.com/smturtle2/codex-skills.
 ```
 
 ### `epub-translator`
@@ -75,8 +75,7 @@ Translate EPUB books into natural target-language prose with text-slot replaceme
 Install `$image-creator` as well when image text translation is needed:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/image-creator
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/epub-translator
+Use $skill-installer to install skills/image-creator and skills/epub-translator from https://github.com/smturtle2/codex-skills.
 ```
 
 ### `animation-creator`
@@ -95,7 +94,7 @@ Create character animation assets from a source character image or a generated b
 Install:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/animation-creator
+Use $skill-installer to install skills/animation-creator from https://github.com/smturtle2/codex-skills.
 ```
 
 ### `ui-blueprint`
@@ -114,7 +113,7 @@ Create a generated UI mockup first, then implement frontend work against that vi
 Install:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/ui-blueprint
+Use $skill-installer to install skills/ui-blueprint from https://github.com/smturtle2/codex-skills.
 ```
 
 ### `subagent-creator`
@@ -133,7 +132,7 @@ Turn a natural-language role brief into one focused Codex custom subagent.
 Install:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/subagent-creator
+Use $skill-installer to install skills/subagent-creator from https://github.com/smturtle2/codex-skills.
 ```
 
 Docs:
@@ -157,7 +156,7 @@ Turn PDFs, text files, websites, and YouTube transcripts into a one-person podca
 Install:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/podcast-writer
+Use $skill-installer to install skills/podcast-writer from https://github.com/smturtle2/codex-skills.
 ```
 
 ### `world-simulator`
@@ -176,7 +175,7 @@ Run a persistent free-form world simulation through a minimal Python GUI while C
 Install:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/world-simulator
+Use $skill-installer to install skills/world-simulator from https://github.com/smturtle2/codex-skills.
 ```
 
 ### `gomoku`
@@ -195,7 +194,7 @@ Play Gomoku with a local Python GUI while Codex waits, reads Codex view JSON, an
 Install:
 
 ```text
-Use $skill-installer to install https://github.com/smturtle2/codex-skills/tree/main/skills/gomoku
+Use $skill-installer to install skills/gomoku from https://github.com/smturtle2/codex-skills.
 ```
 
 ## Repository Layout
