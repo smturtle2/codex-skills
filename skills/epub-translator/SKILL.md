@@ -1,6 +1,6 @@
 ---
 name: epub-translator
-description: Translate EPUB books from any source language into the user's requested language as natural published book prose, apply a post-translation target-structure pass from Codex-authored XHTML composition plans, adapt EPUB layout and reading structure for the target-language edition through explicit mechanical plans, package a new EPUB, and resolve visible original text in raster images through main-agent visual triage, main-authored image edit briefs, and required one-image-per-subagent $image-creator execution. Use for .epub translation, literary EPUB prose translation, text-slot chunk workflows, target-edition EPUB composition and layout adaptation, EPUB packaging/validation, and original image text replacement workflows.
+description: Translate EPUB books from any source language into the user's requested language as natural Codex-authored published book prose without external machine-translation runtimes, apply a post-translation target-structure pass from Codex-authored XHTML composition plans, adapt EPUB layout and reading structure for the target-language edition through explicit mechanical plans, package a new EPUB, and resolve visible original text in raster images through main-agent visual triage, main-authored image edit briefs, and required one-image-per-subagent $image-creator execution. Use for .epub translation, literary EPUB prose translation, text-slot chunk workflows, target-edition EPUB composition and layout adaptation, EPUB packaging/validation, and original image text replacement workflows.
 ---
 
 # EPUB Translator
@@ -10,6 +10,8 @@ Translate an EPUB as a book, not as a set of isolated strings. Use the bundled h
 ## Operating Contract
 
 - Translate into the user's requested language. If the user does not name a target language, use the current user's language.
+- Codex must author content translations directly from the EPUB text, user context, and translation notes. Do not install, discover, download, run, or use external translation runtimes, machine-translation engines, translation libraries, model packs, CLI translators, APIs, services, or language-model packages for prose, content, metadata, or chunk translation.
+- Do not use package managers, model indexes, package indexes, or dependency probes to look for translation capability. Missing local translation tooling is irrelevant to this workflow.
 - Helper commands expose EPUB mechanics only. Language, terminology, glossary hints, and translation choices stay in Codex context.
 - Treat user-provided glossaries, notes, sample translations, or adjacent files as optional context for Codex decisions.
 - Always produce a new EPUB at a path distinct from the source EPUB.
@@ -38,7 +40,7 @@ The helper script must not read, OCR, transcribe, classify, translate, or propos
 
 Main-agent-owned work:
 
-- translate all prose, content, metadata, and chunk text directly;
+- translate all prose, content, metadata, and chunk text directly without external translation runtimes;
 - infer source and target language policy;
 - use optional glossary or terminology hints;
 - directly read the translated prose and decide target-language paragraphing, visual paragraph separation, line break, dialogue/narration rhythm, and XHTML composition;
@@ -275,12 +277,14 @@ Rules:
 Content translation is sequential, main-owned translation.
 
 - The main translator owns final prose quality, terminology, character voice, punctuation style, and continuity.
+- The only translation engine for prose, content, metadata, and chunk rows is the main translator's own reading and writing in context.
 - Work through chunks in numeric order.
 - Before starting a chunk, use previous translated prose and `translation-notes.md` for continuity.
 - After finishing a chunk, update `translation-notes.md` only for reusable decisions.
 - Do not delegate prose, content, metadata, or chunk translation to parallel agents, text-worker subagents, or background workers.
 - Context preservation is part of translation quality: character voice, terminology, relationship dynamics, foreshadowing, pacing, punctuation style, and unresolved decisions evolve across chunks and must stay in one lead translator's working context.
 - Do not use speed, chunk independence, or later reconciliation as a reason to split content translation across agents.
+- Do not use machine translation output as a draft, fallback, benchmark, glossary source, or validation oracle for content translation.
 - A subagent must not draft, rewrite, fill, reconcile, or produce translation rows for content chunks.
 
 ## Unit and Slot Method
