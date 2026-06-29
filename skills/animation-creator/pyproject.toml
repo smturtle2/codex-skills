@@ -1,0 +1,17 @@
+[project]
+name = "codex-skill-animation-creator"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "nvidia-cublas>=13.5.1.27",
+  "nvidia-cuda-nvrtc>=13.3.33",
+  "nvidia-cuda-runtime>=13.3.29",
+  "nvidia-cudnn-cu13>=9.23.2.1",
+  "nvidia-cufft>=12.3.0.29",
+  "nvidia-curand>=10.4.3.29",
+  "pillow>=12.0.0",
+  "rembg[gpu,cli]>=2.0.76",
+]
+
+[tool.uv]
+package = false

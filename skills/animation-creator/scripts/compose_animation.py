@@ -39,7 +39,6 @@ def main() -> None:
     parser.add_argument("--output")
     parser.add_argument("--webp-output")
     parser.add_argument("--frame-size")
-    parser.add_argument("--frame-count", type=int)
     parser.add_argument("--fps", type=float)
     parser.add_argument("--format", choices=("png", "webp"))
     parser.add_argument("--padding", type=int, default=0)
@@ -50,7 +49,7 @@ def main() -> None:
     run_dir = Path(manifest["run_dir"]).expanduser().resolve() if manifest.get("run_dir") else Path.cwd()
     frame_size = parse_size(args.frame_size, DEFAULT_WORKING_CELL_SIZE) if args.frame_size else None
     settings = filter_states(
-        manifest_settings(manifest, frame_size=frame_size, frame_count=args.frame_count, fps=args.fps, output_format=args.format),
+        manifest_settings(manifest, frame_size=frame_size, fps=args.fps, output_format=args.format),
         args.action_id,
     )
     paths = manifest.get("paths", {}) if isinstance(manifest.get("paths"), dict) else {}

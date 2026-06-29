@@ -79,7 +79,6 @@ def main() -> None:
     parser.add_argument("--output")
     parser.add_argument("--scale", type=float, default=0.5)
     parser.add_argument("--frame-size")
-    parser.add_argument("--frame-count", type=int)
     parser.add_argument("--fps", type=float)
     parser.add_argument("--format", choices=("png", "webp"))
     args = parser.parse_args()
@@ -93,7 +92,6 @@ def main() -> None:
         manifest_settings(
             manifest,
             frame_size=parse_size(args.frame_size, DEFAULT_WORKING_CELL_SIZE) if args.frame_size else None,
-            frame_count=args.frame_count,
             fps=args.fps,
             output_format=args.format,
         ),

@@ -11,14 +11,12 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from animation_common import (
-    BASE_REFERENCE_BACKGROUND,
     DEFAULT_SAFE_MARGIN_X,
     DEFAULT_SAFE_MARGIN_Y,
     DEFAULT_WORKING_CELL_SIZE,
     MAX_RECOMMENDED_GRID_FRAMES,
-    choose_chroma_key_for_image,
-    chroma_settings,
     draw_dashed_line,
+    image_2_cell_size,
     load_json,
     manifest_settings,
     parse_size,
@@ -27,6 +25,11 @@ from animation_common import (
     validate_image_2_size,
     write_json,
 )
+from rembg_runtime import DEFAULT_MODEL as REMBG_MODEL
+from rembg_runtime import background_removal_defaults
+
+
+REMOVAL_BACKGROUND_HEX = "#00B7FF"
 
 
 def write_text(path: Path, text: str) -> None:
@@ -53,12 +56,6 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def save_png_copy(source: Path, target: Path) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with Image.open(source) as opened:
-        opened.convert("RGBA").save(target, format="PNG")
-
-
 def base_prompt(
     *,
     character_name: str,
@@ -83,7 +80,13 @@ Design contract:
 - Do not add new props, accessories, symbols, logos, text, or environment details unless explicitly requested in the character description.
 - Keep the pose neutral and animation-ready: centered, balanced, full body visible, arms and legs readable, no cropped parts, no extreme perspective, and no motion effects.
 
-Output a single centered full-body character pose on a perfectly flat white background using {BASE_REFERENCE_BACKGROUND}. The character must be fully visible, readable, and suitable as the canonical identity source for generating consistent animation frames in the described layout cell. Do not include scenery, text, labels, borders, ground planes, floors, cast shadows, contact shadows, oval floor shadows, landing marks, glows, detached effects, or extra props not requested."""
+Background contract:
+- Output one isolated full-body subject on a perfectly flat, solid, vivid sky-blue removable matte background using exactly {REMOVAL_BACKGROUND_HEX}.
+- Treat {REMOVAL_BACKGROUND_HEX} as a reserved background-only rembg matte: do not use it on the character, props, markings, motion effects, outlines, highlights, or shadows.
+- Keep the whole outer silhouette clearly separated from the matte.
+- Do not use transparent checkerboards, fake transparency, gradients, textures, scenery, sky, rooms, floors, horizons, labels, borders, ground planes, cast shadows, contact shadows, oval floor shadows, landing marks, glows, or detached background effects.
+
+The character must be fully visible, readable, and suitable as the canonical identity source for generating consistent animation frames in the described layout cell."""
 
 
 def action_prompt(
@@ -95,29 +98,23 @@ def action_prompt(
     frame_size: tuple[int, int],
     layout: dict[str, object],
     frame_actions: list[str],
-    chroma: dict[str, object],
-    chroma_ready: bool = True,
     registration_guide_ready: bool = False,
 ) -> str:
-    chroma_hex = str(chroma["hex"])
     columns = int(layout["columns"])
     rows = int(layout["rows"])
     cell_width = int(layout["cell_width"])
     cell_height = int(layout["cell_height"])
     guide_width = columns * cell_width
     guide_height = rows * cell_height
-    aspect = guide_width / guide_height
-    chroma_background_requirement = (
-        f"- Fill only the inside of each requested slot's blue safe-area rectangle with chroma key {chroma_hex}, then draw the character pose on that chroma background."
-        if chroma_ready
-        else "- This is a pre-base planning prompt. Do not use it for final action generation until the canonical base is recorded and this prompt is regenerated with the selected chroma-key background."
-    )
+    unused_slots = int(layout.get("cell_count", columns * rows)) - frames
     registration_guide_instruction = (
         "\n".join(
             [
-                "- Edit the attached registration guide into the animation action sheet.",
-                "- Keep unchanged: canvas size, grid layout, black cell borders, blue safe-area rectangles, and neutral background outside the blue rectangles.",
-                "- Remove from the generated result: gray dashed centerlines and faint guide characters.",
+                "- Edit the attached registration guide in place as the output canvas template.",
+                "- Preserve the attached guide's 4:3 canvas framing, outer boundaries, and exact row/column structure.",
+                "- Keep the outer black cell grid/border lines visible and unchanged as production registration marks.",
+                "- Replace the guide characters with the requested animated poses.",
+                "- Remove only inner guide marks: blue safe-area rectangles, gray dashed centerlines, faint guide characters, labels, and extra guide marks.",
                 "- Use the attached canonical base only for character identity.",
             ]
         )
@@ -144,7 +141,7 @@ Animation continuity contract:
 - Keep the same camera distance, character scale, line weight, rendering detail, and facing direction across all frames.
 - Keep the character's full-body height, head size, torso size, and limb thickness visually identical in every slot; do not shrink or enlarge any frame to fit the pose.
 - Preserve a smooth visual motion path from frame to frame; the character must not teleport, suddenly grow, shrink, flip direction, or jump to a new camera framing.
-- Anchor the character to the same registration point in every slot: keep the midpoint between the feet at the same x/y position, and keep the pelvis and torso center aligned to the same vertical centerline unless the listed motion explicitly requires body travel.
+- Anchor the character to the same registration point in every slot: keep the support-contact center at the same x/y position, and keep the torso center aligned to the same vertical centerline unless the listed motion explicitly requires body travel.
 - Make every frame a natural in-between or key pose between the previous and next listed frame actions, with consistent limb arcs, balance, weight shift, and follow-through.
 - Space the poses so playback feels smooth when played in sequence: avoid abrupt pose gaps, strobing changes, frozen duplicate frames, or uneven timing unless the action explicitly requires a sharp accent.
 - Avoid redundant pose copies: adjacent frames should not be visually identical unless the listed motion beat explicitly calls for a hold.
@@ -152,18 +149,32 @@ Animation continuity contract:
 - For any action with body travel or vertical motion, follow one invisible motion arc inside the slots. Show the motion only through pose and body position; do not draw floor cues.
 - Keep the final frame close enough to the first frame for a clean loop when this action loops, with consistent scale, facing, and slot placement.
 
-Output exactly {frames} separate full-body animation frames as a {columns}x{rows} animation frame grid. Read and fill frames left-to-right across each row, then top-to-bottom. Preserve a {aspect:.4g}:1 overall grid aspect ratio with equal-size {columns}x{rows} slot proportions.
+Output exactly {frames} separate full-body animation frames by editing the attached registration guide as a {columns}x{rows} animation frame grid. Read and fill requested frames left-to-right across each row, then top-to-bottom.
 
-Edit instructions:
-- Keep the output as a {columns}x{rows} registration-guide sheet, read left-to-right then top-to-bottom.
-- Keep black cell borders and blue safe-area rectangles visible.
-- Remove gray dashed centerlines and faint guide characters from the generated result.
+Canvas contract:
+- Keep the attached registration guide as the canvas template and edit it in place.
+- Preserve the guide's 4:3 canvas framing, outer boundaries, and exact {columns} columns by {rows} rows structure.
+- Do not place the edited guide inside a larger poster, character sheet page, presentation board, thumbnail, framed image, letterboxed image, or padded illustration canvas.
+- Do not crop, rotate, reinterpret, or collapse the attached guide layout to a generation-default export shape.
+- If any instruction conflicts with preserving the guide layout and outer black cell borders, prioritize the guide layout and outer black cell borders over rendering detail.
+
+Sheet and background instructions:
+- Output a clean {columns}x{rows} action sheet, read left-to-right then top-to-bottom.
+- Preserve the guide's exactly {columns} columns and {rows} rows; do not compress the grid into a different row or column count.
+- Keep the outer black cell grid/border lines from the attached guide visible and unchanged; these are required production registration marks, not guide marks.
+- Do not erase, redraw, move, soften, recolor, crop, pad, or replace the outer black cell borders.
+- Do not draw inner safe-area rectangles, dashed lines, guide marks, layout labels, or frame labels.
 - Fill each requested slot with exactly one full-body pose matching the corresponding numbered motion instruction above.
-- Keep each pose fully inside its blue safe-area rectangle.
-{chroma_background_requirement}
-- The output must contain only the edited registration guide layout, chroma-key safe-area backgrounds, and character artwork. The words "Frame 1", "Frame 2", and other frame labels are prompt instructions only and must not appear visually. Do not draw sequence numbers, circles, labels, captions, markers, UI badges, text, extra guide marks, center dashed lines, center marks, ghost characters, or watermarks in any slot.
-- Do not include any ground plane, floor line, cast shadow, contact shadow, oval floor shadow, landing mark, dust, transparent glow, semi-transparent effect, chroma-colored effect, detached symbol, loose effect, or scenery.
-- Motion arcs, speed lines, motion trails, motion marks, wave arcs, sound-wave curves, action lines, and smears are allowed when they clarify the action, but every effect pixel must be fully opaque, use a solid non-chroma foreground color, and remain inside the same safe-area slot as the pose. Do not draw translucent or faded effects, because semi-transparent effects can be misread as chroma-key spill during extraction.
+- Leave unused slots empty with only matte interior and the same outer black cell borders; unused slot count: {unused_slots}.
+- Keep each pose fully inside its implied safe-area slot.
+- Leave clear empty matte padding around every pose inside its slot; no character pixel, outline, hair, limb, accessory, or motion mark may touch or nearly touch a slot edge.
+- Fill every cell interior with one perfectly flat, solid, vivid sky-blue removable matte color: {REMOVAL_BACKGROUND_HEX}, while keeping the outer black cell borders visible on top.
+- The matte is a production background for rembg removal, not part of the asset.
+- Treat {REMOVAL_BACKGROUND_HEX} as a reserved background-only rembg matte: do not use it on the character, props, markings, motion effects, outlines, highlights, or shadows.
+- Keep every pose silhouette clearly separated from the matte background.
+- The words "Frame 1", "Frame 2", and other frame labels are prompt instructions only and must not appear visually. Do not draw sequence numbers, circles, labels, captions, markers, UI badges, text, extra guide marks, center marks, ghost characters, or watermarks in any slot.
+- Do not include any scene background, sky, room, wall, floor, horizon, ground plane, floor line, cast shadow, contact shadow, oval floor shadow, landing mark, dust, transparent glow, semi-transparent effect, detached symbol, loose effect, or scenery.
+- Motion arcs, speed lines, motion trails, motion marks, wave arcs, sound-wave curves, action lines, and smears are allowed only when they are foreground artwork: fully opaque, clearly attached to the action, away from slot boundaries, and not confused with a background layer.
 - Show contact, weight, or travel primarily through the character pose. Do not draw floor cues.
 - Keep the first and last frames compatible for a clean loop when possible."""
 
@@ -210,8 +221,14 @@ def with_fps(value: float | None) -> dict[str, float]:
 def normalize_layout_for_beats(raw: object, frame_count: int) -> dict[str, object]:
     layout = recommended_grid(frame_count)
     if isinstance(raw, dict):
-        cell_width = int(raw.get("cell_width", raw.get("frame_width", layout["cell_width"])))
-        cell_height = int(raw.get("cell_height", raw.get("frame_height", layout["cell_height"])))
+        cell_width, cell_height = image_2_cell_size(
+            int(layout["columns"]),
+            int(layout["rows"]),
+            (
+                int(raw.get("cell_width", raw.get("frame_width", layout["cell_width"]))),
+                int(raw.get("cell_height", raw.get("frame_height", layout["cell_height"]))),
+            ),
+        )
         layout["cell_width"] = cell_width
         layout["cell_height"] = cell_height
         layout["working_cell_size"] = [cell_width, cell_height]
@@ -225,7 +242,7 @@ def seed_frame_actions(seed: dict[str, object], state_name: str) -> list[str]:
         if isinstance(raw, list):
             return [str(item) for item in raw]
         if isinstance(raw, dict):
-            beats = raw.get("frame_actions") or raw.get("beats")
+            beats = raw.get("frame_actions")
             if isinstance(beats, list):
                 return [str(item) for item in beats]
     animation = seed.get("animation")
@@ -234,7 +251,7 @@ def seed_frame_actions(seed: dict[str, object], state_name: str) -> list[str]:
         if isinstance(states, list):
             for state in states:
                 if isinstance(state, dict) and state.get("name") == state_name:
-                    beats = state.get("frame_actions") or state.get("beats")
+                    beats = state.get("frame_actions")
                     if isinstance(beats, list):
                         return [str(item) for item in beats]
     return []
@@ -275,7 +292,7 @@ def action_job_for_state(
         base_job["input_images"].append(
             {
                 "path": registration_path,
-                "role": "registration guide edit template; keep black cell borders, blue safe-area rectangles, and neutral outside background, remove gray dashed centerlines and faint guide characters, and fill only safe-area interiors with chroma-key",
+                "role": "registration guide edit template; preserve its 4:3 layout, outer boundaries, and outer black cell borders; replace guide characters with animated poses in used slots and remove only inner guide marks",
             }
         )
     base_job["input_images"].append({"path": "references/canonical-base.png", "role": "canonical base character"})
@@ -312,7 +329,7 @@ def create_layout_guide(
     image = Image.new("RGB", (width, height), "#f7f7f7")
     draw = ImageDraw.Draw(image)
 
-    for index in range(frames):
+    for index in range(columns * rows):
         column = index % columns
         row = index // columns
         left = column * cell_width
@@ -341,8 +358,9 @@ def create_layout_guide(
         "image_model": "codex-built-in-image-gen",
         "image_model_size_constraints": {
             "max_aspect_ratio": "3:1",
-            "cell_size": "512x512",
-            "max_16_frame_canvas": "2048x2048",
+            "max_guide_edge": "1448px",
+            "cell_size": f"{cell_width}x{cell_height}",
+            "fixed_12_slot_canvas": "1448x1086",
         },
         "frames": frames,
         "frame_actions": frame_actions,
@@ -355,7 +373,7 @@ def create_layout_guide(
         "cell_height": cell_height,
         "safe_margin_x": safe_margin[0],
         "safe_margin_y": safe_margin[1],
-        "usage": "layout guide only; do not copy guide lines into generated art",
+        "usage": "layout guide only; preserve the outer black cell borders in generated raw sheets and remove inner guide marks",
     }
 
 
@@ -403,7 +421,7 @@ def create_registration_guide(
     alpha = ghost.getchannel("A").point(lambda value: round(value * 0.32))
     ghost.putalpha(alpha)
 
-    for index in range(frames):
+    for index in range(columns * rows):
         column = index % columns
         row = index // columns
         left = column * cell_width
@@ -420,7 +438,8 @@ def create_registration_guide(
         center_y = top + cell_height // 2
         draw_dashed_line(draw, (center_x, safe_top), (center_x, safe_bottom), fill="#b8b8b8")
         draw_dashed_line(draw, (safe_left, center_y), (safe_right, center_y), fill="#b8b8b8")
-        image.alpha_composite(ghost, (left, top))
+        if index < frames:
+            image.alpha_composite(ghost, (left, top))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     image.convert("RGB").save(path)
@@ -435,7 +454,7 @@ def create_registration_guide(
         "cell_height": cell_height,
         "safe_margin_x": safe_margin[0],
         "safe_margin_y": safe_margin[1],
-        "usage": "registration guide edit template; generated action sheet keeps black cell borders and blue safe-area rectangles, removes gray dashed centerlines and faint guide characters, and replaces only safe-area interiors with chroma-key",
+        "usage": "registration guide edit template; generated raw action sheets should preserve outer black cell borders, replace guide characters with animated poses in used slots, leave unused slots empty, and remove inner safe boxes, centerlines, ghost characters, labels, and guide marks",
     }
 
 
@@ -452,13 +471,10 @@ def refresh_after_canonical_base(
     manifest: dict[str, object],
     jobs_manifest: dict[str, object],
     canonical: Path,
-    chroma: dict[str, object],
 ) -> list[str]:
     manifest["canonical_base"] = rel(canonical, run_dir)
-    manifest["chroma_key"] = chroma
-    manifest["chroma_key_status"] = "ready"
     if isinstance(manifest.get("animation"), dict):
-        manifest["animation"]["background_mode"] = manifest.get("background_mode", "chroma-key")
+        manifest["animation"]["background_mode"] = manifest.get("background_mode", "rembg-matte")
     regenerated_prompts = []
     registration_guides = []
     animation = manifest.get("animation", {})
@@ -493,8 +509,6 @@ def refresh_after_canonical_base(
                 frame_size=frame_size,
                 layout=layout,
                 frame_actions=[str(item) for item in state.get("frame_actions", [])],
-                chroma=chroma,
-                chroma_ready=True,
                 registration_guide_ready=True,
             ).rstrip()
             + "\n",
@@ -508,7 +522,6 @@ def refresh_after_canonical_base(
         if other_job.get("kind") in {"action-grid", "action-strip"}:
             other_job["prompt_status"] = "ready-after-canonical-base"
             other_job["prompt_regenerated_after_base"] = True
-            other_job["chroma_key_hex"] = chroma["hex"]
             inputs = other_job.get("input_images")
             if isinstance(inputs, list):
                 state_name = str(other_job.get("id"))
@@ -532,10 +545,10 @@ def refresh_after_canonical_base(
                 if registration_item is None:
                     registration_item = {
                         "path": registration_path,
-                        "role": "registration guide edit template; keep black cell borders, blue safe-area rectangles, and neutral outside background, remove gray dashed centerlines and faint guide characters, and fill only safe-area interiors with chroma-key",
+                        "role": "registration guide edit template; preserve its 4:3 layout, outer boundaries, and outer black cell borders; replace guide characters with animated poses in used slots and remove only inner guide marks",
                     }
                 else:
-                    registration_item["role"] = "registration guide edit template; keep black cell borders, blue safe-area rectangles, and neutral outside background, remove gray dashed centerlines and faint guide characters, and fill only safe-area interiors with chroma-key"
+                    registration_item["role"] = "registration guide edit template; preserve its 4:3 layout, outer boundaries, and outer black cell borders; replace guide characters with animated poses in used slots and remove only inner guide marks"
                 inputs[:] = [
                     item
                     for item in inputs
@@ -559,7 +572,6 @@ def main() -> None:
     parser.add_argument("--action", default="")
     parser.add_argument("--add-action", action="store_true", help="Add one action to an existing run.")
     parser.add_argument("--frame-size", help="Override frame size as WIDTHxHEIGHT.")
-    parser.add_argument("--frame-count", type=int, help="Deprecated compatibility hint; frame count is derived from frame actions.")
     parser.add_argument(
         "--frame-action",
         action="append",
@@ -573,8 +585,7 @@ def main() -> None:
     parser.add_argument("--fps", type=float, help="Playback FPS to record when explicitly requested.")
     parser.add_argument("--format", default=None, choices=("webp",), help="Final animation output format. Intermediate extracted frames are PNG.")
     parser.add_argument("--states", help="Comma-separated state names for a simple manifest.")
-    parser.add_argument("--chroma-key", help="Chroma key color as #RRGGBB.")
-    parser.add_argument("--background-mode", choices=("chroma-key",), help="Background mode recorded in the run manifest.")
+    parser.add_argument("--background-mode", choices=("rembg-matte",), help="Background mode recorded in the run manifest.")
     parser.add_argument("--loop", action=argparse.BooleanOptionalAction, default=None, help="Whether final animations should loop.")
     parser.add_argument(
         "--safe-margin",
@@ -598,7 +609,6 @@ def main() -> None:
     settings = manifest_settings(
         seed,
         frame_size=frame_size,
-        frame_count=None,
         fps=args.fps,
         output_format=args.format,
         require_states=False,
@@ -607,7 +617,7 @@ def main() -> None:
     explicit_frame_actions = [*args.frame_action, *split_frame_actions(args.frame_actions)]
     action_text = args.action or action_id
     loop = bool(seed.get("loop", True)) if args.loop is None else bool(args.loop)
-    background_mode = str(args.background_mode or seed.get("background_mode") or "chroma-key")
+    background_mode = str(args.background_mode or "rembg-matte")
 
     if args.states:
         names = [slugify(item) for item in args.states.split(",") if item.strip()]
@@ -700,12 +710,12 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     existing_jobs = existing_jobs_by_id(run_dir)
 
-    chroma = chroma_settings(seed, args.chroma_key)
     prompts_dir = run_dir / "prompts"
     action_prompt_dir = prompts_dir / "actions"
     references_dir = run_dir / "references"
     generated_dir = run_dir / "generated"
-    for directory in [prompts_dir, action_prompt_dir, references_dir]:
+    raw_generated_dir = generated_dir / "raw"
+    for directory in [prompts_dir, action_prompt_dir, references_dir, generated_dir, raw_generated_dir]:
         directory.mkdir(parents=True, exist_ok=True)
 
     canonical_base = references_dir / "canonical-base.png"
@@ -716,10 +726,11 @@ def main() -> None:
             raise SystemExit(f"source character not found: {source}")
         source_character_path = source
         if not canonical_base.exists():
-            save_png_copy(source, canonical_base)
-        if not args.chroma_key:
-            chroma = choose_chroma_key_for_image(canonical_base)
-    chroma_ready = bool(canonical_base.exists() or args.chroma_key)
+            raw_source_copy = raw_generated_dir / "base-character.png"
+            with Image.open(source) as opened:
+                base_image = opened.copy()
+            base_image.save(raw_source_copy, format="PNG")
+            base_image.save(canonical_base, format="PNG")
 
     frame_size_tuple = (settings["frame_width"], settings["frame_height"])
     for state in settings["states"]:
@@ -746,8 +757,6 @@ def main() -> None:
                 frame_size=frame_size_tuple,
                 layout=state["layout"],
                 frame_actions=list(state["frame_actions"]),
-                chroma=chroma,
-                chroma_ready=chroma_ready,
                 registration_guide_ready=False,
             ),
         )
@@ -785,8 +794,11 @@ def main() -> None:
             }
             for state in settings["states"]
         },
-        "chroma_key": chroma,
-        "chroma_key_status": "ready" if chroma_ready else "pending-canonical-base",
+        "removal_background": {
+            "hex": REMOVAL_BACKGROUND_HEX,
+            "policy": "flat-matte-for-rembg",
+        },
+        "background_removal": background_removal_defaults(model=REMBG_MODEL, alpha_matting=True),
         "paths": {
             "canonical_base": "references/canonical-base.png",
             "generated_dir": "generated",
@@ -857,7 +869,7 @@ def main() -> None:
                     canonical_base_exists=canonical_base.exists(),
                     existing_jobs=existing_jobs,
                 )
-                | {"prompt_status": action_prompt_status, "chroma_key_hex": chroma["hex"]}
+                | {"prompt_status": action_prompt_status}
                 for state in settings["states"]
             ],
         ],
@@ -868,7 +880,6 @@ def main() -> None:
             manifest=manifest,
             jobs_manifest=jobs,
             canonical=canonical_base,
-            chroma=chroma,
         )
         base_job["regenerated_action_prompts"] = regenerated_prompts
     write_json(run_dir / "animation-jobs.json", jobs)

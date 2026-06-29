@@ -15,47 +15,48 @@ All paths are project-local by default. A normal run lives under:
     canonical-base.png
     registration-guides/<action-id>.png
   generated/
-    base-character.png  # only when the base is generated
-    attempts/<action-id>-NN.png  # rejected or candidate action-sheet attempts, when regeneration was needed
+    raw/
+      base-character.png
+      <action-id>.png
+    attempts/<action-id>-NN.png
+    base-character.png
     <action-id>.png
-  frames/
-    <action-id>/000.png
-    <action-id>/001.png
-    ...
-    frames-manifest.json
-  final/
-    <action-id>.webp
-    <action-id>-frames.png
-    <action-id>-validation.json
-  qa/
-    <action-id>-contact-sheet.png
-    <action-id>-review.json
-    run-summary.json
+  frames/<action-id>/000.png
+  final/<action-id>.webp
+  final/<action-id>-frames.png
+  final/<action-id>-validation.json
+  qa/<action-id>-contact-sheet.png
+  qa/<action-id>-review.json
+  qa/run-summary.json
 ```
 
-The exact final files depend on the requested output format.
-
-`finalize_animation_run.py` writes the composed frame sheet as PNG at `final/<action-id>-frames.png` and writes WebP only for the final animated result at `final/<action-id>.webp`. It writes frame-review diagnostics to `qa/<action-id>-review.json` before composing and sheet-validation diagnostics to `final/<action-id>-validation.json` after composing.
-
-When `finalize_animation_run.py` runs without `--action-id`, it writes aggregate files for the selected run: `final/animation-frames.png`, `final/validation.json`, `qa/review.json`, and `qa/contact-sheet.png`.
+`generated/raw/` stores raw `$image-creator` outputs. `references/canonical-base.png` preserves the source or generated base image as the identity reference. Recorded action sheets directly under `generated/` must be rembg-normalized true alpha PNGs.
 
 ## Required Manifest Fields
 
-`animation_manifest.json` should record:
+`animation_manifest.json` records:
 
 - `character_id`
 - `character_name`
 - `description`
 - `canonical_base`
-- `frame_width` and `frame_height` as nominal registration-guide cell dimensions
-- `fps` when a playback rate was requested or already exists in the run
+- `frame_width` and `frame_height`
 - `loop`
-- `background_mode`
-- `chroma_key`
+- `background_mode: "rembg-matte"`
+- `removal_background.hex: "#00B7FF"`
+- `removal_background.policy: "flat-matte-for-rembg"`
+- `background_removal.required: true`
+- `background_removal.engine: "rembg"`
+- `background_removal.backend: "cuda"`, `"rocm"`, or `"cpu"`
+- `background_removal.available_providers`
+- `background_removal.selected_providers`
+- `background_removal.gpu_fallback` when a GPU provider was attempted but CPU retry completed the job
+- `background_removal.model: "birefnet-general-lite"`
+- `background_removal.alpha_matting`
 - `actions`
 - `action_plans`
 
-Each action state should record:
+Each action state records:
 
 - `action`
 - `frame_actions`
@@ -64,57 +65,50 @@ Each action state should record:
 - `frame_count`
 - `layout`
 
-`animation-jobs.json` should record each base/action job, source path, output path, source prompt file, input images, status, hashes, and timestamps. A complete job records both the source prompt hash and the exact built `$image-creator` prompt hash from `build_generation_prompt.py`. The workflow should not create a duplicate `prompts/image-creator/` prompt directory.
+`animation-jobs.json` records each base/action job, raw source path, recorded output path, prompt file, input images, job status, hashes, and timestamps. Action jobs also record `background_removal` metadata after recording.
 
 ## Geometry
 
 Defaults:
 
-- nominal registration-guide cell size: `512x512`
-- the 16-frame maximum uses a `4x4` registration guide at `2048x2048`
-- registration-guide safe margin: `30px` horizontal and `24px` vertical
-- frame count: finalized from the completed per-frame action plan
+- nominal cell size: `362x362`
+- maximum action length: `12` frames
+- generated registration guide layout: fixed `4x3` at `1448x1086`
+- safe margin: `30px` horizontal and `24px` vertical
 - intermediate frame format: `png`
 - final animation format: `webp`
-- final WebP animation: `final/<action-id>.webp`; intermediate sheets and QA images stay PNG
+- default background removal model: `birefnet-general-lite`
+- uv background removal dependency: `rembg[gpu,cli]`
 
-Each action image should be a grid sheet with exactly one cell per planned frame action, read left-to-right, top-to-bottom. Each cell contains one complete pose matching that frame action, with consistent character registration, scale, facing, safe-box placement, and camera distance across adjacent frames. The prompt treats the registration guide as an edit template: keep the canvas, black cell borders, blue safe-area rectangles, and neutral background outside the blue rectangles; remove gray dashed centerlines and faint guide characters; fill only each blue safe-area interior with the selected chroma key; and draw character artwork on top. Extraction accepts generated sheets that preserve the manifest grid aspect ratio, removes visible guide border/background remnants, then uses the known grid to group frame content.
+Each action image is a fixed `4x3` grid sheet, read left-to-right then top-to-bottom. Each used cell contains one complete pose matching that frame action, with consistent character registration, scale, facing, safe placement, and camera distance across adjacent frames. Unused cells stay empty except for the same matte interior and preserved outer black cell borders.
 
-When the recommended grid contains more cells than planned frames, only the planned frame count is part of the output contract. Extraction ignores unused slots even if generation fills them.
+The registration guide is an edit template. Generated raw action sheets should preserve the guide's `4x3` layout, outer boundaries, and outer black cell borders; replace guide characters with animated poses in used slots; leave unused slots empty; and remove inner safe rectangles, centerlines, guide characters, captions, and slot labels.
 
-Before extraction, inspect the raw generated action sheet. If the sheet has the wrong grid, missing requested frames, wrong slot order, repeated stills where motion should change, broken identity, disconnected motion, visible labels, extra guide marks, malformed or missing safe-area rectangles, clipped poses, or non-chroma safe-area interiors, the selected action image is invalid and should be regenerated. Do not use deterministic post-processing as a way to accept a bad raw sheet. Save rejected action-sheet attempts under `generated/attempts/` when useful, but record only the selected accepted attempt as `generated/<action-id>.png`.
+When the recommended grid contains unused cells, only the planned frame count is part of the output contract. Extraction ignores unused slots.
 
-Extraction removes the chroma-key background from the full generated sheet, removes visible outer grid borders, detects the generated chroma-key inner safe-area fill in each used slot, clears everything outside that detected inner safe-area box, ignores unused slots, then preserves the generated sheet's actual per-cell size. Safe-area outline color is not the primary detection signal; line detection is only a diagnostic backup when the inner fill cannot be read. If a used slot's inner safe-area fill cannot be detected, extraction may use the manifest safe-area geometry only as a diagnostic last resort and records that fallback in the frame manifest; an accepted production result should not rely on manifest fallback for a visibly malformed raw sheet. It prefers connected-component grouping into the expected frame slots. The default finalize path requires component extraction; known-layout slot slicing is a manual diagnostic fallback, not an acceptable default completion path. Validation checks whether the extracted frames are non-empty, avoid cell edges, were component-extracted, and remain visually continuous.
-
-Recommended layouts:
+Recommended layout:
 
 | Frames | Layout |
 | ---: | --- |
-| 1-4 | `2x2` or smaller as needed |
-| 5-6 | `3x2` |
-| 7-8 | `4x2` |
-| 9 | `3x3` |
-| 10-12 | `4x3` |
-| 13-16 | `4x4` |
+| 1-12 | `4x3` |
 
-The maximum action length is `16` frames. Do not choose a frame count from an action category. First build and audit the frame actions until the motion is complete; then choose the recommended layout from that finalized count.
+## Background Removal
 
-Planning should continue one beat at a time. Frame 1 may describe the starting pose; every later frame should be treated as the accumulated result of all previous changes plus the visible change from the immediately previous slot, rather than a standalone pose label. A short phase label may be used only when it helps identify the accumulated current frame. Avoid transform-like wording unless the requested animation explicitly requires that major visual transform; for ordinary rotation, tumbling, airborne motion, or transitional poses, prefer body-part positions and continuous motion paths. Do not use few-shot examples or canned templates. After each planned frame, ask whether the action still needs any of these beats before it will read clearly:
+Generated raw action images must use a single flat solid vivid sky-blue removable matte background `#00B7FF`. This color is reserved for background only; character pixels, props, markings, outlines, highlights, shadows, and motion effects must not use it. Do not use scene backgrounds, floor planes, shadows, gradients, textured backgrounds, or fake checkerboard transparency.
 
-- anticipation or wind-up
-- first contact or launch
-- main key pose
-- passing/in-between pose
-- follow-through or overshoot
-- recovery or settle
-- loop bridge back to the first pose
+Recording an action result must cut the raw sheet into planned frame slots from the actual generated image size, strip the preserved outer black cell borders from each slot crop, run rembg on each stripped slot, remove matte-color residue from each rembg slot output, reassemble the alpha-normalized sheet, and only then mark the job complete:
 
-Only stop when the answer is no. Then audit the full list for both directions: too few frames that create pose pops or missing timing beats, and too many frames that create duplicate silhouettes, frozen holds, micro-steps, or timing stalls. Add missing beats and delete redundant beats before deriving the final frame count. If the audited list is over 16 frames, first delete or merge repeated information and timing stalls; if the action still cannot fit, narrow the action or ask the user before preparing the run. If stopping would remove one of the required beats, keep planning instead of forcing a shorter sheet.
+- raw input path: `generated/raw/<job-id>.png`
+- per-slot rembg work path: `generated/rembg-work/<job-id>/<frame-index>.png`
+- alpha-normalized output path: job `output_path`
+- action job metadata: `background_removal.matte_residue_cleanup`
+- action job metadata: `background_removal.source_sheet_size`
+- action job metadata: `background_removal.border_strip`
 
-## Background
+Recording a base-character result preserves the source image as the canonical identity reference at `references/canonical-base.png`. Do not run rembg on the canonical base.
 
-Default action background mode is `chroma-key`, because clean background removal before component extraction is central to reliable frame extraction. Generated base characters use a flat white `#FFFFFF` reference background first; after the base is recorded, the scripts inspect the canonical base colors and select a safe high-saturation chroma key for action sheets. The selected chroma key applies to each generated action-sheet inner safe area, not to the registration guide file itself. Registration guides remain neutral edit templates with cell borders, safe-area borders, center dashed lines, and a faint canonical-base footprint. Generated action sheets should remove the dashed centerlines and faint guide characters.
+Run scripts with `uv run --project skills/animation-creator ...` so uv prepares the project-local rembg runtime. The declared runtime uses `rembg[gpu,cli]`; ONNX Runtime should select `CUDAExecutionProvider` or `ROCMExecutionProvider` when available. If a detected GPU provider fails during rembg execution, retry the same slot once with `CPUExecutionProvider` and record `background_removal.gpu_fallback`. If the rembg CLI is unavailable or cannot run on either provider, the job fails. There is no key-color alternate path.
 
-Prefer a high-saturation key color far from source image colors, but extraction must not depend on green-specific or fixed-channel rules. For each extracted frame, cleanup estimates the actual background from the frame edge, builds an adaptive Lab-distance background-similarity mask, removes only regions connected to the exterior background plus very small isolated holes that are extremely close to the estimated background, then applies soft alpha, edge color restoration, and background-direction despill. Edge alpha combines background color distance with key-strength from the dot product between each pixel's chroma vector and the estimated background chroma vector, so darker antialias pixels from red, green, blue, magenta, or yellow keys can be softened instead of left as halos. Character colors, outfit details, props, highlights, and markings that resemble the key color should be preserved when they are not connected to the exterior background. Validation fails frames that still contain large exterior-connected key-color remnants or visible halos.
+Extraction accepts only slot-rembg-normalized alpha action sheets. It validates sheet aspect ratio, clears unused slots, groups foreground components into frame slots, and writes transparent PNG frames. The default completion path requires component extraction.
 
-Transparent output is preferred for the final animated WebP. MP4 previews may use a checkerboard or flat background because MP4 does not carry alpha.
+Transparent output is required for final WebP animations. MP4 previews may use a checkerboard or flat background because MP4 does not carry alpha.

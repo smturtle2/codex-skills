@@ -13,8 +13,6 @@ from PIL import Image
 from animation_common import (
     DEFAULT_WORKING_CELL_SIZE,
     alpha_nonzero_count,
-    chroma_adjacent_count,
-    chroma_settings,
     edge_alpha_count,
     frame_manifest_rows,
     frame_size_from_manifest,
@@ -23,7 +21,6 @@ from animation_common import (
     locate_frame_files,
     manifest_for_run,
     manifest_settings,
-    parse_hex_color,
     parse_size,
     resolve_path,
     write_json,
@@ -37,9 +34,6 @@ def validate_sheet(
     min_used_pixels: int,
     near_opaque_threshold: float,
     allow_opaque: bool,
-    chroma_key: tuple[int, int, int] | None,
-    chroma_adjacent_threshold: float,
-    chroma_adjacent_pixel_threshold: int,
     edge_margin: int,
     edge_pixel_threshold: int,
 ) -> dict[str, object]:
@@ -72,7 +66,6 @@ def validate_sheet(
             cell = image.crop((column * frame_w, row * frame_h, (column + 1) * frame_w, (row + 1) * frame_h))
             nontransparent = alpha_nonzero_count(cell)
             edge_pixels = edge_alpha_count(cell, edge_margin)
-            chroma_adjacent_pixels = chroma_adjacent_count(cell, chroma_key, chroma_adjacent_threshold)
             used = column < used_count
             cells.append(
                 {
@@ -82,7 +75,6 @@ def validate_sheet(
                     "used": used,
                     "nontransparent_pixels": nontransparent,
                     "edge_pixels": edge_pixels,
-                    "chroma_adjacent_pixels": chroma_adjacent_pixels,
                 }
             )
             if used and nontransparent < min_used_pixels:
@@ -97,8 +89,6 @@ def validate_sheet(
                     errors.append(message)
             if used and edge_pixels > edge_pixel_threshold:
                 warnings.append(f"{state_name} row {row} column {column} has {edge_pixels} non-transparent pixels near the cell edge")
-            if used and chroma_adjacent_pixels > chroma_adjacent_pixel_threshold:
-                errors.append(f"{state_name} row {row} column {column} has {chroma_adjacent_pixels} non-transparent pixels close to the chroma key")
     return {"ok": not errors, "file": str(path), "format": source_format, "mode": source_mode, "width": image.width, "height": image.height, "errors": errors, "warnings": warnings, "cells": cells}
 
 
@@ -107,9 +97,7 @@ def validate_frames(
     settings: dict[str, object],
     min_used_pixels: int,
     *,
-    chroma_key: tuple[int, int, int] | None,
-    chroma_adjacent_threshold: float,
-    chroma_adjacent_pixel_threshold: int,
+    near_opaque_threshold: float,
     edge_margin: int,
     edge_pixel_threshold: int,
     require_components: bool,
@@ -155,7 +143,6 @@ def validate_frames(
             bbox = image.getbbox()
             areas.append(nontransparent)
             edge_pixels = edge_alpha_count(image, edge_margin)
-            chroma_adjacent_pixels = chroma_adjacent_count(image, chroma_key, chroma_adjacent_threshold)
             frames.append(
                 {
                     "state": state["name"],
@@ -167,7 +154,6 @@ def validate_frames(
                     "nontransparent_pixels": nontransparent,
                     "bbox": list(bbox) if bbox else None,
                     "edge_pixels": edge_pixels,
-                    "chroma_adjacent_pixels": chroma_adjacent_pixels,
                 }
             )
             if expected_size is None:
@@ -176,6 +162,8 @@ def validate_frames(
                 errors.append(f"{path} expected {expected_size[0]}x{expected_size[1]}, got {image.width}x{image.height}")
             if nontransparent < min_used_pixels:
                 errors.append(f"{path} is empty or too sparse ({nontransparent} pixels)")
+            if nontransparent > image.width * image.height * near_opaque_threshold:
+                errors.append(f"{path} is nearly opaque; background may not be transparent")
             if "A" not in mode:
                 warnings.append(f"{path} has no alpha channel")
             if edge_pixels > edge_pixel_threshold:
@@ -184,8 +172,6 @@ def validate_frames(
             if bbox and safe_box:
                 if bbox[0] < safe_box[0] or bbox[1] < safe_box[1] or bbox[2] > safe_box[2] or bbox[3] > safe_box[3]:
                     warnings.append(f"{path} visible pixels extend outside the scaled layout safe box")
-            if chroma_adjacent_pixels > chroma_adjacent_pixel_threshold:
-                errors.append(f"{path} has {chroma_adjacent_pixels} non-transparent pixels close to the chroma key")
         if areas:
             median_area = median(areas)
             for index, area in enumerate(areas[: int(state["frames"])]):
@@ -206,15 +192,12 @@ def main() -> None:
     source.add_argument("--frames-root")
     parser.add_argument("--json-out")
     parser.add_argument("--frame-size")
-    parser.add_argument("--frame-count", type=int)
     parser.add_argument("--fps", type=float)
     parser.add_argument("--format", choices=("png", "webp"))
     parser.add_argument("--min-used-pixels", type=int, default=50)
     parser.add_argument("--near-opaque-threshold", type=float, default=0.95)
     parser.add_argument("--edge-margin", type=int, default=2)
     parser.add_argument("--edge-pixel-threshold", type=int, default=24)
-    parser.add_argument("--chroma-adjacent-threshold", type=float, default=190.0)
-    parser.add_argument("--chroma-adjacent-pixel-threshold", type=int, default=800)
     parser.add_argument("--small-outlier-ratio", type=float, default=0.35)
     parser.add_argument("--large-outlier-ratio", type=float, default=2.75)
     parser.add_argument("--require-components", action="store_true", help="Fail actions that used layout slot extraction.")
@@ -228,14 +211,11 @@ def main() -> None:
         manifest_settings(
             manifest,
             frame_size=parse_size(args.frame_size, DEFAULT_WORKING_CELL_SIZE) if args.frame_size else None,
-            frame_count=args.frame_count,
             fps=args.fps,
             output_format=args.format,
         ),
         args.action_id,
     )
-    chroma = chroma_settings(manifest)
-    chroma_key = parse_hex_color(chroma["hex"])
     if args.sheet:
         result = validate_sheet(
             resolve_path(args.sheet, run_dir),
@@ -243,9 +223,6 @@ def main() -> None:
             min_used_pixels=args.min_used_pixels,
             near_opaque_threshold=args.near_opaque_threshold,
             allow_opaque=args.allow_opaque,
-            chroma_key=chroma_key,
-            chroma_adjacent_threshold=args.chroma_adjacent_threshold,
-            chroma_adjacent_pixel_threshold=args.chroma_adjacent_pixel_threshold,
             edge_margin=args.edge_margin,
             edge_pixel_threshold=args.edge_pixel_threshold,
         )
@@ -255,9 +232,7 @@ def main() -> None:
             resolve_path(frames_root, run_dir),
             settings,
             args.min_used_pixels,
-            chroma_key=chroma_key,
-            chroma_adjacent_threshold=args.chroma_adjacent_threshold,
-            chroma_adjacent_pixel_threshold=args.chroma_adjacent_pixel_threshold,
+            near_opaque_threshold=args.near_opaque_threshold,
             edge_margin=args.edge_margin,
             edge_pixel_threshold=args.edge_pixel_threshold,
             require_components=args.require_components,
