@@ -369,7 +369,7 @@ Rules:
 
 ## Image Job Contract
 
-`prepare` exports editable raster images under `<run-dir>/images/source/` and creates `<run-dir>/image-jobs.json`.
+`prepare` exports editable raster images under `<run-dir>/images/source/` and creates `<run-dir>/image-jobs.json`. `record-image` keeps the review copy for every resolved image job under `<run-dir>/images/replacements/`: edited jobs store the generated replacement there, and `skipped_no_text` jobs store a copy of the reviewed source image there.
 
 Image review and image text translation are isolated one-image tasks. Before opening source images for review, verify that the current session can spawn, wait on, and close subagents. Image processing requires a dedicated per-image subagent execution path; do not silently fall back to main-thread image generation.
 
@@ -394,16 +394,17 @@ Per-image dispatch contract:
 1. Process image jobs from `<run-dir>/image-jobs.json`; do not make a contact sheet or bulk visual sheet for triage.
 2. Inspect source images one at a time, only when an edited-image subagent can be dispatched immediately if the image needs editing.
 3. Do not inspect ahead to build a backlog of image briefs.
-4. If the image has no visible source-edition text that needs translation, record `skipped_no_text` and continue to the next image if dispatch capacity rules allow it.
+4. If the image has no visible source-edition text that needs translation, record `skipped_no_text`; this copies the reviewed source image into `<run-dir>/images/replacements/` so the completed run shows that the image was checked.
 5. If the image has visible source-edition text, write an image edit brief:
    - target language;
    - the image job ID;
    - the source image path;
-   - the required replacement output path;
+   - the required generated replacement output path, preferably under `<run-dir>/images/replacements/`;
    - a source text scope;
    - explicit text overrides for clearly read, context-critical strings;
    - a preservation policy for non-source-edition text and all non-text visual content;
-   - an edit-oriented prompt for `$image-creator`.
+   - an edit-oriented prompt for `$image-creator`;
+   - an `$image-creator` handoff section that tells the subagent to read the installed `$image-creator` skill before execution and summarizes the EPUB image execution path: split the creative edit request from the save destination, rewrite the request as a concise English generation prompt, use the provided source image as the single local edit input, load it only as the immediate bridge to the next `image_gen` call, call built-in `image_gen`, save the returned generated payload to the replacement path with the `$image-creator` save helper, and report the `$image-creator` response fields.
 6. Spawn one independent image subagent for that image immediately after its brief is ready.
 7. Pass only that source image as the local image input plus the main-authored image edit brief.
 8. Keep using available subagent capacity with later image jobs, still one visually reviewed image at a time.
@@ -414,7 +415,7 @@ Per-image dispatch contract:
 Operational rules:
 
 - Do not use OCR, automated image-text extraction, contact sheets, visual grids, or crop sheets.
-- Maintain an active job ledger mapping image job ID to source path, replacement path, subagent ID, status, and brief.
+- Maintain an active job ledger mapping image job ID to source path, replacement review path, subagent ID, status, and brief.
 - Translate visible communicative text that belongs to the source edition's source language. Preserve non-source-edition text unless the book context makes it part of the source-edition message.
 - Use edit-oriented prompt language that treats the provided image as the image to modify.
 - Keep generated replacement files as returned by the generation path. Do not normalize, resize, resample, recompress, or convert them before recording.
@@ -432,10 +433,10 @@ Main-agent image brief contract:
 
 Image subagent execution contract:
 
-- The subagent's only image-job responsibility is generation execution.
-- The subagent uses `$image-creator` with the supplied edit brief, source image, and output path.
-- The subagent receives and loads exactly one source image for its generation call.
-- The subagent must use the received source image as the edit input. Do not generate from a text-only prompt for an EPUB image replacement.
+- The subagent's only image-job responsibility is `$image-creator` execution for one provided EPUB source image.
+- Before execution, the subagent must read the installed `$image-creator` skill and follow it.
+- The subagent uses the `$image-creator` workflow summarized in the handoff: rewrite the edit request into an English generation prompt, use exactly the provided source image as the local edit input, call built-in `image_gen`, and save the returned generated payload to the requested replacement path with the `$image-creator` save helper.
+- The subagent must treat the EPUB replacement path as the destination for the `$image-creator` generated payload.
 - The supplied edit brief controls translation choices, text coverage, preservation policy, and prompt intent.
 - Any `view_image` call in the subagent belongs to `$image-creator`'s single-image local-image bridge immediately before the generation call.
 
@@ -454,13 +455,22 @@ Image subagent return contract:
   ],
   "preservation_policy": "visible text outside source-edition communicative content remains unchanged",
   "replacement_path": "/absolute/path/to/replacement-image",
-  "final_image_prompt": "the exact English prompt passed to $image-creator"
+  "image_creator_result": {
+    "skill_checked": true,
+    "saved_path": "/absolute/path/to/replacement-image",
+    "final_rewritten_prompt": "the exact English prompt passed to the generation path",
+    "input_images_used": ["/absolute/path/to/source-image"],
+    "generation_mode": "built-in image_gen",
+    "overwrite_status": "not overwritten"
+  }
 }
 ```
 
 Rules:
 
-- `status: "edited"` means `$image-creator` produced and saved a replacement image for the job.
+- `status: "edited"` means the subagent read `$image-creator`, executed its built-in `image_gen` generation path with exactly one source image, and saved the returned generated payload to `replacement_path`.
+- `replacement_path` must equal `image_creator_result.saved_path`.
+- `input_images_used` must contain exactly the source image path assigned to that subagent.
 - `explicit_term_overrides` must match the main-authored image edit brief.
 
 If the image generation path fails to return a saved replacement, keep the same one-image job unresolved and retry with an adjusted edit-oriented prompt. The image job is resolved only after `record-image` records `edited` or `skipped_no_text`.
@@ -472,7 +482,7 @@ uv run --script <skill-dir>/scripts/epub_translate.py record-image --workdir <ru
 uv run --script <skill-dir>/scripts/epub_translate.py record-image --workdir <run-dir> --image-id <id> --replacement <edited-image>
 ```
 
-`record-image --replacement` embeds a finished replacement into the EPUB run by byte-for-byte copy. The helper treats the replacement as an already-finished asset.
+`record-image --skip-no-text` copies the reviewed source image to `<run-dir>/images/replacements/` for run-level image review. `record-image --replacement` copies the finished generated replacement to `<run-dir>/images/replacements/` and embeds it into the EPUB run by byte-for-byte copy. The helper treats a replacement as an already-finished generated asset.
 
 Unsupported image media types are reported in `<run-dir>/manifest.json` as `unsupported_images`; handle them only when the user explicitly requests manual handling.
 

@@ -590,7 +590,9 @@ def prepare_run(args: argparse.Namespace) -> int:
 
     image_jobs = []
     image_source_dir = workdir / "images" / "source"
+    image_replacement_dir = workdir / "images" / "replacements"
     image_source_dir.mkdir(parents=True, exist_ok=True)
+    image_replacement_dir.mkdir(parents=True, exist_ok=True)
     for index, image in enumerate(editable_images, start=1):
         source_path = safe_join(unpacked, image["href"])
         suffix = IMAGE_SUFFIX_BY_MEDIA_TYPE.get(image["media_type"], Path(image["href"]).suffix or ".img")
@@ -980,6 +982,17 @@ def copy_image_verbatim(source: Path, destination: Path, media_type: str) -> str
     return "copied-verbatim"
 
 
+def image_review_path(workdir: Path, job: dict, source: Path) -> Path:
+    suffix = source.suffix or IMAGE_SUFFIX_BY_MEDIA_TYPE.get(job["media_type"], Path(job["href"]).suffix or ".img")
+    return workdir / "images" / "replacements" / f"{job['id']}{suffix}"
+
+
+def copy_image_review_file(source: Path, review_path: Path) -> None:
+    review_path.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() != review_path.resolve():
+        shutil.copy2(source, review_path)
+
+
 def record_image(args: argparse.Namespace) -> int:
     workdir = Path(args.workdir).expanduser().resolve()
     jobs_path = workdir / "image-jobs.json"
@@ -994,15 +1007,25 @@ def record_image(args: argparse.Namespace) -> int:
         raise EpubTranslatorError("Choose exactly one of --replacement or --skip-no-text")
 
     if args.skip_no_text:
+        source_export = safe_join(workdir, job["source_export"])
+        if not source_export.is_file():
+            raise EpubTranslatorError(f"Source image export not found: {source_export}")
+        review_path = image_review_path(workdir, job, source_export)
+        copy_image_review_file(source_export, review_path)
         job["status"] = "skipped_no_text"
+        job["replacement_export"] = str(review_path.relative_to(workdir))
+        job["replacement_mode"] = "source-copy-for-review"
     else:
         replacement = Path(args.replacement).expanduser().resolve()
         if not replacement.is_file():
             raise EpubTranslatorError(f"Replacement image not found: {replacement}")
+        review_path = image_review_path(workdir, job, replacement)
+        copy_image_review_file(replacement, review_path)
         destination = safe_join(workdir / "unpacked", job["href"])
         mode = copy_image_verbatim(replacement, destination, job["media_type"])
         job["status"] = "edited"
         job["replacement_source"] = str(replacement)
+        job["replacement_export"] = str(review_path.relative_to(workdir))
         job["replacement_mode"] = mode
     job["updated_at"] = utc_now()
     write_json(jobs_path, jobs_data)
@@ -1402,11 +1425,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     image_parser.add_argument("--workdir", required=True)
     image_parser.add_argument("--image-id", required=True)
-    image_parser.add_argument("--replacement", help="Finished replacement image to embed")
+    image_parser.add_argument("--replacement", help="Finished generated replacement image to embed and copy for review")
     image_parser.add_argument(
         "--skip-no-text",
         action="store_true",
-        help="Mark image as having no text to replace",
+        help="Mark image as having no text to replace and copy the source image for review",
     )
     image_parser.set_defaults(func=record_image)
 

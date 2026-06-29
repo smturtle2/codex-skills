@@ -225,6 +225,12 @@ class EpubTranslatorTests(unittest.TestCase):
                 cwd=root,
             )
             self.assertEqual(skipped.returncode, 0, skipped.stderr)
+            recorded_jobs = json.loads((run_dir / "image-jobs.json").read_text(encoding="utf-8"))["jobs"]
+            edited_export = run_dir / recorded_jobs[0]["replacement_export"]
+            skipped_export = run_dir / recorded_jobs[1]["replacement_export"]
+            self.assertTrue(edited_export.is_file())
+            self.assertTrue(skipped_export.is_file())
+            self.assertEqual(skipped_export.read_bytes(), (run_dir / jobs[1]["source_export"]).read_bytes())
 
             packaged = self.run_script("package", "--workdir", str(run_dir), "--output", str(output), cwd=root)
             self.assertEqual(packaged.returncode, 0, packaged.stderr)
