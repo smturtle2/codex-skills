@@ -404,7 +404,7 @@ Per-image dispatch contract:
    - explicit text overrides for clearly read, context-critical strings;
    - a preservation policy for non-source-edition text and all non-text visual content;
    - an edit-oriented prompt for `$image-creator`;
-   - an `$image-creator` handoff section that tells the subagent to read the installed `$image-creator` skill before execution and summarizes the EPUB image execution path: split the creative edit request from the save destination, rewrite the request as a concise English generation prompt, use the provided source image as the single local edit input, load it only as the immediate bridge to the next `image_gen` call, call built-in `image_gen`, save the returned generated payload to the replacement path with the `$image-creator` save helper, and report the `$image-creator` response fields.
+   - an `$image-creator` handoff section that tells the subagent to read the installed `$image-creator` skill before execution and summarizes the EPUB image execution path: split the creative edit request from the save destination, rewrite the request as a concise English generation prompt, use the provided source image as the single local edit input, load it only as the immediate bridge to the next `image_gen` call, call built-in `image_gen`, save the returned generated payload to the replacement path with the `$image-creator` save helper, keep the generated replacement exactly as returned without matching the source image's dimensions, aspect ratio, extension, or file format, and report the `$image-creator` response fields.
 6. Spawn one independent image subagent for that image immediately after its brief is ready.
 7. Pass only that source image as the local image input plus the main-authored image edit brief.
 8. Keep using available subagent capacity with later image jobs, still one visually reviewed image at a time.
@@ -436,6 +436,7 @@ Image subagent execution contract:
 - The subagent's only image-job responsibility is `$image-creator` execution for one provided EPUB source image.
 - Before execution, the subagent must read the installed `$image-creator` skill and follow it.
 - The subagent uses the `$image-creator` workflow summarized in the handoff: rewrite the edit request into an English generation prompt, use exactly the provided source image as the local edit input, call built-in `image_gen`, and save the returned generated payload to the requested replacement path with the `$image-creator` save helper.
+- The subagent must carry the generated-output preservation rule inside the `$image-creator` request: keep the generated replacement exactly as returned, and do not ask for or apply normalization, resizing, resampling, recompression, conversion, extension matching, format matching, or aspect-ratio matching against the source image.
 - The subagent must treat the EPUB replacement path as the destination for the `$image-creator` generated payload.
 - The supplied edit brief controls translation choices, text coverage, preservation policy, and prompt intent.
 - Any `view_image` call in the subagent belongs to `$image-creator`'s single-image local-image bridge immediately before the generation call.
