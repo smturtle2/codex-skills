@@ -21,7 +21,7 @@ Languages: English | [한국어](README.ko.md)
 
 | Skill | Best for | Output | Install |
 | --- | --- | --- | --- |
-| [`image-creator`](#image-creator) | Generating or editing project-local raster images | Saved image file plus the exact rewritten prompt | [Prompt](#image-creator) |
+| [`image-creator`](#image-creator) | Generating, editing, or removing backgrounds from project-local raster images | Saved raster file or true-alpha PNG plus the exact final prompt | [Prompt](#image-creator) |
 | [`epub-translator`](#epub-translator) | Naturally translating EPUB books with text-slot extraction and text-bearing images | New translated `.epub`, run folder, chunk translations, image job ledger, and validation summary | [Prompt](#epub-translator) |
 | [`animation-creator`](#animation-creator) | Creating project-local character animation assets | Run folder with prompts, layout guides, frames, validation, contact sheets, and previews | [Prompt](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
@@ -42,16 +42,16 @@ Use $skill-installer to install skills/<skill-name> from https://github.com/smtu
 
 ### `image-creator`
 
-Generate or edit raster images and save them into the current project.
+Generate or edit raster images, optionally produce a true-alpha transparent PNG, and save the result into the current project.
 
 ![Image Creator workflow](docs/assets/image-creator-workflow.png)
 
 | Field | Details |
 | --- | --- |
 | Folder | `skills/image-creator` |
-| Use when | You need a generated or edited raster image saved into the current project. |
-| Produces | A saved image file, the exact rewritten prompt, input-image notes when used, and the generation path used. |
-| Avoids | `view_image` outside the immediate local-image bridge step, invented creative constraints, and code-native SVG/HTML/CSS artwork. |
+| Use when | You need a generated or edited raster image, a local image reference, or explicit transparent-background output saved into the current project. |
+| Produces | A saved raster file or rembg-processed true-alpha PNG, the exact final prompt, bound local input paths, and save metadata. |
+| Avoids | Unbound image inputs, rollout or state-database payload lookup, silent opaque transparency fallbacks, and code-native SVG/HTML/CSS artwork. |
 
 Install:
 

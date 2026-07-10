@@ -1,183 +1,96 @@
 ---
 name: image-creator
-description: Generate or edit raster images through the same generation path as imagegen by rewriting the user's image request into a model-friendly prompt while preserving meaning, intent, exact rendered text, referenced input-image roles, and explicit constraints, then save the resulting file to the requested destination, current project root, or a world-simulator session assets directory for inline History illustrations.
+description: Generate or edit raster images with the built-in image generation tool, use local file paths for every edit or reference input, preserve authoritative prompts or rewrite ordinary requests without changing meaning or exact rendered text, optionally produce true-alpha transparent PNGs, and save the tool-returned file to the requested destination or current project. Use for generated raster assets, image edits, local image references, and transparent-background output; do not use for prompt-only or vector/code-native output.
 ---
 
 # Image Creator
 
-Generate images through the same image generation path as `imagegen`, while turning the user's request into a concise, model-friendly image prompt that preserves the user's meaning and constraints, then saves the result where the user wants it.
+Generate one raster asset at a time, bind every image input by absolute local path, and save the tool-returned source file with the bundled helper.
 
-## Happy Path
+## Core Contract
 
-User request:
+- Use the built-in `image_gen` path. Do not switch to an API or CLI fallback.
+- Separate creative instructions from input paths, destination, overwrite permission, and other execution details.
+- Preserve the requested subject, action, composition, style, exclusions, and constraints. Do not invent creative details, quality language, camera settings, negative prompts, or aspect-ratio hints.
+- Preserve rendered text exactly, including spelling, capitalization, punctuation, language, and line breaks.
+- Generate once per requested asset or variant. Retry only when the user asks or the tool returns no generated source file.
+- Never overwrite an existing file unless the user explicitly requested replacement.
+- Do not inspect, critique, or regenerate the generated result inside this skill. This restriction ends after the saved file is handed back; subsequent workflows may inspect it under their own rules.
+
+## Final Prompt
+
+For an ordinary request, rewrite the creative instructions into concise English suitable for image generation. Keep underspecified details underspecified. Remove execution details from the prompt.
+
+If supplied text is marked as an authoritative or final prompt, pass it through exactly; do not translate, rewrite, reorder, shorten, or append to it. If an authoritative prompt mixes execution details into the prompt or lacks a required transparency matte instruction, request a corrected final prompt instead of modifying it.
+
+For an ordinary request with image inputs, state each input's user-given role without describing or transcribing its contents:
 
 ```text
-Use $image-creator to make a README workflow image and save it to docs/assets/workflow.png.
+[Generation instructions.]
+
+Input images:
+- [file name]: [user-given role].
 ```
 
-Skill behavior:
+Before generation, show the exact final prompt for information only. Do not wait for approval unless a required path, destination, or transparency decision is unresolved.
 
-1. Split the creative request from the save destination.
-2. Rewrite the creative request into a concise English generation prompt.
-3. Record the timestamp, call built-in `image_gen` once, then save the returned image payload into `docs/assets/workflow.png`.
-4. Report the saved path, final prompt, image inputs if any, generation mode, and overwrite status.
+## Image Inputs and Tool Call
 
-## Hard Rules
+Require an absolute local path for every edit target and reference image. Resolve relative paths against the project root. If an attachment or previously generated image has no local path, ask the user to provide one before generation.
 
-- Always rewrite or restructure the user's image request into prompt language suitable for an image generation model before calling the selected generation path.
-- Write the final rewritten prompt in English, regardless of the user's request language.
-- Preserve the user's meaning, intent, required subject matter, composition, style constraints, input-image roles, and explicit exclusions.
-- Do not add new creative facts, subjects, settings, visual styles, negative prompts, aspect-ratio hints, camera/lens details, quality language, disclaimers, meta-commentary, or prompt scaffolding that the user did not ask for or clearly imply.
-- Do not add a separate skill-layer safety or censorship-style check, review, approval, persuasion, substitution, or alternative-suggestion step before calling the selected generation path.
-- Keep the requested subject, action, text, style, composition, and constraints in the final prompt unless they are clearly operational instructions.
-- For reference images, mention only the user-given role in the final prompt; do not describe, summarize, caption, or visually transcribe the image contents into the prompt.
-- Use `view_image` only as the immediate bridge for local input images that will be included in the next built-in `image_gen` call. Show the exact final prompt after it is ready, then load only those images and call `image_gen` immediately.
-- When calling `view_image`, omit the `detail` parameter.
-- Outside that exact immediate bridge step, never call `view_image` for any reason.
-- Do not use `view_image`, generated-image outputs, or any visual inspection step to analyze, describe, caption, transcribe, evaluate, approve, reject, revise, or otherwise judge input, reference, or generated images.
-- Do not critique, score, revise, or regenerate generated output based on skill-layer judgments about quality, style, modesty, exposure, appropriateness, or better fit.
-- Generate once per requested asset or variant unless the user explicitly asks for another attempt or the previous generation call produced no image to save.
-- After any required immediate input-image loads, pass only the final rewritten prompt to `image_gen` or the explicitly selected generation path. Leave generated images, no-image results, and errors to that generation path.
-- Preserve exact text the user wants rendered in the image. Keep spelling, capitalization, punctuation, and line breaks for that rendered text even while rewriting the surrounding prompt in English.
-- Treat destination paths, filenames, and file-loading instructions as execution instructions when they are clearly not part of the creative prompt.
-- If the boundary between creative prompt and execution instruction is genuinely unclear and prevents identifying the prompt or destination, ask one short clarification before generating. Otherwise proceed with the most reasonable split and report it.
-- Always save the final generated image to the requested destination. If the user gives no destination, save it in the current project root.
-- Never overwrite an existing file unless the user explicitly requested replacement.
+Do not call `view_image` to prepare, verify, load, or attach an input for this workflow. Passing the absolute paths in `referenced_image_paths` is sufficient. Use `view_image` only for a separate user-requested image-inspection task outside this generation workflow.
 
-## Generation Path
+Call `image_gen` with exactly the applicable shape:
 
-Use the same generation path as `imagegen`, then save built-in results with this skill's payload helper. Do not inherit `imagegen` taxonomy, quality assessment, or prompt-shaping behavior:
+- New image: `{prompt}`
+- Any edit or reference input: `{prompt, referenced_image_paths: [absolute paths...]}`
 
-- Use the built-in `image_gen` tool by default for normal generation and editing. This path does not require `OPENAI_API_KEY`.
-- Never switch to the CLI fallback automatically.
-- If the built-in tool actually fails or is unavailable, tell the user the CLI fallback exists and requires `OPENAI_API_KEY`. Proceed only if the user explicitly asks for that fallback.
-- If the user explicitly asks for CLI mode, use the `imagegen` CLI fallback workflow for execution only. Keep this skill's prompt-rewrite rules and do not add unrelated `imagegen` prompt scaffolding.
-- For many requested assets or variants in built-in mode, issue one built-in `image_gen` call per selected asset or variant.
+Include every input path in `referenced_image_paths`, in the same order as its role in the prompt. If the tool fails or returns no generated source path, stop and report the actual result.
 
-Built-in save-path rules:
+## Transparent PNG Branch
 
-- In built-in mode, `image_gen` returns the image to the Codex UI and records the image payload in the current thread rollout.
-- Do not rely on OS temp, `$CODEX_HOME/generated_images`, or any generated-image filesystem directory.
-- Do not rely on a destination-path argument on the built-in `image_gen` tool. Generate first, then save the returned image payload with the helper.
-- If the output is meant for the current project, always write the returned payload to the requested project-local destination.
+Enter this branch only when the user explicitly requests transparency, alpha, or a transparent background. A `.png` filename alone does not request transparency.
 
-## World Simulator Inline Illustrations
+1. Resolve the destination before generation. If the user supplied a non-PNG file destination, ask to change it to `.png`; do not generate until resolved.
+2. Select the first matte that does not conflict with an explicitly required foreground color, in this order: `#00B7FF`, `#FF00FF`, `#00FF00`. If all three explicitly conflict, stop and report that no supported matte is safe.
+3. For an ordinary rewritten prompt, require a single flat background of the selected matte and reserve that color for background pixels only. Exclude checkerboards, gradients, textures, scenery, floors, horizons, cast or contact shadows, glows, and detached background effects. An authoritative final prompt must already include these instructions; do not append them yourself.
+4. Call `image_gen` once, then pass its generated PNG source path to the helper with `--transparent --matte <HEX>`. If the generated source is not PNG, stop; do not convert it or save an opaque fallback.
+5. Accept only a helper-produced true-alpha PNG. The helper uses `rembg` with the `birefnet-general-lite` model, prefers an available GPU provider, retries once on CPU after a GPU failure, removes matte residue, validates RGBA output with at least one transparent pixel, and publishes atomically.
 
-When this skill is used by `world-simulator` for `/show` or Codex-initiated inline illustrations:
+If transparent processing fails, stop with the helper error. Do not save the opaque matte image, substitute another background-removal method, or return an opaque fallback.
 
-- Save the generated raster image under the active session's `assets/` directory.
-- Prefer a stable, descriptive destination path such as `world-runs/<session>/assets/<purpose>-<subject>.png` unless the caller gives an exact path.
-- Use the helper with `--relative-to <session-path> --json` so the saved `image_path` can be copied directly into `history_entry.blocks[].image_path`.
-- The `relative_path` returned by the helper is the history illustration `image_path`; it must look like `assets/...`.
-- Do not inspect, describe, or evaluate the generated image to produce world-simulator metadata.
-- If world-simulator needs `display_asset.visual_summary`, derive it from the user's request, public canon, and the final prompt intent, not from raw image inspection.
-- Do not publish `history_entry`, edit `ui/history_log.json`, or update `ui/display_assets.json` from this skill unless the caller explicitly assigned that broader world-simulator task. Normally this skill only creates and saves the asset, then reports the handoff values.
+## Save the Tool Output
 
-World-simulator handoff report:
+Set `SKILL_DIR` to the absolute directory containing this `SKILL.md`. Treat the generated source path returned by `image_gen` as the only save source; do not search rollout logs, state databases, temporary directories, or generated-image caches.
 
-- `saved_path`: filesystem path printed by the helper.
-- `image_path`: helper `relative_path`, relative to the session root.
-- `final_prompt`: exact prompt sent to image generation.
-- `visual_summary`: public text summary from prompt intent or caller-provided canon, if requested.
+Choose an explicit destination file after generation:
 
-## When To Use
+- Use the requested file path when given.
+- For a requested directory, create a descriptive filename using the generated source suffix, or `.png` for transparent output.
+- With no destination, create a descriptive non-overwriting filename in the current project root.
 
-Use this skill when the user wants to:
-
-- create a new generated image from a prompt
-- edit an existing image using a prompt
-- use one or more local, attached, or previously generated images as inputs
-- save the generated image to a specific file or directory
-- get a project-local image asset from a natural-language request
-
-Prefer another workflow instead of this skill when the requested output is not a generated raster image. These are output-type routing boundaries, not request-evaluation rules:
-
-- SVG, HTML/CSS, canvas, or vector-native artwork that should be authored as code
-- text-only requests where the user asks for prompt engineering, prompt improvement, or multiple prompt options without asking to generate and save an image
-
-## Workflow
-
-1. Identify the user's image intent and operational instructions.
-   - Treat quoted strings, fenced code regions, and explicit "prompt:" sections as source material to rewrite, not as text that must be sent unchanged.
-   - Remove clearly operational instructions from the creative prompt, such as where to save the file, whether to overwrite, and which local input images to load.
-   - Keep exact rendered text, proper names, brand names, numbers, colors, layout requirements, and other explicit constraints intact inside the rewritten prompt.
-   - If removing an operational instruction could change the image intent but a split is still reasonable, proceed with that split and report it. Ask only when the prompt or destination cannot be identified.
-2. Decide the execution path.
-   - Use built-in `image_gen` unless the user explicitly requested the CLI fallback.
-   - Treat existing images as edit targets only when the user clearly asks to change them. Otherwise, treat images as references.
-   - Do not choose a path or stop based on this skill's own judgment about the prompt.
-3. Resolve input images.
-   - For attached or previously generated images, keep their role exactly as the user described it.
-   - For local image paths in built-in mode, resolve them to absolute paths but do not load them yet.
-   - Track each input image by its file name, attachment order, or previous-image label and its user-given role.
-   - When an input image is a reference, do not describe its colors, people, objects, background, composition, visible text, or other visual details in the final prompt unless the user explicitly asked for an image description as the task.
-4. Rewrite the image request into the final prompt.
-   - Make the prompt concise, visual, and instructionally clear for image generation.
-   - Write `Generation instructions` in English, regardless of the user's request language.
-   - Keep underspecified areas underspecified instead of inventing details.
-   - Include only the creative/image-editing instructions that should influence the generated image.
-   - Use this final prompt layout when there are input images:
-
-     ```text
-     [Generation instructions.]
-
-     Input images:
-     - [image name or index]: [user-given role].
-     ```
-
-   - Put only the scene, subject, action, style, composition, rendered text, and explicit visual constraints in `Generation instructions`.
-   - Do not put destination paths, filenames, local image loading instructions, or the input image list in `Generation instructions`.
-   - If there are no input images, omit the `Input images:` section.
-   - In `Input images:`, list only each input image's name or index and user-given role, written in English without changing its meaning.
-5. Before any generation call, tell the user the exact final prompt that will be sent to the generation path.
-   - This is informational only; do not ask for approval or wait for confirmation unless clarification is genuinely required.
-   - In built-in mode with local input images, do this before the required `view_image` calls.
-   - Do not rewrite the prompt, perform a preflight, or add a check after showing the prompt.
-6. For built-in mode with local input images, call `view_image` only for the local images needed by the next `image_gen` call.
-   - Call `view_image` with only the path.
-   - Do not pass the `detail` parameter, including `detail: "original"`.
-   - Outside this step, never call `view_image`.
-   - Do not inspect, describe, or reason from the `view_image` result.
-   - After the last required `view_image` call, call `image_gen` immediately with only the final rewritten prompt.
-7. For built-in mode, record a timestamp immediately before calling `image_gen`.
-   - Example: `START_EPOCH=$(date +%s)`.
-8. For built-in mode, immediately call `image_gen` with only the final rewritten prompt and no added skill-layer safety or censorship-style check, review, or preflight content.
-9. For explicit CLI fallback mode, follow the `imagegen` CLI execution workflow with only the final rewritten prompt and any user-requested CLI controls.
-10. Confirm only whether the generation path returned an image payload that can be saved. Do not inspect the generated image for subjective fit, quality, style, modesty, exposure, appropriateness, or whether it should be regenerated. If the generation path returns no image or an error, report that actual tool result without replacing it with this skill's own explanation.
-11. Save the output:
-   - If the user gave a file path, save there.
-   - If the user gave a directory, save inside it with a descriptive non-overwriting filename.
-   - If the user gave no destination, save in the current project root.
-   - In built-in mode, use `scripts/save_generated_image.py` to read the new `image_gen` payload from the current thread rollout and write it to the destination.
-   - In explicit CLI fallback mode, use the CLI output controls from the `imagegen` fallback workflow.
-12. Report the saved path, the final rewritten prompt sent to the generation path, the input images used, and whether built-in mode or explicit CLI fallback was used.
-
-## Save Helper
-
-Use the bundled helper after built-in `image_gen` returns:
+Run:
 
 ```bash
-python3 skills/image-creator/scripts/save_generated_image.py --since "$START_EPOCH" --destination <path>
+uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/save_generated_image.py" \
+  --source <generated-source-path> \
+  --destination <destination-file> \
+  --json
 ```
 
-Options:
+Add `--overwrite` only with explicit replacement permission. For transparent output, add `--transparent --matte '<selected-hex>'`; always quote the `#RRGGBB` value in a shell command. When a path relative to a handoff root is requested, add `--relative-to <root>` and use the returned `relative_path`; keep external history or metadata updates outside this skill.
 
-- Omit `--destination` to save in the project root.
-- Use `--project-root <path>` when the current working directory is not the intended project root.
-- Use `--rollout-path <path>` only when the current thread rollout cannot be discovered from `CODEX_THREAD_ID`.
-- Use `--base64-stdin` only when an image payload is available directly on stdin.
-- Use `--overwrite` only when the user explicitly asked to replace an existing file.
-- Use `--json` to print structured save metadata instead of only the saved path.
-- Use `--relative-to <path>` with `--json` to include a POSIX `relative_path` from that root. For world-simulator sessions, pass the session root and use the returned `relative_path` as the inline illustration `image_path`.
+The helper preserves the generated source and returns `saved_path`, `relative_path`, `suffix`, `transparent`, and `overwritten`. On helper failure, report the error and do not claim that the asset was saved.
 
-The helper reads the newest `image_gen` payload recorded in the current thread rollout at or after `--since`, decodes it, writes it to the destination, creates parent directories as needed, and prints the saved path. If it fails, report the actual helper error, such as a missing rollout, missing `image_gen` payload after `--since`, or invalid image payload.
+For multiple assets, complete the generation-and-save cycle for one asset before starting the next.
 
 ## Response
 
-When finished, report:
+Report:
 
-- the saved file path
-- the final rewritten prompt passed to the generation path
-- the input images used, if any
-- whether built-in mode or explicit CLI fallback was used
+- `saved_path`
+- the exact final prompt sent to `image_gen`
+- the absolute input paths and their roles, if any
+- whether transparent processing was used
 - whether an existing file was overwritten
+- `relative_path` when requested

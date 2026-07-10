@@ -21,7 +21,7 @@
 
 | 스킬 | 적합한 작업 | 결과 | 설치 |
 | --- | --- | --- | --- |
-| [`image-creator`](#image-creator) | 프로젝트 안에 raster 이미지 생성 또는 편집 | 저장된 이미지 파일과 실제 전달된 최종 프롬프트 | [프롬프트](#image-creator) |
+| [`image-creator`](#image-creator) | 프로젝트 안에 raster 이미지 생성·편집 또는 배경 제거 | 저장된 raster 파일 또는 true-alpha PNG와 실제 전달된 최종 프롬프트 | [프롬프트](#image-creator) |
 | [`epub-translator`](#epub-translator) | text-slot 추출과 텍스트 포함 이미지를 처리하는 자연스러운 EPUB 번역 | 새 번역 `.epub`, run 폴더, chunk 번역, image job ledger, validation summary | [프롬프트](#epub-translator) |
 | [`animation-creator`](#animation-creator) | 프로젝트 안에 캐릭터 애니메이션 에셋 생성 | 프롬프트, 레이아웃 가이드, 프레임, 검증, contact sheet, preview를 포함한 run 폴더 | [프롬프트](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | 프론트엔드 UI 제작 또는 큰 리디자인 | 생성된 UI mockup, 시각 노트, 구현된 UI | [프롬프트](#ui-blueprint) |
@@ -42,16 +42,16 @@ Use $skill-installer to install skills/<skill-name> from https://github.com/smtu
 
 ### `image-creator`
 
-Raster 이미지를 생성하거나 편집하고 현재 프로젝트 안에 저장한다.
+Raster 이미지를 생성하거나 편집하고, 필요하면 true-alpha 투명 PNG로 처리해 현재 프로젝트 안에 저장한다.
 
 ![Image Creator 워크플로](docs/assets/image-creator-workflow.png)
 
 | 항목 | 내용 |
 | --- | --- |
 | 위치 | `skills/image-creator` |
-| 사용 시점 | 생성형 또는 편집된 raster 이미지를 현재 프로젝트에 저장해야 할 때 |
-| 결과 | 저장된 이미지 파일, 실제 전달된 최종 프롬프트, 입력 이미지 정보, 사용한 생성 경로 |
-| 피하는 일 | 로컬 이미지 브리지 단계 밖에서 `view_image` 사용, 임의 창작 제약 추가, SVG/HTML/CSS 같은 코드 기반 그래픽 처리 |
+| 사용 시점 | 생성·편집 raster 이미지, 로컬 참조 이미지, 또는 명시적 투명 배경 결과를 현재 프로젝트에 저장해야 할 때 |
+| 결과 | 저장된 raster 파일 또는 rembg 처리된 true-alpha PNG, 실제 전달된 최종 프롬프트, 결합된 로컬 입력 경로, 저장 메타데이터 |
+| 피하는 일 | 결합되지 않은 이미지 입력, rollout·상태 DB payload 조회, 불투명 결과로의 조용한 fallback, SVG/HTML/CSS 같은 코드 기반 그래픽 처리 |
 
 설치:
 

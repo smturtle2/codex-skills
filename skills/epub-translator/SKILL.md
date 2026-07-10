@@ -380,7 +380,7 @@ Image text reading boundary:
 - Do not create contact sheets, visual grids, crops, or intermediate sheets for reading image text.
 - Use existing EPUB text chunks, translated prose, `translation-notes.md`, glossaries, and user context only as book context or consistency sources; they are not substitutes for direct image review.
 - Put exact source-to-target overrides in an image brief only when the main agent can justify them from direct visual review or non-image book context. Otherwise use a broad source text scope and let the image generation model handle the scoped visible text in the provided image.
-- Image subagents do not own book-level translation judgment, image triage, or text extraction. They load exactly one provided source image only as `$image-creator` edit input and execute the supplied brief.
+- Image subagents do not own book-level translation judgment, image triage, or text extraction. They pass exactly one provided local source image path in `referenced_image_paths` as the `$image-creator` edit input and execute the supplied brief.
 
 Subagent capability gate:
 
@@ -404,9 +404,9 @@ Per-image dispatch contract:
    - explicit text overrides for clearly read, context-critical strings;
    - a preservation policy for non-source-edition text and all non-text visual content;
    - an edit-oriented prompt for `$image-creator`;
-   - an `$image-creator` handoff section that tells the subagent to read the installed `$image-creator` skill before execution and summarizes the EPUB image execution path: split the creative edit request from the save destination, rewrite the request as a concise English generation prompt, use the provided source image as the single local edit input, load it only as the immediate bridge to the next `image_gen` call, call built-in `image_gen`, save the returned generated payload to the replacement path with the `$image-creator` save helper, keep the generated replacement exactly as returned without matching the source image's dimensions, aspect ratio, extension, or file format, and report the `$image-creator` response fields.
+   - an `$image-creator` handoff section that tells the subagent to read the installed `$image-creator` skill before execution and summarizes the EPUB image execution path: split the creative edit request from the save destination, rewrite the request as a concise English generation prompt, pass the provided local source image path as the sole `referenced_image_paths` entry without a `view_image` preparation step, call built-in `image_gen`, copy or save the built-in tool's generated source file to the replacement path with the `$image-creator` file-based save helper, keep the generated replacement exactly as returned without matching the source image's dimensions, aspect ratio, extension, or file format, and report the `$image-creator` response fields.
 6. Spawn one independent image subagent for that image immediately after its brief is ready.
-7. Pass only that source image as the local image input plus the main-authored image edit brief.
+7. Pass only that local source image path as the sole `referenced_image_paths` entry plus the main-authored image edit brief.
 8. Keep using available subagent capacity with later image jobs, still one visually reviewed image at a time.
 9. Wait on active image subagents only to harvest completed jobs or free capacity.
 10. For each completed subagent, record the replacement with `record-image`, then close that subagent immediately.
@@ -435,11 +435,11 @@ Image subagent execution contract:
 
 - The subagent's only image-job responsibility is `$image-creator` execution for one provided EPUB source image.
 - Before execution, the subagent must read the installed `$image-creator` skill and follow it.
-- The subagent uses the `$image-creator` workflow summarized in the handoff: rewrite the edit request into an English generation prompt, use exactly the provided source image as the local edit input, call built-in `image_gen`, and save the returned generated payload to the requested replacement path with the `$image-creator` save helper.
+- The subagent uses the `$image-creator` workflow summarized in the handoff: rewrite the edit request into an English generation prompt, pass exactly the provided local source image path as the sole `referenced_image_paths` entry, call built-in `image_gen`, and copy or save the built-in tool's generated source file to the requested replacement path with the `$image-creator` file-based save helper.
 - The subagent must carry the generated-output preservation rule inside the `$image-creator` request: keep the generated replacement exactly as returned, and do not ask for or apply normalization, resizing, resampling, recompression, conversion, extension matching, format matching, or aspect-ratio matching against the source image.
-- The subagent must treat the EPUB replacement path as the destination for the `$image-creator` generated payload.
+- The subagent must treat the EPUB replacement path as the destination for the file-based copy or save of the built-in tool's generated source file.
 - The supplied edit brief controls translation choices, text coverage, preservation policy, and prompt intent.
-- Any `view_image` call in the subagent belongs to `$image-creator`'s single-image local-image bridge immediately before the generation call.
+- Do not call `view_image` to prepare, verify, load, or attach this edit input; the sole local source path in `referenced_image_paths` is sufficient.
 
 Image subagent return contract:
 
@@ -469,7 +469,7 @@ Image subagent return contract:
 
 Rules:
 
-- `status: "edited"` means the subagent read `$image-creator`, executed its built-in `image_gen` generation path with exactly one source image, and saved the returned generated payload to `replacement_path`.
+- `status: "edited"` means the subagent read `$image-creator`, executed its built-in `image_gen` generation path with exactly one local source path in `referenced_image_paths`, and copied or saved the built-in tool's generated source file to `replacement_path`.
 - `replacement_path` must equal `image_creator_result.saved_path`.
 - `input_images_used` must contain exactly the source image path assigned to that subagent.
 - `explicit_term_overrides` must match the main-authored image edit brief.
