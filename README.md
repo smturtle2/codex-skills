@@ -200,14 +200,15 @@ Use $skill-installer to install skills/gomoku from https://github.com/smturtle2/
 
 ### `minecraft-steward`
 
-Run Moru, a Codex-led Minecraft community steward that observes player chat, welcomes first-time players, answers verified server questions, and makes explicit administrator calls.
+Run Moru, a Codex-led Minecraft community steward that observes player chat, welcomes first-time players, answers verified server questions, and executes administrator-selected console commands.
 
 | Field | Details |
 | --- | --- |
 | Folder | `skills/minecraft-steward` |
 | Use when | You need Codex to actively steward a configured Paper server, respond naturally to useful player conversations, or perform explicit server administration. |
-| Produces | A local-only MoruBridge Paper plugin, token-free client profile, bounded live event queue, safe server snapshot, and MSMP client commands. |
-| Decision authority | Codex decides whether and how to reply or administer; the bridge only observes, transports, and executes Codex's explicit actions. |
+| Produces | A local-only MoruBridge Paper plugin, token-free client profile, bounded live event queue, safe server snapshot, console command client, and MSMP client commands. |
+| Decision authority | Codex decides whether and how to reply or administer; it can execute server console commands. The bridge only observes, transports, and executes Codex's explicit actions. |
+| Player messages | Codex writes every player-facing message as `Moru: <message>`; the bridge preserves that exact text without adding a label. |
 | Avoids | Canned auto-responses, public management ports, persistent raw-chat logs, and player-authorized administrator actions. |
 
 Install:

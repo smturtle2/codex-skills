@@ -10,3 +10,4 @@ context-per-player: 20
 max-context-players: 256
 context-window-seconds: 900
 max-message-length: 512
+max-command-length: 512

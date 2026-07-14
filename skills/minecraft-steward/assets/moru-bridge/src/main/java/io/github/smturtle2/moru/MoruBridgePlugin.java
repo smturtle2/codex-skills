@@ -61,6 +61,7 @@ public final class MoruBridgePlugin extends JavaPlugin implements Listener {
     private int maxContextPlayers;
     private long contextWindowMillis;
     private int maxMessageLength;
+    private int maxCommandLength;
     private long nextEventId = 1;
     private long droppedBefore;
     private volatile boolean running;
@@ -109,6 +110,7 @@ public final class MoruBridgePlugin extends JavaPlugin implements Listener {
         int contextSeconds = boundedConfig("context-window-seconds", 900, 30, 86_400);
         contextWindowMillis = TimeUnit.SECONDS.toMillis(contextSeconds);
         maxMessageLength = boundedConfig("max-message-length", 512, 1, 2_048);
+        maxCommandLength = boundedConfig("max-command-length", 512, 1, 2_048);
         bridgeId = randomId();
 
         serverSocket = new ServerSocket();
@@ -369,6 +371,24 @@ public final class MoruBridgePlugin extends JavaPlugin implements Listener {
         getServer().getGlobalRegionScheduler().execute(this, () -> {
             try {
                 String type = form.get("type");
+                if ("command".equals(type)) {
+                    String command = form.get("command");
+                    if (command == null || command.isBlank() || command.length() > maxCommandLength) {
+                        future.complete(ActionResult.failed("command must be between 1 and " + maxCommandLength + " characters"));
+                        return;
+                    }
+                    String normalized = command.strip();
+                    if (normalized.startsWith("/")) {
+                        normalized = normalized.substring(1);
+                    }
+                    if (normalized.isBlank()) {
+                        future.complete(ActionResult.failed("command must not be only a slash"));
+                        return;
+                    }
+                    boolean handled = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), normalized);
+                    future.complete(handled ? ActionResult.success("command_dispatched") : ActionResult.failed("command_not_handled"));
+                    return;
+                }
                 String message = form.get("message");
                 if (message == null || message.isBlank() || message.length() > maxMessageLength) {
                     future.complete(ActionResult.failed("message must be between 1 and " + maxMessageLength + " characters"));
@@ -398,7 +418,7 @@ public final class MoruBridgePlugin extends JavaPlugin implements Listener {
                     future.complete(ActionResult.success("sent_direct"));
                     return;
                 }
-                future.complete(ActionResult.failed("type must be public or direct"));
+                future.complete(ActionResult.failed("type must be public, direct, or command"));
             } catch (RuntimeException exception) {
                 future.complete(ActionResult.failed("server rejected the action"));
                 getLogger().warning("MoruBridge action failed: " + exception.getClass().getSimpleName());

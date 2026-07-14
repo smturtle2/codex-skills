@@ -215,6 +215,18 @@ def command_respond(profile: Profile, args: argparse.Namespace) -> None:
     json_output(http_json(profile.bridge, "POST", "/v1/actions", encoded))
 
 
+def command_run_command(profile: Profile, args: argparse.Namespace) -> None:
+    if not args.console_command or args.console_command.isspace():
+        raise MoruError("console commands require command text")
+    fields = {
+        "action_id": str(uuid.uuid4()),
+        "type": "command",
+        "command": args.console_command,
+    }
+    encoded = urllib.parse.urlencode(fields).encode("utf-8")
+    json_output(http_json(profile.bridge, "POST", "/v1/actions", encoded))
+
+
 def command_context(profile: Profile, args: argparse.Namespace) -> None:
     query = urllib.parse.urlencode({"player_uuid": args.player, "limit": args.limit})
     json_output(http_json(profile.bridge, "GET", f"/v1/context?{query}"))
@@ -333,6 +345,9 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--direct", metavar="PLAYER_UUID")
     respond.add_argument("direct_message", nargs="?")
 
+    run_command = subparsers.add_parser("run-command", help="execute one explicit server console command")
+    run_command.add_argument("console_command", metavar="COMMAND")
+
     context = subparsers.add_parser("context", help="read bounded recent context")
     context.add_argument("--player", required=True)
     context.add_argument("--limit", type=int, default=12, choices=range(1, 21))
@@ -362,6 +377,7 @@ def main() -> int:
             "health": command_health,
             "wait": command_wait,
             "respond": command_respond,
+            "run-command": command_run_command,
             "context": command_context,
             "snapshot": command_snapshot,
             "guide": command_guide,

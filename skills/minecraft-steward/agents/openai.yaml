@@ -1,6 +1,6 @@
 interface:
-  display_name: "minecraft-steward"
-  short_description: "Actively steward a Paper Minecraft server"
+  display_name: "Minecraft Steward"
+  short_description: "Steward a Paper Minecraft server with console commands"
   icon_small: "./assets/moru-small.svg"
   icon_large: "./assets/moru.svg"
-  default_prompt: "Use $minecraft-steward to configure Moru for my Paper server and actively steward player chat."
+  default_prompt: "Use $minecraft-steward to steward my Paper server as Moru, including console commands."

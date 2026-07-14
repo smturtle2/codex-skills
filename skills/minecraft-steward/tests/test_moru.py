@@ -117,7 +117,7 @@ class MoruClientTests(unittest.TestCase):
             {
                 "public": None,
                 "direct": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-                "direct_message": "안녕하세요, 무엇을 도와드릴까요?",
+                "direct_message": "Moru: 안녕하세요, 무엇을 도와드릴까요?",
             },
         )()
         with contextlib.redirect_stdout(io.StringIO()):
@@ -128,6 +128,22 @@ class MoruClientTests(unittest.TestCase):
         self.assertEqual(form["type"], ["direct"])
         self.assertEqual(form["player_uuid"], [args.direct])
         self.assertEqual(form["message"], [args.direct_message])
+
+    def test_run_command_encodes_exact_console_command(self) -> None:
+        args = type("Args", (), {"console_command": "/say Moru is online"})()
+        with contextlib.redirect_stdout(io.StringIO()):
+            moru.command_run_command(self.profile(), args)
+        request = BridgeHandler.requests[0]
+        self.assertEqual(request[0:2], ("POST", "/v1/actions"))
+        form = parse_qs(request[2].decode("utf-8"))
+        self.assertEqual(form["type"], ["command"])
+        self.assertEqual(form["command"], [args.console_command])
+        self.assertNotIn("message", form)
+
+    def test_run_command_requires_text(self) -> None:
+        args = type("Args", (), {"console_command": "   "})()
+        with self.assertRaisesRegex(moru.MoruError, "require command text"):
+            moru.command_run_command(self.profile(), args)
 
     def test_snapshot_omits_management_secrets(self) -> None:
         (pathlib.Path(self.temp_dir.name) / "server.properties").write_text(
