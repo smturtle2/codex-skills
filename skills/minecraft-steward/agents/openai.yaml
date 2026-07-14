@@ -1,5 +1,5 @@
 interface:
-  display_name: "Moru"
+  display_name: "minecraft-steward"
   short_description: "Actively steward a Paper Minecraft server"
   icon_small: "./assets/moru-small.svg"
   icon_large: "./assets/moru.svg"
