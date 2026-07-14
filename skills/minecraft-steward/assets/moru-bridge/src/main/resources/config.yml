@@ -1,0 +1,12 @@
+# Bind only to localhost. Use SSH or a VPN tunnel for remote Codex sessions.
+bind-host: "127.0.0.1"
+port: 25576
+
+# Set a fresh random token before enabling the bridge. This value is never logged.
+auth-token: "CHANGE_ME"
+
+queue-capacity: 512
+context-per-player: 20
+max-context-players: 256
+context-window-seconds: 900
+max-message-length: 512

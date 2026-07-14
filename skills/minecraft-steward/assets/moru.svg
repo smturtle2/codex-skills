@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Moru">
+  <rect width="512" height="512" rx="112" fill="#4c6f3d"/>
+  <path d="M128 352 256 112l128 240-128 64z" fill="#d8c08a"/>
+  <path d="m256 112 56 104-56 40-56-40z" fill="#f4e5b6"/>
+  <circle cx="256" cy="320" r="40" fill="#31482b"/>
+  <circle cx="256" cy="320" r="18" fill="#e9dfc1"/>
+</svg>

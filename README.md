@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-8-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
+[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/assets-18-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
 
-A small, installable catalog of Codex skills for image generation, EPUB translation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, and Gomoku.
+A small, installable catalog of Codex skills for image generation, EPUB translation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, Gomoku, and Minecraft stewardship.
 
 Each skill is self-contained with a `SKILL.md` trigger contract plus any local scripts, references, assets, and agent metadata it needs.
 
@@ -29,6 +29,7 @@ Languages: English | [한국어](README.ko.md)
 | [`podcast-writer`](#podcast-writer) | Turning sources into one-person podcast scripts | Plain `.txt` script plus strict content-quality evaluation | [Prompt](#podcast-writer) |
 | [`world-simulator`](#world-simulator) | Running a persistent Codex-managed world simulation | Minimal Python GUI plus durable world, player, story, GM, and turn files | [Prompt](#world-simulator) |
 | [`gomoku`](#gomoku) | Playing Gomoku against Codex in a local GUI | Python board plus JSON state bridge for Codex moves | [Prompt](#gomoku) |
+| [`minecraft-steward`](#minecraft-steward) | Actively stewarding a Paper Minecraft community as Moru | Local chat bridge, configurable steward client, and MSMP administration | [Prompt](#minecraft-steward) |
 
 ## Quick Install
 
@@ -195,6 +196,24 @@ Install:
 
 ```text
 Use $skill-installer to install skills/gomoku from https://github.com/smturtle2/codex-skills.
+```
+
+### `minecraft-steward`
+
+Run Moru, a Codex-led Minecraft community steward that observes player chat, welcomes first-time players, answers verified server questions, and makes explicit administrator calls.
+
+| Field | Details |
+| --- | --- |
+| Folder | `skills/minecraft-steward` |
+| Use when | You need Codex to actively steward a configured Paper server, respond naturally to useful player conversations, or perform explicit server administration. |
+| Produces | A local-only MoruBridge Paper plugin, token-free client profile, bounded live event queue, safe server snapshot, and MSMP client commands. |
+| Decision authority | Codex decides whether and how to reply or administer; the bridge only observes, transports, and executes Codex's explicit actions. |
+| Avoids | Canned auto-responses, public management ports, persistent raw-chat logs, and player-authorized administrator actions. |
+
+Install:
+
+```text
+Use $skill-installer to install skills/minecraft-steward from https://github.com/smturtle2/codex-skills.
 ```
 
 ## Repository Layout

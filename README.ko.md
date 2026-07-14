@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-8-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/docs-assets-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
+[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/assets-18-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
 
-이미지 생성, EPUB 번역, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 세계 시뮬레이션, 오목 플레이를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
+이미지 생성, EPUB 번역, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 세계 시뮬레이션, 오목 플레이, 마인크래프트 서버 관리를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
 
 각 스킬은 `SKILL.md` 트리거 계약과 필요한 로컬 스크립트, 참조 문서, 에셋, agent 메타데이터를 함께 담는 독립 폴더다.
 
@@ -29,6 +29,7 @@
 | [`podcast-writer`](#podcast-writer) | 소스를 1인 팟캐스트 대본으로 변환 | 저장된 `.txt` 대본과 엄격한 내용 품질 평가 | [프롬프트](#podcast-writer) |
 | [`world-simulator`](#world-simulator) | Codex가 관리하는 지속 세계 시뮬레이션 실행 | 최소 Python GUI와 세계, 플레이어, 스토리, GM, 턴 파일 | [프롬프트](#world-simulator) |
 | [`gomoku`](#gomoku) | 로컬 GUI에서 Codex와 오목 대국 | Python 보드와 Codex 착수를 위한 JSON 상태 브리지 | [프롬프트](#gomoku) |
+| [`minecraft-steward`](#minecraft-steward) | 모루로 Paper 마인크래프트 커뮤니티 관리 | 로컬 채팅 브리지, 설정 가능한 관리자 클라이언트, MSMP 관리 명령 | [프롬프트](#minecraft-steward) |
 
 ## 빠른 설치
 
@@ -195,6 +196,24 @@ Use $skill-installer to install skills/world-simulator from https://github.com/s
 
 ```text
 Use $skill-installer to install skills/gomoku from https://github.com/smturtle2/codex-skills.
+```
+
+### `minecraft-steward`
+
+모루는 Codex가 주도하여 플레이어 채팅을 관찰하고, 첫 접속자를 맞이하며, 확인된 서버 정보로 질문에 답하고, 명시적인 요청에서만 관리자 작업을 수행하는 서버지기다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 위치 | `skills/minecraft-steward` |
+| 사용 시점 | Codex가 설정된 Paper 서버를 능동적으로 관리하고, 필요한 대화에 자연스럽게 응답하거나, 명시적인 서버 관리자 작업을 해야 할 때 |
+| 결과 | localhost 전용 MoruBridge Paper 플러그인, 토큰 없는 클라이언트 프로필, 제한된 실시간 이벤트 대기열, 안전한 서버 스냅샷, MSMP 관리 명령 |
+| 판단 권한 | 응답 여부·내용과 관리자 판단은 Codex가 맡고, 브리지는 Codex의 명시적 행동을 관찰·전달·실행만 한다. |
+| 피하는 일 | 정형화된 자동 답변, 공개 관리 포트, 원문 채팅 영구 보관, 플레이어 채팅만으로 인가된 관리자 작업 |
+
+설치:
+
+```text
+Use $skill-installer to install skills/minecraft-steward from https://github.com/smturtle2/codex-skills.
 ```
 
 ## 저장소 구조

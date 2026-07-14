@@ -1,0 +1,5 @@
+name: MoruBridge
+version: 1.0.0
+main: io.github.smturtle2.moru.MoruBridgePlugin
+description: Local authenticated event bridge for the Moru Minecraft steward.
+api-version: '26.2'
