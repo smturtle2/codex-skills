@@ -1,90 +1,82 @@
 # Custom Agent Schema
 
-Use this reference when you need exact field and placement rules for a Codex custom agent.
+Use this reference for Codex validity, placement, inheritance, and update rules. Keep authoring preferences distinct from runtime requirements.
 
-## File placement
+## Placement
 
-- User-scoped agents live under `~/.codex/agents/`.
-- Project-scoped agents live under `.codex/agents/`.
-- One TOML file defines one custom agent.
-- Matching the filename to the `name` field is the simplest convention.
+- Personal definitions live under `$CODEX_HOME/agents/`; `CODEX_HOME` defaults to `~/.codex`.
+- Project definitions live under `.codex/agents/` and apply through trusted project configuration layers.
+- One TOML file defines one custom subagent. A request for multiple subagents produces multiple independent files.
+- Codex identifies a role by its `name`; matching the filename is a convention, not a validity requirement.
 
-## Built-in agents
+## Required Metadata
 
-Codex already ships with:
+Every standalone custom-agent file requires these non-empty strings:
 
-- `default`
-- `worker`
-- `explorer`
+| Field | Contract |
+| --- | --- |
+| `name` | Identifier used when spawning or referring to the role. Codex trims it and requires it to be non-empty. |
+| `description` | Human-facing guidance that lets a parent decide when to use the role. |
+| `developer_instructions` | Operational instructions applied to the spawned agent. |
 
-If a custom agent uses one of those names, the custom agent takes precedence. Avoid that unless the user explicitly wants an override.
+`nickname_candidates` is optional. When present, it must be a non-empty list of case-sensitive unique names after trimming leading and trailing whitespace. Each name may contain ASCII letters, digits, spaces, hyphens, and underscores.
 
-## Required top-level fields
+## Configuration Layer
 
-Every standalone custom agent file must define these top-level keys:
+A custom-agent file is also a normal Codex configuration layer. In addition to agent metadata, it may contain any key supported by the current `config.toml` schema.
 
-| Field | Type | Rules |
-| --- | --- | --- |
-| `name` | string | Agent identifier used when spawning or referring to the agent. Prefer a short concrete name. |
-| `description` | string | Human-facing trigger and boundary. Use multiline text when one sentence would flatten the role too much. |
-| `developer_instructions` | string | Operational contract. State priorities, evidence, and what not to do. |
+Common optional keys include:
 
-## Optional top-level fields
+| Key | Default behavior when omitted |
+| --- | --- |
+| `model` | Preserve the live parent model unless spawn-time selection chooses another one. |
+| `model_reasoning_effort` | Preserve the live parent reasoning setting unless spawn-time selection chooses another one. |
+| `sandbox_mode` | Inherit the parent session's effective permission configuration. |
+| `mcp_servers` | Inherit configured MCP servers. |
+| `skills.config` | Inherit configured skill availability. |
+| `nickname_candidates` | Use the normal role name as the display identity. |
 
-Add optional fields only when the brief or environment clearly needs them and you know the exact TOML shape.
+This table is deliberately non-exhaustive. Do not reject a key solely because it is absent from this list. Verify additional keys against the installed Codex or current official config schema.
 
-| Field | Type or shape | Use when | Notes |
-| --- | --- | --- | --- |
-| `nickname_candidates` | array of strings | Many runs of the same agent need clearer UI labels | Keep values unique and non-empty. |
-| `model` | string | The user or environment requires a pinned model | Otherwise inherit from the parent session. |
-| `model_reasoning_effort` | string | The model choice needs a pinned reasoning level | Use only values supported by the current Codex release. |
-| `sandbox_mode` | string | The role needs a stricter or broader sandbox than the parent session | Prefer `read-only` for pure research, review, or mapping roles. |
-| `mcp_servers` | TOML table keyed by server name | The role requires concrete MCP access | Do not invent URLs, names, or credentials. |
-| `skills.config` | nested skills config matching current Codex config syntax | The environment already provides exact skills configuration to inherit or pin | If the shape is uncertain, omit it. |
+## Defaults And Precedence
 
-When omitted, these settings inherit from the parent session.
+- Prefer omission and inheritance over pinning optional settings.
+- Role configuration can override persisted configuration values, but the parent turn's live permission and approval choices are reapplied when a child is spawned.
+- `sandbox_mode` in a role file is therefore a default, not an absolute enforcement boundary.
+- Model or reasoning values pinned in a role file take precedence over ordinary spawn-time choices.
+- Do not add optional configuration merely to make a role look complete.
 
-## Inheritance and safety
+## Built-in Roles And Naming
 
-- Subagents inherit the parent session's sandbox and approval behavior unless the custom agent overrides them.
-- Prefer inheritance by default.
-- Use `sandbox_mode = "read-only"` for pure research, review, or mapping roles.
-- Use broader write access only when the role is explicitly meant to edit or generate artifacts.
-- Codex reapplies the parent turn's live runtime overrides when it spawns a child. Do not invent custom approval fields to fight that behavior.
+Codex includes `default`, `worker`, and `explorer`. A custom role with the same name intentionally overrides the built-in role.
 
-## Naming guidance
+- Treat built-in override confirmation as an authoring safety check, not a schema restriction.
+- For new definitions, prefer short ASCII lowercase names containing digits and hyphens.
+- Codex itself accepts other non-empty names. Preserve runtime-valid existing names during update.
 
-- Prefer short, concrete names derived from the user's task language.
-- Keep the role narrow. One agent should not mix exploration, review, implementation, and docs research unless the user explicitly wants a generalist.
-- For newly generated names, prefer ASCII lowercase with digits and hyphens.
-- Preserve an existing explicit name on update unless the user asks to rename it.
-- Do not default to stock names unless the brief clearly points there.
-- Use a distinct name if a file already exists and the user did not ask to update it.
+## Supported Shapes
 
-## Nickname guidance
+- `sandbox_mode` accepts `read-only`, `workspace-write`, or `danger-full-access`.
+- `skills.config` is an array of tables written with `[[skills.config]]`; each entry requires a boolean `enabled` and may select a skill using the current supported selector fields.
+- Each `mcp_servers.<name>` entry is a table with a valid transport, such as a non-empty string `command` for stdio or `url` for HTTP-based transport.
+- `model_reasoning_effort` support depends on the selected model and current model catalog. Do not enforce a frozen global enum.
 
-- Use `nickname_candidates` only when repeated runs of the same agent would benefit from clearer display labels.
-- Keep the list unique and non-empty.
-- Restrict nicknames to ASCII letters, digits, spaces, hyphens, and underscores.
+## Update And Collision Rules
 
-## Formatting guidance
+- Read every target before editing it.
+- Preserve unrelated supported fields and explicit user choices.
+- Keep existing names and paths unless the request changes them.
+- Inspect both filenames and role `name` values in the selected scope before creation.
+- Do not overwrite a create collision; apply the same deterministic numeric suffix to both the new role `name` and filename until both are unused.
+- Do not remove an existing unverified key to make a local allowlist pass. Verify it with current Codex, and report a blocker if Codex rejects it.
 
-- One TOML file defines one custom agent.
-- Matching the filename to the `name` field is the simplest convention, but `name` is the source of truth.
-- Use multiline strings for `description` and `developer_instructions` when the role has real boundaries or detailed instructions.
-- Rewrite or escape text that would break TOML string parsing.
-- The final file must parse cleanly as TOML.
+## Out Of Scope
 
-## Unknown or forbidden material
+The global `[agents]` section controls multi-agent runtime behavior such as concurrency, nesting depth, batch timeout, interruption messages, and optional role registration. Standalone files under the agents directory are discovered without requiring this skill to edit `[agents]`.
 
-Do not fabricate:
+This skill does not own:
 
-- undocumented top-level keys
-- approval-specific keys that are not confirmed by the current Codex docs
-- MCP server URLs
-- credentials
-- filesystem paths outside the target agent file
-- `skills.config` paths or shapes that were not provided
-- global `[agents]` settings in `.codex/config.toml`
-
-Add optional material only when the user or the environment gives you concrete values.
+- global `[agents]` settings
+- spawning, steering, or closing agent threads
+- orchestration between roles
+- unrelated Codex configuration

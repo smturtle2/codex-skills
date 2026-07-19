@@ -25,7 +25,7 @@
 | [`epub-translator`](#epub-translator) | text-slot 추출과 텍스트 포함 이미지를 처리하는 자연스러운 EPUB 번역 | 새 번역 `.epub`, run 폴더, chunk 번역, image job ledger, validation summary | [프롬프트](#epub-translator) |
 | [`animation-creator`](#animation-creator) | 프로젝트 안에 캐릭터 애니메이션 에셋 생성 | 프롬프트, 레이아웃 가이드, 프레임, 검증, contact sheet, preview를 포함한 run 폴더 | [프롬프트](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | 프론트엔드 UI 제작 또는 큰 리디자인 | 생성된 UI mockup, 시각 노트, 구현된 UI | [프롬프트](#ui-blueprint) |
-| [`subagent-creator`](#subagent-creator) | 집중된 Codex 커스텀 서브에이전트 생성 | 검증 가능한 TOML agent 정의 | [프롬프트](#subagent-creator) |
+| [`subagent-creator`](#subagent-creator) | Codex 커스텀 서브에이전트 생성 또는 수정 | 달성한 검증 수준을 명시한 하나 이상의 TOML agent 정의 | [프롬프트](#subagent-creator) |
 | [`podcast-writer`](#podcast-writer) | 소스를 1인 팟캐스트 대본으로 변환 | 저장된 `.txt` 대본과 엄격한 내용 품질 평가 | [프롬프트](#podcast-writer) |
 | [`world-simulator`](#world-simulator) | Codex가 관리하는 지속 세계 시뮬레이션 실행 | 최소 Python GUI와 세계, 플레이어, 스토리, GM, 턴 파일 | [프롬프트](#world-simulator) |
 | [`gomoku`](#gomoku) | 로컬 GUI에서 Codex와 오목 대국 | Python 보드와 Codex 착수를 위한 JSON 상태 브리지 | [프롬프트](#gomoku) |
@@ -119,16 +119,18 @@ Use $skill-installer to install skills/ui-blueprint from https://github.com/smtu
 
 ### `subagent-creator`
 
-자연어 역할 브리프를 집중된 Codex 커스텀 서브에이전트 하나로 바꾼다.
+자연어 역할 브리프에서 Codex 커스텀 서브에이전트를 생성하거나 수정하며, 사용자가 명시적으로 요청한 수량을 따른다.
 
 ![Subagent Creator 워크플로](docs/assets/subagent-creator-workflow.png)
 
 | 항목 | 내용 |
 | --- | --- |
 | 위치 | `skills/subagent-creator` |
-| 사용 시점 | 자연어 브리프에서 하나의 집중된 Codex 커스텀 서브에이전트를 만들어야 할 때 |
-| 결과 | 명확한 역할, 도구 정책, 제약, 가능한 검증을 포함한 TOML agent 정의 |
-| 피하는 일 | 기본적으로 여러 agent 생성, MCP URL이나 credentials 임의 생성, 필요 없는 canned role example 적용 |
+| 사용 시점 | 자연어 역할 브리프에서 하나 이상의 Codex 커스텀 서브에이전트를 생성하거나 수정해야 할 때 |
+| 결과 | 명확한 역할, 도구 정책, 제약과 달성한 검증 수준을 명시한, 사용자가 요청한 수량의 TOML agent 정의 |
+| 기본 위치 | `$CODEX_HOME/agents`; `CODEX_HOME`이 설정되지 않았을 때는 `~/.codex/agents` 사용 |
+| 책임 밖 | `[agents]` 런타임 설정과 서브에이전트 spawn 또는 실행 |
+| 피하는 일 | MCP URL이나 credentials 임의 생성, 필요 없는 canned role example 적용 |
 
 설치:
 

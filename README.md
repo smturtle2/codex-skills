@@ -25,7 +25,7 @@ Languages: English | [한국어](README.ko.md)
 | [`epub-translator`](#epub-translator) | Naturally translating EPUB books with text-slot extraction and text-bearing images | New translated `.epub`, run folder, chunk translations, image job ledger, and validation summary | [Prompt](#epub-translator) |
 | [`animation-creator`](#animation-creator) | Creating project-local character animation assets | Run folder with prompts, layout guides, frames, validation, contact sheets, and previews | [Prompt](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
-| [`subagent-creator`](#subagent-creator) | Creating one focused Codex custom subagent | Validated TOML agent definition | [Prompt](#subagent-creator) |
+| [`subagent-creator`](#subagent-creator) | Creating or updating custom Codex subagents | One or more TOML agent definitions with the achieved validation level reported | [Prompt](#subagent-creator) |
 | [`podcast-writer`](#podcast-writer) | Turning sources into one-person podcast scripts | Plain `.txt` script plus strict content-quality evaluation | [Prompt](#podcast-writer) |
 | [`world-simulator`](#world-simulator) | Running a persistent Codex-managed world simulation | Minimal Python GUI plus durable world, player, story, GM, and turn files | [Prompt](#world-simulator) |
 | [`gomoku`](#gomoku) | Playing Gomoku against Codex in a local GUI | Python board plus JSON state bridge for Codex moves | [Prompt](#gomoku) |
@@ -119,16 +119,18 @@ Use $skill-installer to install skills/ui-blueprint from https://github.com/smtu
 
 ### `subagent-creator`
 
-Turn a natural-language role brief into one focused Codex custom subagent.
+Create or update one or more Codex custom subagents from natural-language role briefs, matching the number the user explicitly requests.
 
 ![Subagent Creator workflow](docs/assets/subagent-creator-workflow.png)
 
 | Field | Details |
 | --- | --- |
 | Folder | `skills/subagent-creator` |
-| Use when | You need one focused Codex custom subagent derived from a natural-language brief. |
-| Produces | A TOML agent definition with a clear role, tool policy, constraints, and validation where possible. |
-| Avoids | Creating multiple agents by default, inventing MCP URLs or credentials, and snapping to canned role examples unless required. |
+| Use when | You need to create or update one or more Codex custom subagents from natural-language briefs. |
+| Produces | The explicitly requested number of TOML agent definitions, each with a clear role, tool policy, constraints, and the achieved validation level reported. |
+| Default location | `$CODEX_HOME/agents`; falls back to `~/.codex/agents` when `CODEX_HOME` is unset. |
+| Outside scope | `[agents]` runtime settings and spawning or executing subagents. |
+| Avoids | Inventing MCP URLs or credentials and snapping to canned role examples unless required. |
 
 Install:
 

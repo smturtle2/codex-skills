@@ -1,91 +1,67 @@
 # Quality Rubric
 
-Use this reference to judge whether a generated subagent was actually synthesized from the user's brief instead of snapped to a canned template.
+Use this reference to judge whether every requested custom subagent definition is focused, faithful to the brief, and honestly validated.
 
-## Source of truth
+## Request Fidelity
 
-- The user's brief is the source of truth.
-- The generated role should reflect the user's actual nouns, verbs, boundaries, and priorities.
-- Novel requests should stay novel. Do not rename them into a stock category unless the brief clearly asks for that category.
-- The global-first default is also part of the contract. A generated agent should remain reusable unless the user explicitly asks for project scoping or repo-specific hardcoding.
+- Treat the user's brief as the source of truth.
+- Produce the number of definitions the user requested; do not impose a fixed cardinality.
+- Preserve the requested role partition, including explicitly requested variants of the same responsibility. Do not merge separate definitions or invent extra ones by splitting a coherent request.
+- Preserve the user's domain language, boundaries, priorities, and output requirements.
+- Avoid replacing a novel responsibility with a canned explorer, reviewer, fixer, or researcher template.
 
-## Quality bar
+## Role Quality
 
-A good custom agent definition should feel as clear and opinionated as the built-in agents.
+For each definition, confirm that a parent can tell:
 
-- A caller should know exactly when to use it.
-- A caller should know what the agent is optimized for.
-- A caller should know the rules the agent must follow.
-- The wording should feel specific to the task, not copied from a generic role library.
-- The file should be valid TOML with no invented configuration.
+1. when to use the role
+2. what the role is optimized to do
+3. what the role must not do
+4. what evidence, validation, and output it returns
 
-## Description rubric
+Use `description` for selection guidance and `developer_instructions` for execution behavior. Do not repeat the same shallow sentence in both.
 
-The `description` should answer three things:
+For write-capable roles, assign ownership, acknowledge other contributors, and forbid reverting unrelated edits. For read-only roles, explicitly forbid workspace and external-system mutation.
 
-1. When to use the agent.
-2. What it is good at.
-3. What rules define its boundary.
+## Configuration Quality
 
-Prefer multiline `description` values when a single sentence would flatten the role too much.
+- Include all required metadata and keep it non-empty.
+- Omit optional configuration by default.
+- Add an optional key only when justified and verified against current Codex syntax.
+- Treat sandbox and approval values as defaults that may be superseded by live parent permissions.
+- Keep personal definitions reusable unless the user explicitly supplies role-specific environment assumptions.
+- Never invent models, MCP endpoints, credentials, paths, approval settings, or skill selectors.
 
-Good descriptions usually include:
+## Runtime Validity Versus Authoring Preference
 
-- an explicit usage trigger such as "Use `<name>` for ..."
-- a short capability statement
-- a `Rules:` section with 2-6 non-negotiable bullets
+- Runtime validity requires parseable TOML, required metadata, supported config shapes, and valid nickname data.
+- ASCII lowercase hyphenated names and matching filenames are authoring preferences, not Codex validity requirements.
+- Built-in names are valid overrides but require deliberate intent.
+- Literal strings such as `TODO` or XML tags may be legitimate role content; treat placeholder-like text as a review warning rather than an automatic schema failure.
 
-## Developer instructions rubric
+## Update Quality
 
-The `developer_instructions` should make the role executable.
+- Read every existing target first.
+- Change only what the new brief requires.
+- Preserve unrelated supported configuration and explicit choices.
+- Never delete an unfamiliar key merely to satisfy a frozen local allowlist.
+- Report changed boundaries, preserved configuration, and any current-Codex validation blocker.
 
-- State what to prioritize.
-- State what evidence, output, or validation matters.
-- State what not to do.
-- For write-capable agents, assign ownership and say the agent is not alone in the workspace.
-- For read-only agents, explicitly forbid code edits or other mutations.
+## Validation Quality
 
-## Configuration rubric
+- Validate every generated or updated definition independently.
+- Treat local parse and schema errors as blockers.
+- Use native Codex checking when available for the full configuration layer.
+- Distinguish full native validation from local-only validation in the response.
+- Do not claim success when Codex would ignore the role as malformed.
 
-- Required fields are present and non-empty.
-- Optional fields appear only when they are justified and correctly formed.
-- Pure research, review, or mapping roles should not get broad sandbox access without a clear reason.
-- A global user-scoped agent should not be packed with one repo's paths, branches, or team-specific conventions unless the user explicitly asked for that.
+## Final Gate
 
-## Update rubric
+Accept the result only when:
 
-- An update reads the current file before changing it.
-- The result preserves unrelated user choices.
-- The response says what changed instead of silently rewriting the whole contract.
-
-## Validation rubric
-
-- The file parses as TOML.
-- The file does not include placeholder markers such as `<...>` or `TODO`.
-- The file does not use undocumented top-level keys or invented approval settings.
-- The filename and `name` should align unless there is a deliberate reason not to.
-
-## Failure modes
-
-The result is too generic if it:
-
-- uses filler like "helps with tasks"
-- could apply equally well to many unrelated briefs
-- defaults to a stock role name even though the brief is more specific
-- omits explicit boundaries or collaboration rules
-- repeats the same shallow sentence in both `description` and `developer_instructions`
-- silently drops a required responsibility to force the brief into one role
-- rewrites an existing agent destructively during an update
-- emits invalid TOML
-- invents optional field syntax
-- hardcodes repo-specific assumptions into a default global agent without being asked
-
-## Final gate
-
-Before accepting a generated agent, confirm all of the following:
-
-- The role is clearly derived from the brief.
-- The scope and path are intentional and stated.
-- The boundary is explicit.
-- The configuration is justified and valid.
-- The file passes TOML validation.
+- every explicitly requested role has a corresponding definition
+- no unrequested roles or runtime configuration were added
+- each role boundary is focused and operational
+- optional configuration is minimal and justified
+- updates preserve unrelated valid state
+- every file passes available validation, with unresolved warnings disclosed
