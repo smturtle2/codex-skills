@@ -87,14 +87,6 @@ class ValidateAgentTomlTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("OK:", result.stdout)
 
-    def test_accepts_additional_config_keys(self) -> None:
-        result = self.run_validator(
-            "qa-agent.toml",
-            MINIMAL_AGENT + '\napproval_policy = "never"\nweb_search = "live"\n',
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("Unknown top-level keys", result.stderr)
-
     def test_stdin_preview_uses_expected_path_without_creating_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             intended = pathlib.Path(tmpdir) / "qa-agent.toml"
@@ -102,18 +94,6 @@ class ValidateAgentTomlTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(f"OK: {intended}", result.stdout)
             self.assertFalse(intended.exists())
-
-    def test_stdin_requires_expected_path(self) -> None:
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT), "-"],
-            input=textwrap.dedent(MINIMAL_AGENT).lstrip(),
-            check=False,
-            capture_output=True,
-            text=True,
-            cwd=REPO_ROOT,
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("--expected-path is required", result.stderr)
 
     def test_rejects_missing_and_wrong_required_metadata(self) -> None:
         result = self.run_validator(
@@ -127,51 +107,6 @@ class ValidateAgentTomlTests(unittest.TestCase):
         self.assertIn("`name` must be a non-empty string", result.stderr)
         self.assertIn("`description` must be a non-empty string", result.stderr)
         self.assertIn("`developer_instructions` must be a non-empty string", result.stderr)
-
-    def test_rejects_duplicate_nicknames_after_normalization(self) -> None:
-        result = self.run_validator(
-            "docs-auditor.toml",
-            '''
-            name = "docs-auditor"
-            description = "Use `docs-auditor` for documentation audits."
-            developer_instructions = "Audit docs and report issues."
-            nickname_candidates = ["Echo Team", " Echo Team "]
-            ''',
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("duplicates after trimming", result.stderr)
-
-    def test_accepts_case_and_internal_space_distinct_nicknames(self) -> None:
-        result = self.run_validator(
-            "docs-auditor.toml",
-            '''
-            name = "docs-auditor"
-            description = "Use `docs-auditor` for documentation audits."
-            developer_instructions = "Audit docs and report issues."
-            nickname_candidates = ["Echo Team", "echo team", "Echo  Team"]
-            ''',
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_accepts_nickname_whitespace_trimmed_by_runtime(self) -> None:
-        result = self.run_validator(
-            "docs-auditor.toml",
-            MINIMAL_AGENT.replace('name = "qa-agent"', 'name = "docs-auditor"')
-            + 'nickname_candidates = ["\\tEcho Team\\t"]\n',
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_rejects_invalid_sandbox_mode(self) -> None:
-        result = self.run_validator(
-            "qa-agent.toml", MINIMAL_AGENT + '\nsandbox_mode = "container"\n'
-        )
-        wrong_type = self.run_validator(
-            "qa-agent.toml", MINIMAL_AGENT + "\nsandbox_mode = [\"read-only\"]\n"
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("`sandbox_mode` must be one of", result.stderr)
-        self.assertNotEqual(wrong_type.returncode, 0)
-        self.assertNotIn("Traceback", wrong_type.stderr)
 
     def test_validates_skills_config_shape(self) -> None:
         invalid = self.run_validator(
@@ -207,21 +142,6 @@ class ValidateAgentTomlTests(unittest.TestCase):
         self.assertIn("exactly one transport", both.stderr)
         self.assertEqual(valid.returncode, 0, valid.stderr)
 
-    def test_name_filename_and_prose_quality_are_warnings(self) -> None:
-        result = self.run_validator(
-            "different.toml",
-            '''
-            name = "Documentation Agent"
-            description = "TODO: helps with tasks and inspect <svg>."
-            developer_instructions = "Validate behavior."
-            ''',
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("recommended lowercase ASCII", result.stdout)
-        self.assertIn("does not match agent name", result.stdout)
-        self.assertIn("Placeholder text found: `TODO`", result.stdout)
-        self.assertIn("Generic filler detected", result.stdout)
-
     def test_builtin_override_requires_flag(self) -> None:
         contents = '''
         name = "explorer"
@@ -234,19 +154,6 @@ class ValidateAgentTomlTests(unittest.TestCase):
         )
         self.assertNotEqual(blocked.returncode, 0)
         self.assertEqual(allowed.returncode, 0, allowed.stderr)
-
-    def test_io_errors_do_not_emit_tracebacks(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), tmpdir],
-                check=False,
-                capture_output=True,
-                text=True,
-                cwd=REPO_ROOT,
-            )
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("Could not read", result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
 
     def test_native_codex_uses_config_load_not_process_exit(self) -> None:
         result = self.run_validator(

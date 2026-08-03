@@ -202,6 +202,55 @@ class EpubTranslatorTests(unittest.TestCase):
             self.assertIn('alt="표지"', page)
             self.assertNotIn("codex-epub-translator.css", page)
 
+            structure_plan = root / "target-structure-plan.json"
+            structure_plan.write_text(
+                json.dumps({"schema_version": 1, "documents": []}),
+                encoding="utf-8",
+            )
+            structured = self.run_script(
+                "apply-target-structure",
+                "--workdir",
+                str(run_dir),
+                "--plan",
+                str(structure_plan),
+                cwd=root,
+            )
+            self.assertEqual(structured.returncode, 0, structured.stderr)
+
+            layout_plan = root / "layout-plan.json"
+            layout_plan.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "opf": {"page_progression_direction": "ltr"},
+                        "css": [
+                            {
+                                "href": "*",
+                                "replace_declarations": {"writing-mode": "horizontal-tb"},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            laid_out = self.run_script(
+                "apply-layout",
+                "--workdir",
+                str(run_dir),
+                "--plan",
+                str(layout_plan),
+                cwd=root,
+            )
+            self.assertEqual(laid_out.returncode, 0, laid_out.stderr)
+            self.assertIn(
+                'page-progression-direction="ltr"',
+                (run_dir / "unpacked" / "item" / "volume.opf").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "writing-mode: horizontal-tb",
+                (run_dir / "unpacked" / "item" / "style" / "book.css").read_text(encoding="utf-8"),
+            )
+
             replacement = root / "replacement.png"
             Image.new("RGB", (4, 4), "#ffffff").save(replacement)
             recorded = self.run_script(

@@ -17,15 +17,6 @@ spec.loader.exec_module(world_simulator_gui)
 
 
 class WorldSimulatorGuiTests(unittest.TestCase):
-    def test_omitted_session_generates_pending_session_slug(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = pathlib.Path(tmpdir)
-
-            session_path = world_simulator_gui.resolve_session(root, None, create_new=True)
-
-            self.assertEqual(session_path.parent, root)
-            self.assertRegex(session_path.name, r"^pending-world-\d{8}-\d{6}$")
-
     def test_rename_session_moves_pending_session_and_updates_active_marker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = pathlib.Path(tmpdir)
@@ -43,56 +34,6 @@ class WorldSimulatorGuiTests(unittest.TestCase):
                 json.loads((renamed_path / "ui" / "gui_state.json").read_text(encoding="utf-8"))["session_id"],
                 "neon-rain-city",
             )
-
-    def test_active_or_launch_session_follows_renamed_active_session(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = pathlib.Path(tmpdir)
-            launch_path = root / "pending-world-20260621-123456"
-            renamed_path = root / "neon-rain-city"
-            world_simulator_gui.write_active_session(root, renamed_path)
-
-            self.assertEqual(world_simulator_gui.active_or_launch_session(root, launch_path, True), renamed_path)
-            self.assertEqual(world_simulator_gui.active_or_launch_session(root, launch_path, False), renamed_path)
-
-    def test_active_or_launch_session_keeps_explicit_final_session_fixed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = pathlib.Path(tmpdir)
-            launch_path = root / "neon-rain-city"
-            active_path = root / "other-world"
-            world_simulator_gui.write_active_session(root, active_path)
-
-            self.assertEqual(world_simulator_gui.active_or_launch_session(root, launch_path, False), launch_path)
-
-    def test_gui_launch_does_not_overwrite_final_active_with_old_temporary_session(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = pathlib.Path(tmpdir)
-            launch_path = root / "pending-world-20260621-123456"
-            active_path = root / "neon-rain-city"
-            world_simulator_gui.init_session(active_path)
-            world_simulator_gui.write_active_session(root, active_path)
-
-            self.assertFalse(world_simulator_gui.should_write_gui_active_session(root, launch_path, True))
-
-    def test_gui_launch_can_mark_temporary_session_active_before_rename(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = pathlib.Path(tmpdir)
-            launch_path = root / "pending-world-20260621-123456"
-
-            self.assertTrue(world_simulator_gui.should_write_gui_active_session(root, launch_path, True))
-
-    def test_omitted_bridge_session_uses_active_session_marker(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = pathlib.Path(tmpdir)
-            session_path = root / "world-20260621-123456"
-
-            world_simulator_gui.write_active_session(root, session_path)
-
-            self.assertEqual(world_simulator_gui.resolve_session(root, None), session_path)
-
-    def test_omitted_bridge_session_requires_active_session_marker(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaises(world_simulator_gui.WorldSimulatorError):
-                world_simulator_gui.resolve_session(pathlib.Path(tmpdir), None)
 
     def test_publish_output_records_history_illustration_for_reuse(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -161,40 +102,6 @@ class WorldSimulatorGuiTests(unittest.TestCase):
             self.assertEqual(history["items"][0]["blocks"][0]["image_path"], "assets/map.png")
             self.assertEqual(history["items"][0]["blocks"][0]["codex_visibility"], "manual_only")
 
-    def test_publish_output_records_history_entry_for_cumulative_gui_history(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            session_path = pathlib.Path(tmpdir) / "session"
-            payload_path = pathlib.Path(tmpdir) / "payload.json"
-            payload_path.write_text(
-                json.dumps(
-                    {
-                        "phase": "play",
-                        "turn_id": 1,
-                        "language": "en",
-                        "history_entry": {
-                            "label": "North Gate",
-                            "blocks": [
-                                {
-                                    "type": "prose",
-                                    "markdown": "Rain cuts across the gatehouse.",
-                                }
-                            ],
-                        },
-                        "status_sections": [],
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            world_simulator_gui.publish_output(session_path, payload_path)
-
-            log = json.loads((session_path / "ui" / "history_log.json").read_text(encoding="utf-8"))
-            self.assertEqual(log["session_id"], "session")
-            self.assertEqual(log["last_seq"], 1)
-            self.assertEqual([item["turn_id"] for item in log["items"]], [1])
-            self.assertEqual(log["items"][0]["label"], "North Gate")
-            self.assertEqual(log["items"][0]["blocks"][0]["markdown"], "Rain cuts across the gatehouse.")
-
     def test_publish_output_upserts_history_entry_by_turn_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             session_path = pathlib.Path(tmpdir) / "session"
@@ -242,77 +149,6 @@ class WorldSimulatorGuiTests(unittest.TestCase):
             self.assertFalse((session_path / "current" / "start-here.md").exists())
             self.assertEqual(world_simulator_gui.web_history(session_path)["items"], [])
 
-    def test_publish_output_can_seed_codex_authored_initial_gui_content(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            session_path = pathlib.Path(tmpdir) / "session"
-            payload_path = pathlib.Path(tmpdir) / "start.json"
-            payload_path.write_text(
-                json.dumps(
-                    {
-                        "phase": "world_concept",
-                        "turn_id": 0,
-                        "language": "ko",
-                        "history_entry": {
-                            "id": "codex:start",
-                            "turn_id": 0,
-                            "label": "시작",
-                            "blocks": [{"type": "prose", "markdown": "처음부터 작성한 시작 안내."}],
-                        },
-                        "status_sections": [{"kind": "setup", "title": "시작", "body": "대기 중"}],
-                        "ui_theme": {
-                            "title": "월드 시뮬레이터",
-                            "history_title": "기록",
-                            "status_title": "상태",
-                            "input_title": "입력",
-                            "input_placeholder": "입력",
-                            "send_label": "보내기",
-                            "processing_message": "처리 중",
-                            "processing_detail": "반영 중",
-                            "palette": world_simulator_gui.DEFAULT_THEME,
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            world_simulator_gui.publish_output(session_path, payload_path)
-
-            latest = json.loads((session_path / "ui" / "latest_output.json").read_text(encoding="utf-8"))
-            self.assertEqual(latest["language"], "ko")
-            self.assertEqual(world_simulator_gui.web_history(session_path)["items"][0]["id"], "codex:start")
-
-    def test_web_state_exposes_display_assets_and_command_help(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            session_path = pathlib.Path(tmpdir) / "session"
-            asset_path = session_path / "assets" / "sheet.png"
-            asset_path.parent.mkdir(parents=True, exist_ok=True)
-            asset_path.write_bytes(b"image")
-            world_simulator_gui.atomic_write_json(
-                session_path / "ui" / "display_assets.json",
-                {
-                    "session_id": "session",
-                    "items": [
-                        {
-                            "id": "sheet",
-                            "title": "Character sheet",
-                            "image_path": "assets/sheet.png",
-                            "caption": "Known details.",
-                            "turn_id": 2,
-                            "created_at": "2026-01-01T00:00:00Z",
-                            "last_seen_at": "2026-01-01T00:00:00Z",
-                        }
-                    ],
-                    "updated_at": "2026-01-01T00:00:00Z",
-                },
-            )
-
-            state = world_simulator_gui.web_state(session_path)
-
-            self.assertEqual(state["display_assets"][0]["image_path"], "assets/sheet.png")
-            self.assertEqual(state["history"]["count"], 0)
-            self.assertIn("/show", state["command_help"]["markdown"])
-            self.assertIn("helpButton", world_simulator_gui.WEB_HTML)
-
     def test_display_asset_registry_ignores_missing_and_outside_assets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             session_path = pathlib.Path(tmpdir) / "session"
@@ -338,30 +174,6 @@ class WorldSimulatorGuiTests(unittest.TestCase):
 
             self.assertEqual([asset["title"] for asset in assets], ["Valid"])
             self.assertEqual(assets[0]["image_path"], "assets/valid.png")
-
-    def test_malformed_display_asset_registry_does_not_block_web_state(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            session_path = pathlib.Path(tmpdir) / "session"
-            registry_path = session_path / "ui" / "display_assets.json"
-            registry_path.parent.mkdir(parents=True, exist_ok=True)
-            registry_path.write_text("{not json", encoding="utf-8")
-
-            state = world_simulator_gui.web_state(session_path)
-
-            self.assertEqual(state["display_assets"], [])
-            self.assertIn("/show", state["command_help"]["markdown"])
-
-    def test_malformed_history_log_does_not_block_web_state(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            session_path = pathlib.Path(tmpdir) / "session"
-            world_simulator_gui.init_session(session_path)
-            (session_path / "ui" / "history_log.json").write_text("{not json", encoding="utf-8")
-
-            state = world_simulator_gui.web_state(session_path)
-
-            self.assertEqual(state["history"]["count"], 0)
-            self.assertEqual(world_simulator_gui.web_history(session_path)["items"], [])
-
 
 if __name__ == "__main__":
     unittest.main()

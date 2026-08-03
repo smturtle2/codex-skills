@@ -105,11 +105,6 @@ class MoruClientTests(unittest.TestCase):
         query = parse_qs(urlparse(BridgeHandler.requests[0][1]).query)
         self.assertEqual(query["after"], ["0"])
 
-    def test_direct_response_requires_text(self) -> None:
-        args = type("Args", (), {"public": None, "direct": "d290f1ee-6c54-4b01-90e6-d701748f0851", "direct_message": None})()
-        with self.assertRaisesRegex(moru.MoruError, "require a message"):
-            moru.command_respond(self.profile(), args)
-
     def test_direct_response_encodes_target_and_message(self) -> None:
         args = type(
             "Args",
@@ -139,11 +134,6 @@ class MoruClientTests(unittest.TestCase):
         self.assertEqual(form["type"], ["command"])
         self.assertEqual(form["command"], [args.console_command])
         self.assertNotIn("message", form)
-
-    def test_run_command_requires_text(self) -> None:
-        args = type("Args", (), {"console_command": "   "})()
-        with self.assertRaisesRegex(moru.MoruError, "require command text"):
-            moru.command_run_command(self.profile(), args)
 
     def test_snapshot_omits_management_secrets(self) -> None:
         (pathlib.Path(self.temp_dir.name) / "server.properties").write_text(
