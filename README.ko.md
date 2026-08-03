@@ -1,6 +1,6 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/assets-18-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
+[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/assets-16-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
 
 이미지 생성, EPUB 번역, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 세계 시뮬레이션, 오목 플레이, 마인크래프트 서버 관리를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
 
@@ -27,7 +27,7 @@
 | [`ui-blueprint`](#ui-blueprint) | 프론트엔드 UI 제작 또는 큰 리디자인 | 생성된 UI mockup, 시각 노트, 구현된 UI | [프롬프트](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | Codex 커스텀 서브에이전트 생성 또는 수정 | 달성한 검증 수준을 명시한 하나 이상의 TOML agent 정의 | [프롬프트](#subagent-creator) |
 | [`podcast-writer`](#podcast-writer) | 소스를 1인 팟캐스트 대본으로 변환 | 저장된 `.txt` 대본과 엄격한 내용 품질 평가 | [프롬프트](#podcast-writer) |
-| [`world-simulator`](#world-simulator) | Codex가 관리하는 지속 세계 시뮬레이션 실행 | 최소 Python GUI와 세계, 플레이어, 스토리, GM, 턴 파일 | [프롬프트](#world-simulator) |
+| [`world-simulator`](#world-simulator) | 지속되는 Codex-native 세계 RPG 제작과 플레이 | 원자적 SQLite 월드 원장 기반 브라우저 Studio와 Chronicle | [프롬프트](#world-simulator) |
 | [`gomoku`](#gomoku) | 로컬 GUI에서 Codex와 오목 대국 | Python 보드와 Codex 착수를 위한 JSON 상태 브리지 | [프롬프트](#gomoku) |
 | [`minecraft-steward`](#minecraft-steward) | 모루로 Paper 마인크래프트 커뮤니티 관리 | 로컬 채팅 브리지, 설정 가능한 관리자 클라이언트, MSMP 관리 명령 | [프롬프트](#minecraft-steward) |
 
@@ -164,16 +164,20 @@ Use $skill-installer to install skills/podcast-writer from https://github.com/sm
 
 ### `world-simulator`
 
-최소 Python GUI를 통해 지속적인 자유 입력형 세계 시뮬레이션을 실행하고, Codex가 세계 상태, 숨은 GM 노트, 턴 진행을 관리한다.
+브라우저 Studio에서 독창적인 세계를 만들고, 그 안에서 지속형 솔로 RPG를 플레이한다. Codex가 세계를 창작하고 장면을 진행하며, 내장 런타임은 서사를 대신 결정하지 않고 인터페이스·기록·세계 상태를 영속적으로 관리한다.
 
-![World Simulator 워크플로](docs/assets/world-simulator-workflow.png)
+- **Studio:** 거친 구상을 설정 마법사 없이 공개 세계관, 숨은 압력, 인물, 세력, 장소, 관계, 플레이어, 첫 상황으로 엮는다.
+- **Play:** 제한 없는 자연어 행동을 받는다. 플레이어의 모든 입력과 이어지는 장면이 하나의 시간순 읽기 흐름에 남고, 대화와 결정적인 정보는 훑어보기 쉽게 강조된다.
+- **살아 있는 세계:** 플레이 중 마주치는 인물·장소·문화·제도·사물·역사를 기존 인과관계에 연결해 만들고, 설정 설명을 위해 장면을 멈추지 않은 채 원장에 보존한다.
+- **RPG 인터페이스:** 데스크톱 왼쪽 레일에 플레이어 정체성과 현재 상태를 유지하고, 같은 레일에서 인물·세계 정보를 전환하며, 연대기가 갱신되어도 펼친 항목을 보존한다.
+- **월드 원장:** 응답, 엔티티, 관계, 사건, 결과, 비공개 GM 갱신을 매 턴 `world.sqlite3`에 원자적으로 커밋한다. Play에서는 플레이어가 볼 수 있는 사실만 노출하고 같은 세션을 이어갈 수 있다.
 
 | 항목 | 내용 |
 | --- | --- |
 | 위치 | `skills/world-simulator` |
-| 사용 시점 | GUI에서 받은 자유 입력으로 Codex가 세계를 만들고, 플레이어 캐릭터를 관리하고, 스토리를 진행하는 narrative sandbox가 필요할 때 |
-| 결과 | 로컬 GUI, 지속 세션 폴더, 공개 스토리 상태, 숨은 GM 상태, append-only 턴 기록 |
-| 피하는 일 | 채팅으로 스토리 입력 받기, 고정 RPG 스탯 스키마, 이야기 선택 버튼, Python으로 서사 판단 생성 |
+| 사용 시점 | 독창적인 세계를 함께 정리한 뒤 제한 없는 자연어 행동으로 지속형 솔로 RPG를 플레이하고 싶을 때 |
+| 결과 | 밝은 브라우저 Studio/Play UI, 모든 입력과 응답의 시간순 기록, 지속되는 플레이어 시트, 공개 worldbook, 비공개 GM 상태, 엔티티 그래프, 인과 사건 기록, 재개 가능한 `world.sqlite3` |
+| 피하는 일 | 채팅에서 스토리 입력 받기, lorebook 키워드 주입, 고정 RPG 스탯 스키마, 강제 선택지, Python으로 서사 판단 생성 |
 
 설치:
 

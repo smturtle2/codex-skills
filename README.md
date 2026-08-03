@@ -1,6 +1,6 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/assets-18-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
+[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/assets-16-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
 
 A small, installable catalog of Codex skills for image generation, EPUB translation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, Gomoku, and Minecraft stewardship.
 
@@ -27,7 +27,7 @@ Languages: English | [한국어](README.ko.md)
 | [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | Creating or updating custom Codex subagents | One or more TOML agent definitions with the achieved validation level reported | [Prompt](#subagent-creator) |
 | [`podcast-writer`](#podcast-writer) | Turning sources into one-person podcast scripts | Plain `.txt` script plus strict content-quality evaluation | [Prompt](#podcast-writer) |
-| [`world-simulator`](#world-simulator) | Running a persistent Codex-managed world simulation | Minimal Python GUI plus durable world, player, story, GM, and turn files | [Prompt](#world-simulator) |
+| [`world-simulator`](#world-simulator) | Building and playing a persistent Codex-native world RPG | Browser Studio and Chronicle backed by an atomic SQLite world ledger | [Prompt](#world-simulator) |
 | [`gomoku`](#gomoku) | Playing Gomoku against Codex in a local GUI | Python board plus JSON state bridge for Codex moves | [Prompt](#gomoku) |
 | [`minecraft-steward`](#minecraft-steward) | Actively stewarding a Paper Minecraft community as Moru | Local chat bridge, configurable steward client, and MSMP administration | [Prompt](#minecraft-steward) |
 
@@ -164,16 +164,20 @@ Use $skill-installer to install skills/podcast-writer from https://github.com/sm
 
 ### `world-simulator`
 
-Run a persistent free-form world simulation through a minimal Python GUI while Codex manages world state, hidden GM notes, and turn progression.
+Build an original world in a browser Studio, then inhabit it as a persistent solo RPG. Codex authors the setting and directs each scene; the bundled runtime keeps the interface, history, and world state durable without deciding the fiction itself.
 
-![World Simulator workflow](docs/assets/world-simulator-workflow.png)
+- **Studio:** Turns a rough concept into public lore, hidden pressures, characters, factions, places, relations, a player, and an opening situation without forcing a setup wizard.
+- **Play:** Accepts unrestricted natural-language actions. Every player input and resulting scene remains in one chronological reading flow, with dialogue and decisive details emphasized for scanning.
+- **Living world:** Creates people, places, cultures, institutions, objects, and history as they are encountered, connects them to established causes, and persists them instead of pausing for lore dumps.
+- **RPG interface:** Keeps player identity and current state in the left desktop rail, places character and world reference in the same rail, and preserves disclosure state while the chronicle updates.
+- **World ledger:** Commits each response, entity, relation, event, consequence, and private GM update atomically to `world.sqlite3`; Play exposes only player-visible truth and can resume the same session later.
 
 | Field | Details |
 | --- | --- |
 | Folder | `skills/world-simulator` |
-| Use when | You want a GUI-mediated narrative sandbox where Codex creates the world, manages the player character, and advances the story from free-form user input. |
-| Produces | A local GUI, durable session folders, visible story state, hidden GM state, and append-only turn records. |
-| Avoids | Story input through chat, fixed RPG stat schemas, story choice buttons, and Python-generated narrative decisions. |
+| Use when | You want to co-author an original setting and then play a persistent solo RPG through unrestricted natural-language actions. |
+| Produces | A light browser Studio/Play UI, complete input-and-response chronicle, persistent player sheet, public worldbook, private GM state, entity graph, causal event history, and resumable `world.sqlite3`. |
+| Avoids | Chat-side story input, lorebook keyword injection, fixed RPG stat schemas, forced choice menus, and Python-generated narrative decisions. |
 
 Install:
 
