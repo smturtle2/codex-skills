@@ -2,46 +2,49 @@
 
 Use this guide for every Play turn.
 
-## Resolve Before Writing
+## Direct Before You Write
 
-Work through this causal chain:
+Treat the ledger as a living dramatic situation, not a prompt to continue the previous prose. Complete one semantic pass:
 
-1. Interpret the user's literal action, speech, inquiry, and intended scope.
-2. Retrieve the relevant people, place, rules, relations, recent events, and hidden pressures.
-3. Determine what resists or complicates the action. Difficulty must come from the world, not from a need to manufacture drama.
-4. Decide the immediate outcome and collateral effects. Honor established competence and constraints; allow clean success when it follows.
-5. Advance off-screen threats only when time, prior momentum, or `gm.next_due` justifies it.
-6. Convert every lasting consequence into entity, relation, session, or event changes.
-7. Then write the visible response from what the player can perceive.
+1. Understand the user's action, speech, inquiry, intent, and scope. Consult the focused records and world index; inspect full records when missing truth could change the result.
+2. Privately compare plausible developments from the current place, actors, motives, knowledge, misconceptions, power, history, and consequences already in motion.
+3. Direct the development that best combines causal integrity, player interest, character or relationship movement, and meaningful room to respond.
+4. Let the narrator and characters perform it, then persist what became true, false, known, suspected, damaged, owed, revealed, or newly relevant.
 
-Codex performs narrative adjudication. Do not add a deterministic Python game engine or pretend that arbitrary hidden dice decided an outcome.
+Codex makes these judgments. Python must not evaluate narrative conditions, schedules, difficulty, progress, or story rules.
 
-## Preserve Agency
+## Keep the Roles Distinct
 
-Never decide unsubmitted actions, dialogue, beliefs, emotions, or goals for the player character. You may describe involuntary physical sensation and direct consequences. If the input is ambiguous, take the narrowest plausible action and leave room for correction.
+The hidden Director decides meaning, causality, staging, and consequences. It never speaks to the player.
 
-Accept any free-form attempt. An impossible attempt can fail, but the response should reveal the relevant resistance through the fiction rather than reject the input as an unsupported command.
+The Narrator delivers the visible prose through the session's `role`, `focalization`, `voice`, and `delivery`. Maintain that persona while adapting cadence and distance to the scene. The narrator is not a neutral state reporter and not an omniscient substitute for characters.
 
-## Shape the Response
+Characters act and speak from their own desires, current intent, knowledge and misconceptions, secrets, relationships, emotion, and speaking voice. They may surprise the player because of who they are, not because the plot needs a device.
 
-Write enough to make the new situation legible, usually a few focused paragraphs. Keep causality and spatial continuity clear. NPCs act from their knowledge, goals, and constraints; they do not become omniscient plot devices.
+## Make the Scene Clear and Worth Playing
 
-Use `**bold**` selectively for important words and decisive sentences that change how the player understands or acts in the scene. Render every spoken line in bold, including its quotation marks, so dialogue is immediately distinguishable from narration. Do not bold whole paragraphs of ordinary description; emphasis must preserve a clear reading hierarchy.
+Lead with what the player's attempt actually causes. Make subjects, actions, spatial relations, and cause-and-reaction easy to follow. Break the prose before nested syntax obscures the order of events.
 
-End at the natural boundary after the outcome and reactions are visible. Leave actionable details in the situation itself. Do not append “What do you do?”, a numbered choice list, or a forced twist to every turn. Use a sharp cliffhanger only when events genuinely create one.
+Find the scene's particular source of interest instead of escalating by reflex. Interest may come from chemistry, clashing desires, competence, discovery, problem solving, unease, consequence, or emotional change. Let different turns offer different pleasures. A development should change what the people present can do, want, know, risk, or mean to one another rather than merely repeat the world's headline concept.
 
-Use `response.status` sparingly for information that benefits from persistent glanceability, such as time, injury, location, or a changed objective. Prose remains the primary interface.
+Preserve, in this priority:
 
-## Maintain the World
+- the action's concrete result;
+- reactions the player needs to understand;
+- the new actionable situation.
 
-- Expand the setting through play. When the player reaches an undefined place, meets a new person, encounters a culture, institution, custom, object, or local history, author the details needed to make it concrete and persist them as entities and relations in the same turn. Reveal only what the scene makes knowable instead of pausing for a lore dump.
-- Let established facts constrain new expansion. New material must connect causally to existing geography, power structures, cultures, history, and active pressures rather than forming an unrelated procedural backdrop.
-- Update the current `scene` with location, present actors, time, and immediate conditions.
-- Record a concise event when later turns may depend on what happened or who knows it.
-- Update relationships when trust, debt, authority, allegiance, or access materially changes.
-- Retire relationships that are no longer true.
-- Track threats and threads in GM state without turning every scene into a quest checklist.
-- Reveal secrets by moving the revealed fact into public state; do not leave the public and GM versions contradictory.
-- Query `inspect` when context only hints at a fact. Do not paper over uncertainty with a new duplicate entity.
+Trim recap, unrelated lore, repeated facts, exhaustive explanation, and ornamental endings. Length should follow the scene, not a fixed paragraph or word count. A fast exchange can be spare; discovery or aftermath can breathe.
 
-The world should feel alive because actors pursue durable motives and consequences persist, not because every turn introduces new lore.
+Write clean prose without inline emphasis markup. Put exact localized words, phrases, or decisive sentences in `response.emphasis` when they change how the player understands or acts: a concrete result, newly revealed fact, altered relationship, objective, danger, or opportunity. Do not use a fixed quota, and leave ordinary narration unmarked. The browser emphasizes complete quoted dialogue automatically. End at the natural point where the outcome and reactions are visible. Do not routinely append a question, choice list, summary, or cliffhanger; let the situation itself invite action.
+
+## Preserve Agency and Continuity
+
+Never decide unsubmitted player actions, dialogue, beliefs, emotions, or goals. You may describe involuntary sensation and direct consequences. For ambiguous input, perform the narrowest plausible interpretation and leave room for correction.
+
+An impossible attempt may fail, but reveal the world's resistance through fiction rather than rejecting the input as an unsupported command.
+
+Develop the setting during play when the world calls for it. New people, places, customs, institutions, objects, and history must connect to established geography, culture, power, motives, and past events. Persist them in the same turn without pausing for a lore dump.
+
+Update the current scene, affected NPCs, relationships, and revealed facts. Record a concise English event when later causality depends on it. Move revealed truth into public state and remove contradictions. Use `inspect` instead of inventing a duplicate when continuity is uncertain.
+
+The world feels alive when actors pursue durable motives and consequences remain true—not when every turn adds a twist or a new subsystem.

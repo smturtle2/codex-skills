@@ -9,7 +9,6 @@ import time
 import uuid
 from typing import Any
 
-
 DEFAULT_ROOT = pathlib.Path("world-runs")
 ACTIVE_FILE = ".world-simulator-active.json"
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -83,7 +82,41 @@ def connect(session_path: pathlib.Path) -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
+    _migrate_schema(connection)
     return connection
+
+
+def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    return (
+        connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
+    )
+
+
+def _column_names(connection: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+
+
+def _migrate_schema(connection: sqlite3.Connection) -> None:
+    changed = False
+    if _table_exists(connection, "entities") and "presentation_json" not in _column_names(connection, "entities"):
+        connection.execute("ALTER TABLE entities ADD COLUMN presentation_json TEXT NOT NULL DEFAULT '{}'")
+        changed = True
+    if _table_exists(connection, "relations") and "presentation_json" not in _column_names(connection, "relations"):
+        connection.execute("ALTER TABLE relations ADD COLUMN presentation_json TEXT NOT NULL DEFAULT '{}'")
+        changed = True
+    if _table_exists(connection, "meta"):
+        meta = read_meta(connection)
+        defaults = {
+            "schema_version": "2",
+            "narration": "{}",
+            "presentation": "{}",
+        }
+        for key, value in defaults.items():
+            if meta.get(key) != value and (key == "schema_version" or key not in meta):
+                set_meta(connection, key, value)
+                changed = True
+    if changed:
+        connection.commit()
 
 
 SCHEMA = """
@@ -112,6 +145,7 @@ CREATE TABLE IF NOT EXISTS entities (
     aliases_json TEXT NOT NULL DEFAULT '[]',
     public_json TEXT NOT NULL DEFAULT '{}',
     gm_json TEXT NOT NULL DEFAULT '{}',
+    presentation_json TEXT NOT NULL DEFAULT '{}',
     visibility TEXT NOT NULL DEFAULT 'public',
     active INTEGER NOT NULL DEFAULT 1,
     created_turn INTEGER,
@@ -125,6 +159,7 @@ CREATE TABLE IF NOT EXISTS relations (
     target_id TEXT NOT NULL,
     public_json TEXT NOT NULL DEFAULT '{}',
     gm_json TEXT NOT NULL DEFAULT '{}',
+    presentation_json TEXT NOT NULL DEFAULT '{}',
     visibility TEXT NOT NULL DEFAULT 'public',
     active INTEGER NOT NULL DEFAULT 1,
     created_turn INTEGER,
@@ -158,16 +193,19 @@ def init_session(session_path: pathlib.Path) -> dict[str, Any]:
     with connect(session_path) as connection:
         connection.executescript(SCHEMA)
         initial = {
-            "schema_version": "1",
+            "schema_version": "2",
             "session_id": session_path.name,
             "display_name": "Untitled World",
             "mode": "studio",
             "language": "ko",
             "player_id": "",
             "scene_id": "",
+            "narration": "{}",
+            "presentation": "{}",
             "created_at": utc_now(),
         }
         connection.executemany("INSERT INTO meta(key, value) VALUES(?, ?)", initial.items())
+        _migrate_schema(connection)
     return session_status(session_path)
 
 
@@ -182,6 +220,19 @@ def set_meta(connection: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
+def _session_payload(meta: dict[str, str]) -> dict[str, Any]:
+    return {
+        "session_id": meta.get("session_id", ""),
+        "display_name": meta.get("display_name", "Untitled World"),
+        "mode": meta.get("mode", "studio"),
+        "language": meta.get("language", "ko"),
+        "player_id": meta.get("player_id", ""),
+        "scene_id": meta.get("scene_id", ""),
+        "narration": json_load(meta.get("narration"), {}),
+        "presentation": json_load(meta.get("presentation"), {}),
+    }
+
+
 def session_status(session_path: pathlib.Path) -> dict[str, Any]:
     with connect(session_path) as connection:
         meta = read_meta(connection)
@@ -194,7 +245,12 @@ def session_status(session_path: pathlib.Path) -> dict[str, Any]:
             "relations": connection.execute("SELECT COUNT(*) FROM relations WHERE active=1").fetchone()[0],
             "events": connection.execute("SELECT COUNT(*) FROM events").fetchone()[0],
         }
-    return {"session_id": session_path.name, "session_path": str(session_path.resolve()), "meta": meta, **counts}
+    return {
+        "session_id": session_path.name,
+        "session_path": str(session_path.resolve()),
+        "meta": meta,
+        **counts,
+    }
 
 
 def submit_input(session_path: pathlib.Path, text: str, kind: str | None = None) -> dict[str, Any]:
@@ -220,7 +276,12 @@ def submit_input(session_path: pathlib.Path, text: str, kind: str | None = None)
         )
         turn_id = int(cursor.lastrowid)
         connection.commit()
-    return {"turn_id": turn_id, "kind": resolved_kind, "user_text": cleaned, "status": "pending"}
+    return {
+        "turn_id": turn_id,
+        "kind": resolved_kind,
+        "user_text": cleaned,
+        "status": "pending",
+    }
 
 
 def _row_entity(row: sqlite3.Row, include_gm: bool) -> dict[str, Any]:
@@ -230,6 +291,7 @@ def _row_entity(row: sqlite3.Row, include_gm: bool) -> dict[str, Any]:
         "name": row["name"],
         "aliases": json_load(row["aliases_json"], []),
         "public": json_load(row["public_json"], {}),
+        "presentation": json_load(row["presentation_json"], {}),
         "visibility": row["visibility"],
         "active": bool(row["active"]),
         "updated_turn": row["updated_turn"],
@@ -246,6 +308,7 @@ def _row_relation(row: sqlite3.Row, include_gm: bool) -> dict[str, Any]:
         "predicate": row["predicate"],
         "target_id": row["target_id"],
         "public": json_load(row["public_json"], {}),
+        "presentation": json_load(row["presentation_json"], {}),
         "visibility": row["visibility"],
         "active": bool(row["active"]),
         "updated_turn": row["updated_turn"],
@@ -268,6 +331,49 @@ def _turn_payload(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _localized_fact_map(presentation: dict[str, Any], key: str, fallback: dict[str, Any]) -> dict[str, Any]:
+    value = presentation.get(key)
+    return value if isinstance(value, dict) else fallback
+
+
+def _browser_entity(entity: dict[str, Any], include_gm: bool) -> dict[str, Any]:
+    presentation = entity.get("presentation", {})
+    localized = presentation if isinstance(presentation, dict) else {}
+    payload = {
+        "id": entity["id"],
+        "kind": entity["kind"],
+        "kind_label": localized.get("kind_label", entity["kind"]),
+        "name": localized.get("name", entity["name"]),
+        "aliases": localized.get("aliases", entity.get("aliases", [])),
+        "public": _localized_fact_map(localized, "public", entity.get("public", {})),
+        "visibility": entity["visibility"],
+        "active": entity["active"],
+        "updated_turn": entity["updated_turn"],
+    }
+    if include_gm:
+        payload["gm"] = _localized_fact_map(localized, "gm", entity.get("gm", {}))
+    return payload
+
+
+def _browser_relation(relation: dict[str, Any], include_gm: bool) -> dict[str, Any]:
+    presentation = relation.get("presentation", {})
+    localized = presentation if isinstance(presentation, dict) else {}
+    payload = {
+        "id": relation["id"],
+        "source_id": relation["source_id"],
+        "predicate": relation["predicate"],
+        "predicate_label": localized.get("predicate_label", relation["predicate"]),
+        "target_id": relation["target_id"],
+        "public": _localized_fact_map(localized, "public", relation.get("public", {})),
+        "visibility": relation["visibility"],
+        "active": relation["active"],
+        "updated_turn": relation["updated_turn"],
+    }
+    if include_gm:
+        payload["gm"] = _localized_fact_map(localized, "gm", relation.get("gm", {}))
+    return payload
+
+
 def list_turns(
     session_path: pathlib.Path,
     *,
@@ -279,20 +385,26 @@ def list_turns(
     with connect(session_path) as connection:
         if after is not None:
             rows = connection.execute(
-                "SELECT * FROM turns WHERE id > ? ORDER BY id ASC LIMIT ?", (after, safe_limit)
+                "SELECT * FROM turns WHERE id > ? ORDER BY id ASC LIMIT ?",
+                (after, safe_limit),
             ).fetchall()
-            has_more = bool(rows) and connection.execute(
-                "SELECT 1 FROM turns WHERE id > ? LIMIT 1", (rows[-1]["id"],)
-            ).fetchone() is not None
+            has_more = (
+                bool(rows)
+                and connection.execute("SELECT 1 FROM turns WHERE id > ? LIMIT 1", (rows[-1]["id"],)).fetchone()
+                is not None
+            )
         else:
             boundary = before if before is not None else 2**63 - 1
             rows = connection.execute(
-                "SELECT * FROM turns WHERE id < ? ORDER BY id DESC LIMIT ?", (boundary, safe_limit)
+                "SELECT * FROM turns WHERE id < ? ORDER BY id DESC LIMIT ?",
+                (boundary, safe_limit),
             ).fetchall()
             rows = list(reversed(rows))
-            has_more = bool(rows) and connection.execute(
-                "SELECT 1 FROM turns WHERE id < ? LIMIT 1", (rows[0]["id"],)
-            ).fetchone() is not None
+            has_more = (
+                bool(rows)
+                and connection.execute("SELECT 1 FROM turns WHERE id < ? LIMIT 1", (rows[0]["id"],)).fetchone()
+                is not None
+            )
     return {"items": [_turn_payload(row) for row in rows], "has_more": has_more}
 
 
@@ -321,15 +433,21 @@ def public_state(session_path: pathlib.Path) -> dict[str, Any]:
         completed_studio = connection.execute(
             "SELECT COUNT(*) FROM turns WHERE status='complete' AND kind='studio'"
         ).fetchone()[0]
+    session = _session_payload(meta)
+    presentation = session["presentation"]
     return {
         "session_id": session_path.name,
-        "display_name": meta.get("display_name", "Untitled World"),
-        "mode": meta.get("mode", "studio"),
-        "language": meta.get("language", "ko"),
-        "player_id": meta.get("player_id", ""),
-        "scene_id": meta.get("scene_id", ""),
-        "entities": [_row_entity(row, include_gm=studio) for row in entity_rows],
-        "relations": [_row_relation(row, include_gm=studio) for row in relation_rows],
+        "display_name": presentation.get("display_name", session["display_name"]),
+        "mode": session["mode"],
+        "language": session["language"],
+        "player_id": session["player_id"],
+        "scene_id": session["scene_id"],
+        "narration": presentation.get("narration", session["narration"]),
+        "presentation": presentation,
+        "entities": [_browser_entity(_row_entity(row, include_gm=studio), include_gm=studio) for row in entity_rows],
+        "relations": [
+            _browser_relation(_row_relation(row, include_gm=studio), include_gm=studio) for row in relation_rows
+        ],
         "latest_response": json_load(latest["response_json"], None) if latest else None,
         "processing": outstanding["id"] if outstanding else None,
         "can_begin": studio and completed_studio > 0 and bool(entity_rows),
@@ -339,10 +457,13 @@ def public_state(session_path: pathlib.Path) -> dict[str, Any]:
 def _entity_search_text(entity: dict[str, Any]) -> str:
     return " ".join(
         [
+            entity["id"],
+            entity["kind"],
             entity["name"],
             *entity.get("aliases", []),
             json.dumps(entity.get("public", {}), ensure_ascii=False),
             json.dumps(entity.get("gm", {}), ensure_ascii=False),
+            json.dumps(entity.get("presentation", {}), ensure_ascii=False),
         ]
     ).lower()
 
@@ -368,63 +489,70 @@ def build_turn_context(connection: sqlite3.Connection, turn_id: int) -> dict[str
     if turn is None:
         raise WorldSimError(f"Turn not found: {turn_id}")
     meta = read_meta(connection)
-    all_rows = connection.execute("SELECT * FROM entities WHERE active=1 ORDER BY updated_turn DESC, id").fetchall()
+    all_rows = connection.execute(
+        "SELECT * FROM entities WHERE active=1 ORDER BY kind, name COLLATE NOCASE, id"
+    ).fetchall()
     all_entities = [_row_entity(row, include_gm=True) for row in all_rows]
     by_id = {entity["id"]: entity for entity in all_entities}
-    selected_ids: set[str] = set()
-    for key in ("player_id", "scene_id"):
-        if meta.get(key) in by_id:
-            selected_ids.add(meta[key])
-    lowered_input = turn["user_text"].lower()
-    for entity in all_entities:
-        names = [entity["name"], *entity.get("aliases", [])]
-        if any(name and name.lower() in lowered_input for name in names):
-            selected_ids.add(entity["id"])
-        gm = entity.get("gm", {})
-        if isinstance(gm, dict) and isinstance(gm.get("next_due"), int) and gm["next_due"] <= turn_id:
-            selected_ids.add(entity["id"])
-        if entity["kind"] in {"rule", "thread", "quest", "threat"}:
-            selected_ids.add(entity["id"])
-    relation_rows = connection.execute("SELECT * FROM relations WHERE active=1 ORDER BY updated_turn DESC").fetchall()
+    relation_rows = connection.execute("SELECT * FROM relations WHERE active=1 ORDER BY predicate, id").fetchall()
     relations = [_row_relation(row, include_gm=True) for row in relation_rows]
-    relevant_relations: list[dict[str, Any]] = []
-    for relation in relations:
-        if relation["source_id"] in selected_ids or relation["target_id"] in selected_ids:
-            relevant_relations.append(relation)
+    if turn["kind"] in {"studio", "begin"}:
+        selected_ids = set(by_id)
+        relevant_relations = relations
+    else:
+        selected_ids = {meta[key] for key in ("player_id", "scene_id") if meta.get(key) in by_id}
+        lowered_input = turn["user_text"].lower()
+        for entity in all_entities:
+            names = [entity["name"], *entity.get("aliases", [])]
+            presentation = entity.get("presentation", {})
+            if isinstance(presentation, dict):
+                localized_name = presentation.get("name")
+                if isinstance(localized_name, str):
+                    names.append(localized_name)
+                localized_aliases = presentation.get("aliases", [])
+                if isinstance(localized_aliases, list):
+                    names.extend(alias for alias in localized_aliases if isinstance(alias, str))
+            if any(name and name.lower() in lowered_input for name in names):
+                selected_ids.add(entity["id"])
+        focus_seeds = set(selected_ids)
+        relevant_relations = [
+            relation
+            for relation in relations
+            if relation["source_id"] in focus_seeds or relation["target_id"] in focus_seeds
+        ]
+        for relation in relevant_relations:
             selected_ids.add(relation["source_id"])
             selected_ids.add(relation["target_id"])
-    recent_turn_rows = connection.execute(
-        "SELECT * FROM turns WHERE status='complete' AND id < ? ORDER BY id DESC LIMIT 8", (turn_id,)
-    ).fetchall()
-    recent_events = connection.execute(
-        "SELECT * FROM events ORDER BY id DESC LIMIT 16"
-    ).fetchall()
     return {
-        "session": {
-            "session_id": meta.get("session_id", ""),
-            "display_name": meta.get("display_name", "Untitled World"),
-            "mode": meta.get("mode", "studio"),
-            "language": meta.get("language", "ko"),
-            "player_id": meta.get("player_id", ""),
-            "scene_id": meta.get("scene_id", ""),
-        },
+        "session": _session_payload(meta),
         "turn": _turn_payload(turn),
-        "entities": [by_id[entity_id] for entity_id in sorted(selected_ids) if entity_id in by_id],
-        "relations": relevant_relations,
-        "recent_turns": [_turn_payload(row) for row in reversed(recent_turn_rows)],
-        "recent_events": [
-            {
-                "id": row["id"],
-                "turn_id": row["turn_id"],
-                "entity_ids": json_load(row["entity_ids_json"], []),
-                "public_summary": row["public_summary"],
-                "gm_summary": row["gm_summary"],
-                "data": json_load(row["data_json"], {}),
-            }
-            for row in reversed(recent_events)
-        ],
-        "available_entity_count": len(all_entities),
-        "inspect_hint": "Use the inspect command when the turn depends on an entity not included here.",
+        "focus": {
+            "entities": [by_id[entity_id] for entity_id in sorted(selected_ids) if entity_id in by_id],
+            "relations": relevant_relations,
+        },
+        "world_index": {
+            "entities": [
+                {
+                    "id": entity["id"],
+                    "kind": entity["kind"],
+                    "name": entity["name"],
+                    "aliases": entity.get("aliases", []),
+                    "visibility": entity["visibility"],
+                }
+                for entity in all_entities
+            ],
+            "relations": [
+                {
+                    "id": relation["id"],
+                    "source_id": relation["source_id"],
+                    "predicate": relation["predicate"],
+                    "target_id": relation["target_id"],
+                    "visibility": relation["visibility"],
+                }
+                for relation in relations
+            ],
+        },
+        "inspect_hint": "Use inspect when a turn depends on records outside focus.",
     }
 
 
@@ -450,6 +578,33 @@ def _require_string_list(value: Any, label: str) -> list[str]:
     return value
 
 
+def _merge_patch(target: Any, patch: dict[str, Any]) -> dict[str, Any]:
+    result = dict(target) if isinstance(target, dict) else {}
+    for key, value in patch.items():
+        if value is None:
+            result.pop(key, None)
+        elif isinstance(value, dict):
+            result[key] = _merge_patch(result.get(key), value)
+        else:
+            result[key] = value
+    return result
+
+
+def _normalize_optional_object(source: dict[str, Any], key: str, label: str, target: dict[str, Any]) -> None:
+    if key in source:
+        if not isinstance(source[key], dict):
+            raise WorldSimError(f"{label} must be an object.")
+        target[key] = source[key]
+
+
+def _normalize_optional_string_list(source: dict[str, Any], key: str, label: str, target: dict[str, Any]) -> None:
+    if key in source:
+        value = source[key]
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise WorldSimError(f"{label} must be an array of strings.")
+        target[key] = value
+
+
 def _safe_asset_reference(session_path: pathlib.Path, value: str) -> str:
     path = pathlib.PurePosixPath(value)
     if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != "assets":
@@ -473,6 +628,15 @@ def normalize_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]
     status = response.get("status", [])
     if not isinstance(status, list) or any(not isinstance(item, dict) for item in status):
         raise WorldSimError("response.status must be an array of objects.")
+    normalized_status = []
+    for index, item in enumerate(status):
+        label = item.get("label")
+        value = item.get("value")
+        if not isinstance(label, str) or not label.strip():
+            raise WorldSimError(f"response.status[{index}].label must be a non-empty string.")
+        if not isinstance(value, str) or not value.strip():
+            raise WorldSimError(f"response.status[{index}].value must be a non-empty string.")
+        normalized_status.append({"label": label.strip(), "value": value.strip()})
     visuals = response.get("visuals", [])
     if not isinstance(visuals, list) or any(not isinstance(item, dict) for item in visuals):
         raise WorldSimError("response.visuals must be an array of objects.")
@@ -482,14 +646,20 @@ def normalize_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]
         if not isinstance(asset_path, str):
             raise WorldSimError(f"response.visuals[{index}].asset_path is required.")
         normalized_visuals.append({**visual, "asset_path": _safe_asset_reference(session_path, asset_path)})
+    emphasis = response.get("emphasis", [])
+    if not isinstance(emphasis, list) or any(
+        not isinstance(phrase, str) or not phrase.strip() for phrase in emphasis
+    ):
+        raise WorldSimError("response.emphasis must be an array of non-empty strings.")
     normalized_response = {
         "markdown": markdown.strip(),
+        "emphasis": [phrase.strip() for phrase in emphasis],
         "scene_label": str(response.get("scene_label", "")).strip(),
-        "status": status,
+        "status": normalized_status,
         "visuals": normalized_visuals,
     }
     session_patch = _require_object(payload.get("session"), "session")
-    normalized_session: dict[str, str] = {}
+    normalized_session: dict[str, Any] = {}
     for key in ("display_name", "language"):
         if key in session_patch:
             if not isinstance(session_patch[key], str) or not session_patch[key].strip():
@@ -502,6 +672,8 @@ def normalize_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]
     for key in ("player_id", "scene_id"):
         if key in session_patch:
             normalized_session[key] = _require_id(session_patch[key], f"session.{key}")
+    _normalize_optional_object(session_patch, "narration", "session.narration", normalized_session)
+    _normalize_optional_object(session_patch, "presentation", "session.presentation", normalized_session)
     entities = payload.get("upsert_entities", [])
     if not isinstance(entities, list):
         raise WorldSimError("upsert_entities must be an array.")
@@ -510,24 +682,25 @@ def normalize_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]
         if not isinstance(entity, dict):
             raise WorldSimError(f"upsert_entities[{index}] must be an object.")
         entity_id = _require_id(entity.get("id"), f"upsert_entities[{index}].id")
-        kind = entity.get("kind")
-        name = entity.get("name")
-        if not isinstance(kind, str) or not kind.strip() or not isinstance(name, str) or not name.strip():
-            raise WorldSimError(f"upsert_entities[{index}] requires kind and name.")
-        normalized_entities.append(
-            {
-                "id": entity_id,
-                "kind": kind.strip(),
-                "name": name.strip(),
-                "aliases": _require_string_list(entity.get("aliases"), f"upsert_entities[{index}].aliases"),
-                "public": _require_object(entity.get("public"), f"upsert_entities[{index}].public"),
-                "gm": _require_object(entity.get("gm"), f"upsert_entities[{index}].gm"),
-                "visibility": entity.get("visibility", "public"),
-                "active": bool(entity.get("active", True)),
-            }
-        )
-        if normalized_entities[-1]["visibility"] not in {"public", "gm"}:
-            raise WorldSimError("Entity visibility must be public or gm.")
+        normalized_entity: dict[str, Any] = {"id": entity_id}
+        for key in ("kind", "name"):
+            if key in entity:
+                value = entity[key]
+                if not isinstance(value, str) or not value.strip():
+                    raise WorldSimError(f"upsert_entities[{index}].{key} must be a non-empty string.")
+                normalized_entity[key] = value.strip()
+        _normalize_optional_string_list(entity, "aliases", f"upsert_entities[{index}].aliases", normalized_entity)
+        for key in ("public", "gm", "presentation"):
+            _normalize_optional_object(entity, key, f"upsert_entities[{index}].{key}", normalized_entity)
+        if "visibility" in entity:
+            if entity["visibility"] not in {"public", "gm"}:
+                raise WorldSimError("Entity visibility must be public or gm.")
+            normalized_entity["visibility"] = entity["visibility"]
+        if "active" in entity:
+            if not isinstance(entity["active"], bool):
+                raise WorldSimError(f"upsert_entities[{index}].active must be a boolean.")
+            normalized_entity["active"] = entity["active"]
+        normalized_entities.append(normalized_entity)
     relations = payload.get("upsert_relations", [])
     if not isinstance(relations, list):
         raise WorldSimError("upsert_relations must be an array.")
@@ -535,24 +708,26 @@ def normalize_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]
     for index, relation in enumerate(relations):
         if not isinstance(relation, dict):
             raise WorldSimError(f"upsert_relations[{index}] must be an object.")
-        predicate = relation.get("predicate")
-        if not isinstance(predicate, str) or not predicate.strip():
-            raise WorldSimError(f"upsert_relations[{index}].predicate is required.")
-        visibility = relation.get("visibility", "public")
-        if visibility not in {"public", "gm"}:
-            raise WorldSimError("Relation visibility must be public or gm.")
-        normalized_relations.append(
-            {
-                "id": _require_id(relation.get("id"), f"upsert_relations[{index}].id"),
-                "source_id": _require_id(relation.get("source_id"), f"upsert_relations[{index}].source_id"),
-                "predicate": predicate.strip(),
-                "target_id": _require_id(relation.get("target_id"), f"upsert_relations[{index}].target_id"),
-                "public": _require_object(relation.get("public"), f"upsert_relations[{index}].public"),
-                "gm": _require_object(relation.get("gm"), f"upsert_relations[{index}].gm"),
-                "visibility": visibility,
-                "active": bool(relation.get("active", True)),
-            }
-        )
+        normalized_relation: dict[str, Any] = {"id": _require_id(relation.get("id"), f"upsert_relations[{index}].id")}
+        for key in ("source_id", "target_id"):
+            if key in relation:
+                normalized_relation[key] = _require_id(relation[key], f"upsert_relations[{index}].{key}")
+        if "predicate" in relation:
+            predicate = relation["predicate"]
+            if not isinstance(predicate, str) or not predicate.strip():
+                raise WorldSimError(f"upsert_relations[{index}].predicate must be a non-empty string.")
+            normalized_relation["predicate"] = predicate.strip()
+        for key in ("public", "gm", "presentation"):
+            _normalize_optional_object(relation, key, f"upsert_relations[{index}].{key}", normalized_relation)
+        if "visibility" in relation:
+            if relation["visibility"] not in {"public", "gm"}:
+                raise WorldSimError("Relation visibility must be public or gm.")
+            normalized_relation["visibility"] = relation["visibility"]
+        if "active" in relation:
+            if not isinstance(relation["active"], bool):
+                raise WorldSimError(f"upsert_relations[{index}].active must be a boolean.")
+            normalized_relation["active"] = relation["active"]
+        normalized_relations.append(normalized_relation)
     retire_relations = _require_string_list(payload.get("retire_relations"), "retire_relations")
     for relation_id in retire_relations:
         _require_id(relation_id, "retire_relations item")
@@ -565,7 +740,10 @@ def normalize_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]
             raise WorldSimError(f"events[{index}] must be an object.")
         normalized_events.append(
             {
-                "entity_ids": [_require_id(item, f"events[{index}].entity_ids item") for item in _require_string_list(event.get("entity_ids"), f"events[{index}].entity_ids")],
+                "entity_ids": [
+                    _require_id(item, f"events[{index}].entity_ids item")
+                    for item in _require_string_list(event.get("entity_ids"), f"events[{index}].entity_ids")
+                ],
                 "public_summary": str(event.get("public_summary", "")).strip(),
                 "gm_summary": str(event.get("gm_summary", "")).strip(),
                 "data": _require_object(event.get("data"), f"events[{index}].data"),
@@ -580,6 +758,64 @@ def normalize_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]
         "retire_relations": retire_relations,
         "events": normalized_events,
     }
+
+
+ENTITY_CREATE_FIELDS = {
+    "kind",
+    "name",
+    "aliases",
+    "public",
+    "gm",
+    "presentation",
+    "visibility",
+    "active",
+}
+RELATION_CREATE_FIELDS = {
+    "source_id",
+    "predicate",
+    "target_id",
+    "public",
+    "gm",
+    "presentation",
+    "visibility",
+    "active",
+}
+
+
+def _require_create_fields(patch: dict[str, Any], fields: set[str], label: str) -> None:
+    missing = sorted(fields - patch.keys())
+    if missing:
+        raise WorldSimError(f"New {label} requires: {', '.join(missing)}.")
+
+
+def _apply_entity_patch(row: sqlite3.Row | None, patch: dict[str, Any]) -> dict[str, Any]:
+    if row is None:
+        _require_create_fields(patch, ENTITY_CREATE_FIELDS, f"entity {patch['id']}")
+        entity: dict[str, Any] = {"id": patch["id"]}
+    else:
+        entity = _row_entity(row, include_gm=True)
+    for key in ("kind", "name", "aliases", "visibility", "active"):
+        if key in patch:
+            entity[key] = patch[key]
+    for key in ("public", "gm", "presentation"):
+        if key in patch:
+            entity[key] = _merge_patch(entity.get(key), patch[key])
+    return entity
+
+
+def _apply_relation_patch(row: sqlite3.Row | None, patch: dict[str, Any]) -> dict[str, Any]:
+    if row is None:
+        _require_create_fields(patch, RELATION_CREATE_FIELDS, f"relation {patch['id']}")
+        relation: dict[str, Any] = {"id": patch["id"]}
+    else:
+        relation = _row_relation(row, include_gm=True)
+    for key in ("source_id", "predicate", "target_id", "visibility", "active"):
+        if key in patch:
+            relation[key] = patch[key]
+    for key in ("public", "gm", "presentation"):
+        if key in patch:
+            relation[key] = _merge_patch(relation.get(key), patch[key])
+    return relation
 
 
 def commit_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]:
@@ -599,71 +835,115 @@ def commit_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]:
             raise WorldSimError(f"Turn {turn_id} is already complete with different content.")
         if turn["status"] not in {"pending", "processing"}:
             raise WorldSimError(f"Turn {turn_id} cannot be committed from status {turn['status']}.")
+        entity_records = []
+        for patch in bundle["upsert_entities"]:
+            row = connection.execute("SELECT * FROM entities WHERE id=?", (patch["id"],)).fetchone()
+            entity_records.append(_apply_entity_patch(row, patch))
+        relation_records = []
+        for patch in bundle["upsert_relations"]:
+            row = connection.execute("SELECT * FROM relations WHERE id=?", (patch["id"],)).fetchone()
+            relation_records.append(_apply_relation_patch(row, patch))
         existing_ids = {row[0] for row in connection.execute("SELECT id FROM entities")}
-        incoming_ids = {entity["id"] for entity in bundle["upsert_entities"]}
+        incoming_ids = {entity["id"] for entity in entity_records}
         known_ids = existing_ids | incoming_ids
-        for relation in bundle["upsert_relations"]:
+        for relation in relation_records:
             if relation["source_id"] not in known_ids or relation["target_id"] not in known_ids:
                 raise WorldSimError(f"Relation {relation['id']} references an unknown entity.")
         for event in bundle["events"]:
             if any(entity_id not in known_ids for entity_id in event["entity_ids"]):
                 raise WorldSimError("An event references an unknown entity.")
-        for entity in bundle["upsert_entities"]:
+        for entity in entity_records:
             connection.execute(
                 """
-                INSERT INTO entities(id, kind, name, aliases_json, public_json, gm_json, visibility, active, created_turn, updated_turn)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO entities(
+                    id, kind, name, aliases_json, public_json, gm_json,
+                    presentation_json, visibility, active, created_turn, updated_turn
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     kind=excluded.kind,
                     name=excluded.name,
                     aliases_json=excluded.aliases_json,
                     public_json=excluded.public_json,
                     gm_json=excluded.gm_json,
+                    presentation_json=excluded.presentation_json,
                     visibility=excluded.visibility,
                     active=excluded.active,
                     updated_turn=excluded.updated_turn
                 """,
                 (
-                    entity["id"], entity["kind"], entity["name"], json_dump(entity["aliases"]),
-                    json_dump(entity["public"]), json_dump(entity["gm"]), entity["visibility"],
-                    int(entity["active"]), turn_id, turn_id,
+                    entity["id"],
+                    entity["kind"],
+                    entity["name"],
+                    json_dump(entity["aliases"]),
+                    json_dump(entity["public"]),
+                    json_dump(entity["gm"]),
+                    json_dump(entity["presentation"]),
+                    entity["visibility"],
+                    int(entity["active"]),
+                    turn_id,
+                    turn_id,
                 ),
             )
-        for relation in bundle["upsert_relations"]:
+        for relation in relation_records:
             connection.execute(
                 """
-                INSERT INTO relations(id, source_id, predicate, target_id, public_json, gm_json, visibility, active, created_turn, updated_turn)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO relations(
+                    id, source_id, predicate, target_id, public_json, gm_json,
+                    presentation_json, visibility, active, created_turn, updated_turn
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     source_id=excluded.source_id,
                     predicate=excluded.predicate,
                     target_id=excluded.target_id,
                     public_json=excluded.public_json,
                     gm_json=excluded.gm_json,
+                    presentation_json=excluded.presentation_json,
                     visibility=excluded.visibility,
                     active=excluded.active,
                     updated_turn=excluded.updated_turn
                 """,
                 (
-                    relation["id"], relation["source_id"], relation["predicate"], relation["target_id"],
-                    json_dump(relation["public"]), json_dump(relation["gm"]), relation["visibility"],
-                    int(relation["active"]), turn_id, turn_id,
+                    relation["id"],
+                    relation["source_id"],
+                    relation["predicate"],
+                    relation["target_id"],
+                    json_dump(relation["public"]),
+                    json_dump(relation["gm"]),
+                    json_dump(relation["presentation"]),
+                    relation["visibility"],
+                    int(relation["active"]),
+                    turn_id,
+                    turn_id,
                 ),
             )
         for relation_id in bundle["retire_relations"]:
-            connection.execute("UPDATE relations SET active=0, updated_turn=? WHERE id=?", (turn_id, relation_id))
+            connection.execute(
+                "UPDATE relations SET active=0, updated_turn=? WHERE id=?",
+                (turn_id, relation_id),
+            )
         for event in bundle["events"]:
             connection.execute(
                 "INSERT INTO events(turn_id, entity_ids_json, public_summary, gm_summary, data_json, created_at) VALUES(?, ?, ?, ?, ?, ?)",
                 (
-                    turn_id, json_dump(event["entity_ids"]), event["public_summary"], event["gm_summary"],
-                    json_dump(event["data"]), utc_now(),
+                    turn_id,
+                    json_dump(event["entity_ids"]),
+                    event["public_summary"],
+                    event["gm_summary"],
+                    json_dump(event["data"]),
+                    utc_now(),
                 ),
             )
+        meta = read_meta(connection)
         for key, value in bundle["session"].items():
             if key in {"player_id", "scene_id"} and value not in known_ids:
                 raise WorldSimError(f"session.{key} references an unknown entity.")
-            set_meta(connection, key, value)
+            if key in {"narration", "presentation"}:
+                current = json_load(meta.get(key), {})
+                set_meta(connection, key, json_dump(_merge_patch(current, value)))
+            else:
+                set_meta(connection, key, value)
         response = bundle["response"]
         connection.execute(
             """
@@ -679,19 +959,24 @@ def commit_bundle(session_path: pathlib.Path, payload: Any) -> dict[str, Any]:
         raise
     finally:
         connection.close()
-    return {"turn_id": turn_id, "status": "complete", "idempotent": False, "session": session_status(session_path)}
+    return {
+        "turn_id": turn_id,
+        "status": "complete",
+        "idempotent": False,
+        "session": session_status(session_path),
+    }
 
 
 def inspect_world(session_path: pathlib.Path, query: str = "") -> dict[str, Any]:
     lowered = query.strip().lower()
     with connect(session_path) as connection:
         meta = read_meta(connection)
-        entity_rows = connection.execute("SELECT * FROM entities WHERE active=1 ORDER BY kind, name").fetchall()
+        entity_rows = connection.execute("SELECT * FROM entities ORDER BY kind, name").fetchall()
         entities = [_row_entity(row, include_gm=True) for row in entity_rows]
         if lowered:
             entities = [entity for entity in entities if lowered in _entity_search_text(entity)]
         selected = {entity["id"] for entity in entities}
-        relation_rows = connection.execute("SELECT * FROM relations WHERE active=1 ORDER BY predicate, id").fetchall()
+        relation_rows = connection.execute("SELECT * FROM relations ORDER BY predicate, id").fetchall()
         relations = [
             _row_relation(row, include_gm=True)
             for row in relation_rows
@@ -699,21 +984,44 @@ def inspect_world(session_path: pathlib.Path, query: str = "") -> dict[str, Any]
             or row["source_id"] in selected
             or row["target_id"] in selected
             or lowered
-            in f"{row['id']} {row['predicate']} {row['public_json']} {row['gm_json']}".lower()
+            in (
+                f"{row['id']} {row['source_id']} {row['predicate']} {row['target_id']} "
+                f"{row['public_json']} {row['gm_json']} {row['presentation_json']}"
+            ).lower()
         ]
-        events = []
-        if lowered:
-            event_rows = connection.execute("SELECT * FROM events ORDER BY id DESC LIMIT 50").fetchall()
-            events = [
-                {
-                    "id": row["id"],
-                    "turn_id": row["turn_id"],
-                    "entity_ids": json_load(row["entity_ids_json"], []),
-                    "public_summary": row["public_summary"],
-                    "gm_summary": row["gm_summary"],
-                    "data": json_load(row["data_json"], {}),
-                }
-                for row in event_rows
-                if lowered in f"{row['public_summary']} {row['gm_summary']} {row['data_json']}".lower()
-            ]
-    return {"session": meta, "query": query, "entities": entities, "relations": relations, "events": events}
+        event_rows = connection.execute("SELECT * FROM events ORDER BY id").fetchall()
+        events = [
+            {
+                "id": row["id"],
+                "turn_id": row["turn_id"],
+                "entity_ids": json_load(row["entity_ids_json"], []),
+                "public_summary": row["public_summary"],
+                "gm_summary": row["gm_summary"],
+                "data": json_load(row["data_json"], {}),
+            }
+            for row in event_rows
+            if not lowered
+            or lowered
+            in (
+                f"{row['id']} {row['turn_id']} {row['entity_ids_json']} "
+                f"{row['public_summary']} {row['gm_summary']} {row['data_json']}"
+            ).lower()
+        ]
+        turn_rows = connection.execute("SELECT * FROM turns ORDER BY id").fetchall()
+        turns = [
+            _turn_payload(row)
+            for row in turn_rows
+            if not lowered
+            or lowered
+            in (
+                f"{row['id']} {row['kind']} {row['user_text']} {row['response_markdown'] or ''} {row['error'] or ''}"
+            ).lower()
+        ]
+    return {
+        "session": _session_payload(meta),
+        "query": query,
+        "entities": entities,
+        "relations": relations,
+        "events": events,
+        "turns": turns,
+    }

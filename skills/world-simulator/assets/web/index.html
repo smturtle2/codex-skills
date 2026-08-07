@@ -11,13 +11,13 @@
     <div class="game-shell">
       <aside id="gameRail" class="game-rail" aria-label="플레이어와 세계 정보">
         <header class="rail-header">
-          <span>모험 기록</span>
+          <span id="railTitle">모험 기록</span>
           <button id="railClose" class="rail-close" type="button" aria-label="모험 기록 닫기">×</button>
         </header>
         <div id="characterSheet" class="character-sheet"></div>
         <nav class="rail-tabs" aria-label="모험 정보">
-          <button class="rail-tab active" type="button" data-panel="character" aria-selected="true">인물</button>
-          <button class="rail-tab" type="button" data-panel="world" aria-selected="false">세계</button>
+          <button id="characterTab" class="rail-tab active" type="button" data-panel="character" aria-selected="true">인물</button>
+          <button id="worldTab" class="rail-tab" type="button" data-panel="world" aria-selected="false">세계</button>
         </nav>
         <div class="rail-detail">
           <section id="characterPanel" class="rail-panel active" aria-label="인물 상세"></section>
@@ -39,8 +39,8 @@
             <button id="olderButton" class="older-button" type="button" hidden>이전 이야기 불러오기</button>
             <div id="timeline" class="timeline" aria-live="polite"></div>
             <div id="emptyState" class="empty-state">
-              <h2>어떤 세계에서 시작할까요?</h2>
-              <p>배경과 주인공, 원하는 분위기를 자유롭게 적어주세요.</p>
+              <h2 id="emptyTitle">어떤 세계에서 시작할까요?</h2>
+              <p id="emptyBody">배경과 주인공, 원하는 분위기를 자유롭게 적어주세요.</p>
             </div>
           </div>
         </section>
@@ -52,8 +52,7 @@
               <span id="commandContext"></span>
             </div>
             <form id="composer" class="composer">
-              <span id="commandMark" class="command-mark" aria-hidden="true">+</span>
-              <label class="sr-only" for="worldInput">세계 설정 또는 행동 입력</label>
+              <label id="inputLabel" class="sr-only" for="worldInput">세계 설정 또는 행동 입력</label>
               <textarea id="worldInput" rows="1" placeholder="원하는 세계와 주인공을 설명하세요…"></textarea>
               <div class="composer-controls">
                 <button id="beginButton" class="begin-button" type="button" hidden>모험 시작</button>
@@ -61,7 +60,7 @@
               </div>
             </form>
             <div class="dock-footer">
-              <span>Enter 전송 · Shift+Enter 줄바꿈</span>
+              <span id="keyboardHint">Enter 전송 · Shift+Enter 줄바꿈</span>
               <span id="notice" class="notice" role="status"></span>
             </div>
           </div>

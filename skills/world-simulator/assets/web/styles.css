@@ -132,7 +132,7 @@ button:focus-visible, textarea:focus-visible, summary:focus-visible {
   color: var(--muted);
   font-size: 10.5px;
 }
-.player-place::before { content: "위치"; color: var(--quiet); }
+.player-place::before { content: attr(data-label); color: var(--quiet); }
 .sheet-empty { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 
 .rail-tabs {
@@ -309,9 +309,8 @@ button:focus-visible, textarea:focus-visible, summary:focus-visible {
 .command-inner { width: min(100%, 740px); margin: 0 auto; }
 .command-caption { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 3px 7px; color: var(--muted); font-size: 10px; }
 .command-caption span:last-child { overflow: hidden; color: var(--quiet); text-overflow: ellipsis; white-space: nowrap; }
-.composer { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: 6px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--white); padding: 11px 10px 10px 13px; box-shadow: 0 7px 24px rgba(29, 42, 68, .07); }
+.composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--white); padding: 11px 10px 10px 13px; box-shadow: 0 7px 24px rgba(29, 42, 68, .07); }
 .composer:focus-within { border-color: #95b1ed; box-shadow: 0 8px 28px rgba(36, 95, 214, .1); }
-.command-mark { color: var(--accent); font-size: 20px; line-height: 1.5; }
 .composer textarea { width: 100%; max-height: 144px; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); padding: 3px 0; font-size: 14px; line-height: 1.55; }
 .composer textarea::placeholder { color: var(--quiet); }
 .composer textarea:disabled { opacity: .5; }

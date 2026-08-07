@@ -9,6 +9,7 @@ const elements = {
   characterPanel: document.querySelector("#characterPanel"),
   worldContent: document.querySelector("#worldContent"),
   gameRail: document.querySelector("#gameRail"),
+  railTitle: document.querySelector("#railTitle"),
   railToggle: document.querySelector("#railToggle"),
   railClose: document.querySelector("#railClose"),
   railScrim: document.querySelector("#railScrim"),
@@ -16,7 +17,12 @@ const elements = {
   railPanels: [...document.querySelectorAll(".rail-panel")],
   commandLabel: document.querySelector("#commandLabel"),
   commandContext: document.querySelector("#commandContext"),
-  commandMark: document.querySelector("#commandMark"),
+  characterTab: document.querySelector("#characterTab"),
+  worldTab: document.querySelector("#worldTab"),
+  emptyTitle: document.querySelector("#emptyTitle"),
+  emptyBody: document.querySelector("#emptyBody"),
+  inputLabel: document.querySelector("#inputLabel"),
+  keyboardHint: document.querySelector("#keyboardHint"),
   worldInput: document.querySelector("#worldInput"),
   composer: document.querySelector("#composer"),
   sendButton: document.querySelector("#sendButton"),
@@ -37,119 +43,10 @@ const model = {
   turnSnapshot: "",
 };
 
-const LABELS = {
-  condition: "상태",
-  identity: "정체",
-  role: "역할",
-  calling: "역할",
-  source_discipline: "근원 계통",
-  location: "위치",
-  pressure: "압박",
-  time: "시간",
-  summary: "개요",
-  description: "설명",
-  present: "현장 인물",
-  goal: "목표",
-  presence: "영향력",
-  appearance: "인상착의",
-  current_action: "현재 행동",
-  effect: "효과",
-  worn_by: "착용자",
-  nature: "성질",
-  restriction: "제약",
-  risk: "위험",
-  era: "시대",
-  crisis: "세계의 위기",
-  authority: "통치 세력",
-  situation: "상황",
-  known: "알려진 정보",
-  purpose: "용도",
-  scope: "진행 범위",
-  motive: "동기",
-  knowledge: "알고 있는 것",
-  attitude_to_player: "플레이어를 대하는 태도",
-  internal_tension: "내부 갈등",
-  immediate_pressure: "당면 압력",
-  opening_trigger: "시작 계기",
-  next_development: "다음 전개",
-  next_due: "예정 시점",
-  truth: "숨은 진실",
-  weakness: "약점",
-  adjudication: "판정 기준",
-  open_questions: "미정 사항",
-  agency_rule: "진행 원칙",
-  hidden_access: "숨은 통로",
-  environment: "주변 환경",
-  state: "현재 상태",
-  reason: "이유",
-  trigger: "발동 조건",
-  consequence: "결과",
-  progress: "진행도",
-  stakes: "걸린 것",
-  relationship: "관계",
-  disposition: "태도",
-  objective: "목적",
-  details: "세부 사항",
-  capability: "능력",
-  geography: "지리",
-  culture: "문화",
-  history: "역사",
-  politics: "정치",
-  practice: "운용 방식",
-  world_engine: "세계의 동력",
-  knowledge_limit: "지식의 한계",
-  authorial_boundary: "전개 경계",
-  phase: "단계",
-  technology: "기술 수준",
-  languages: "언어",
-  currency: "화폐",
-  tone: "분위기",
-  evidence: "증거",
-};
-
-const KINDS = {
-  player: "플레이어",
-  character: "인물",
-  scene: "현재 장면",
-  place: "장소",
-  faction: "세력",
-  thread: "진행 중인 사건",
-  quest: "과업",
-  threat: "위협",
-  world: "세계",
-  rule: "세계의 법칙",
-  item: "소지품",
-  culture: "종족과 문화",
-};
-
-const PREDICATES = {
-  "hunted-by": "추적당함",
-  "imprisoned-by": "구금됨",
-  "located-in": "머무름",
-  "suppresses-source-of": "근원을 억제함",
-  "tracks-source-near": "근원의 흔적을 감지함",
-  "unfolds-at": "이곳에서 진행됨",
-  investigates: "조사함",
-  observes: "주시함",
-  carries: "소지함",
-  wears: "착용함",
-  opposes: "대립함",
-  controls: "지배함",
-  serves: "소속됨",
-  knows: "알고 있음",
-  "heritage-from": "혈통이 이어짐",
-  governs: "통치함",
-  regulates: "관리함",
-  inhabits: "살아감",
-  "can-use": "사용할 수 있음",
-  "child-of": "자녀임",
-  from: "출신",
-  "member-of": "소속됨",
-  "based-in": "근거지를 둠",
-  awaits: "기다림",
-  orchestrates: "배후에서 조종함",
-  targets: "노림",
-};
+function uiText(key, fallback) {
+  const value = model.state?.presentation?.ui?.[key];
+  return typeof value === "string" && value ? value : fallback;
+}
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -158,13 +55,26 @@ function node(tag, className, text) {
   return element;
 }
 
-function appendFormattedText(element, text) {
+function escapePattern(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function appendFormattedText(element, text, emphasizedPhrases = []) {
   const source = String(text || "");
-  const emphasis = /\*\*([\s\S]+?)\*\*|([“"][^”"\n]+[”"]|「[^」\n]+」|『[^』\n]+』)/g;
+  const phrases = emphasizedPhrases
+    .filter((phrase) => typeof phrase === "string" && phrase)
+    .map(escapePattern)
+    .sort((left, right) => right.length - left.length);
+  const alternatives = [
+    "\\*\\*([\\s\\S]+?)\\*\\*",
+    "([“\"][^”\"\\n]+[”\"]|「[^」\\n]+」|『[^』\\n]+』)",
+    phrases.length ? `(${phrases.join("|")})` : "",
+  ].filter(Boolean);
+  const emphasis = new RegExp(alternatives.join("|"), "g");
   let cursor = 0;
   for (const match of source.matchAll(emphasis)) {
     if (match.index > cursor) element.append(document.createTextNode(source.slice(cursor, match.index)));
-    element.append(node("strong", "", match[1] || match[2]));
+    element.append(node("strong", "", match[1] || match[2] || match[3]));
     cursor = match.index + match[0].length;
   }
   if (cursor < source.length) element.append(document.createTextNode(source.slice(cursor)));
@@ -174,23 +84,34 @@ function valueText(value) {
   if (value === null || value === undefined || value === "") return "";
   if (Array.isArray(value)) return value.map(valueText).filter(Boolean).join(" · ");
   if (typeof value === "object") {
+    if ("value" in value && "label" in value) return valueText(value.value);
     return Object.entries(value)
       .map(([key, nested]) => {
         const text = valueText(nested);
-        return text ? `${LABELS[key] || "정보"}: ${text}` : "";
+        const label = nested && typeof nested === "object" && nested.label ? nested.label : key;
+        return text ? `${label}: ${text}` : "";
       })
       .filter(Boolean)
       .join("\n");
   }
-  if (typeof value === "boolean") return value ? "예" : "아니요";
+  if (typeof value === "boolean") {
+    return value ? uiText("boolean_true", "true") : uiText("boolean_false", "false");
+  }
   return String(value);
+}
+
+function factValue(facts, key) {
+  return valueText(facts?.[key]);
 }
 
 function meaningfulEntries(facts, omitted = []) {
   const excluded = new Set(omitted);
   return Object.entries(facts || {})
     .filter(([key, value]) => !excluded.has(key) && valueText(value))
-    .map(([key, value]) => ({ label: LABELS[key] || "특징", value: valueText(value) }));
+    .map(([key, value]) => ({
+      label: value && typeof value === "object" && value.label ? value.label : key,
+      value: valueText(value),
+    }));
 }
 
 function appendFacts(parent, facts, omitted = [], className = "entry-facts") {
@@ -218,11 +139,32 @@ function getScene() {
   return entityById(model.state?.scene_id) || model.state?.entities?.find((entity) => entity.kind === "scene") || null;
 }
 
+function renderChrome() {
+  document.documentElement.lang = model.state?.language || "ko";
+  elements.railTitle.textContent = uiText("rail_title", "모험 기록");
+  elements.railToggle.textContent = uiText("rail_title", "모험 기록");
+  elements.railClose.setAttribute("aria-label", uiText("close_rail", "모험 기록 닫기"));
+  elements.railScrim.setAttribute("aria-label", uiText("close_rail", "모험 기록 닫기"));
+  elements.characterTab.textContent = uiText("character_tab", "인물");
+  elements.worldTab.textContent = uiText("world_tab", "세계");
+  elements.olderButton.textContent = uiText("older_turns", "이전 이야기 불러오기");
+  elements.emptyTitle.textContent = uiText("empty_title", "어떤 세계에서 시작할까요?");
+  elements.emptyBody.textContent = uiText(
+    "empty_body",
+    "배경과 주인공, 원하는 분위기를 자유롭게 적어주세요."
+  );
+  elements.inputLabel.textContent = uiText("input_label", "세계 설정 또는 행동 입력");
+  elements.keyboardHint.textContent = uiText("keyboard_hint", "Enter 전송 · Shift+Enter 줄바꿈");
+  elements.beginButton.textContent = uiText("begin_button", "모험 시작");
+}
+
 function renderHeader() {
   const scene = getScene();
-  elements.worldTitle.textContent = model.state?.display_name || "새로운 세계";
-  elements.sceneTitle.textContent = scene?.name || (model.state?.mode === "studio" ? "세계를 구성하는 중" : "이야기가 이어지는 중");
-  document.title = `${elements.worldTitle.textContent} — World Simulator`;
+  elements.worldTitle.textContent = model.state?.display_name || uiText("untitled_world", "새로운 세계");
+  elements.sceneTitle.textContent = scene?.name || (model.state?.mode === "studio"
+    ? uiText("studio_scene", "세계를 구성하는 중")
+    : uiText("play_scene", "이야기가 이어지는 중"));
+  document.title = `${elements.worldTitle.textContent} — ${uiText("app_name", "World Simulator")}`;
 }
 
 function collectStatus(player) {
@@ -231,14 +173,24 @@ function collectStatus(player) {
   if (Array.isArray(responseStatus)) {
     for (const status of responseStatus) {
       if (!status || typeof status !== "object" || Array.isArray(status)) continue;
-      for (const [key, value] of Object.entries(status)) {
-        const text = valueText(value);
-        if (text) entries.push({ label: LABELS[key] || "현재 상태", value: text });
+      const label = valueText(status.label);
+      const value = valueText(status.value);
+      if (label && value) {
+        entries.push({ label, value });
+        continue;
+      }
+      for (const [legacyLabel, legacyValue] of Object.entries(status)) {
+        const legacyText = valueText(legacyValue);
+        if (legacyText) entries.push({ label: legacyLabel, value: legacyText });
       }
     }
   }
   if (!entries.length && player?.public?.condition) {
-    entries.push({ label: "상태", value: valueText(player.public.condition) });
+    const condition = player.public.condition;
+    entries.push({
+      label: condition?.label || uiText("status_label", "상태"),
+      value: valueText(condition),
+    });
   }
   return entries;
 }
@@ -251,11 +203,9 @@ function playerItems(player) {
     if (relation.source_id === player.id) relatedIds.add(relation.target_id);
     if (relation.target_id === player.id) relatedIds.add(relation.source_id);
   }
-  return (model.state?.entities || []).filter((entity) => {
-    if (entity.kind !== "item") return false;
-    const wearer = valueText(entity.public?.worn_by).toLowerCase();
-    return relatedIds.has(entity.id) || wearer.includes(player.id.toLowerCase()) || wearer.includes(player.name.toLowerCase());
-  });
+  return (model.state?.entities || []).filter(
+    (entity) => entity.kind === "item" && relatedIds.has(entity.id)
+  );
 }
 
 function renderCharacter() {
@@ -263,8 +213,14 @@ function renderCharacter() {
   elements.characterPanel.replaceChildren();
   const player = getPlayer();
   if (!player) {
-    elements.characterSheet.append(node("p", "sheet-empty", "세계가 정해지면 이곳에 주인공의 정체와 상태가 자리 잡습니다."));
-    elements.characterPanel.append(node("p", "sheet-empty", "주인공의 상세 정보가 이곳에 쌓입니다."));
+    elements.characterSheet.append(node("p", "sheet-empty", uiText(
+      "character_empty",
+      "세계가 정해지면 이곳에 주인공의 정체와 상태가 자리 잡습니다."
+    )));
+    elements.characterPanel.append(node("p", "sheet-empty", uiText(
+      "character_detail_empty",
+      "주인공의 상세 정보가 이곳에 쌓입니다."
+    )));
     return;
   }
 
@@ -272,35 +228,44 @@ function renderCharacter() {
   const sigil = node("div", "character-sigil", Array.from(player.name || "?")[0] || "?");
   const name = node("div", "character-name");
   name.append(node("h2", "", player.name));
-  const role = player.public?.role || player.public?.calling || player.public?.identity;
-  if (role) name.append(node("p", "", valueText(role)));
+  const role = factValue(player.public, "role")
+    || factValue(player.public, "calling")
+    || factValue(player.public, "identity");
+  if (role) name.append(node("p", "", role));
   identity.append(sigil, name);
   elements.characterSheet.append(identity);
 
   const now = node("div", "player-now");
   const statuses = collectStatus(player);
   if (statuses.length) {
-    for (const status of statuses.slice(0, 2)) {
+    for (const status of statuses) {
       const item = node("div", "now-item");
       item.append(node("span", "", status.label), node("strong", "", status.value));
       now.append(item);
     }
   }
   const scene = getScene();
-  if (scene) now.append(node("div", "player-place", scene.name));
+  if (scene) {
+    const place = node("div", "player-place", scene.name);
+    place.dataset.label = uiText("location_label", "위치");
+    now.append(place);
+  }
   if (now.childElementCount) elements.characterSheet.append(now);
 
   const traits = node("section", "sheet-section");
-  traits.append(node("h3", "", "인물"));
+  traits.append(node("h3", "", uiText("character_section", "인물")));
   if (!appendFacts(traits, player.public, ["role", "calling", "condition"], "sheet-facts")) {
-    traits.append(node("p", "sheet-empty", "인물의 면모가 아직 정해지지 않았습니다."));
+    traits.append(node("p", "sheet-empty", uiText(
+      "character_facts_empty",
+      "인물의 면모가 아직 정해지지 않았습니다."
+    )));
   }
   elements.characterPanel.append(traits);
 
   const items = playerItems(player);
   if (items.length) {
     const equipment = node("section", "sheet-section");
-    equipment.append(node("h3", "", "소지품과 장비"));
+    equipment.append(node("h3", "", uiText("inventory_section", "소지품과 장비")));
     const tags = node("div", "sheet-tags");
     for (const item of items) tags.append(node("span", "sheet-tag", item.name));
     equipment.append(tags);
@@ -309,11 +274,13 @@ function renderCharacter() {
 
   if (scene) {
     const location = node("section", "sheet-section");
-    location.append(node("h3", "", "현재 위치"));
+    location.append(node("h3", "", uiText("location_section", "현재 위치")));
     const summary = node("div", "location-summary");
     summary.append(node("strong", "", scene.name));
-    const detail = scene.public?.summary || scene.public?.situation || scene.public?.environment;
-    if (detail) summary.append(node("p", "", valueText(detail)));
+    const detail = factValue(scene.public, "summary")
+      || factValue(scene.public, "situation")
+      || factValue(scene.public, "environment");
+    if (detail) summary.append(node("p", "", detail));
     location.append(summary);
     elements.characterPanel.append(location);
   }
@@ -321,12 +288,12 @@ function renderCharacter() {
 
 function renderEntity(entity) {
   const entry = node("article", "world-entry");
-  entry.append(node("span", "entry-kind", KINDS[entity.kind] || "세계 정보"));
+  entry.append(node("span", "entry-kind", entity.kind_label || entity.kind));
   entry.append(node("h3", "", entity.name));
   appendFacts(entry, entity.public);
   if (entity.gm && Object.keys(entity.gm).length) {
     const secret = node("div", "secret-note");
-    secret.append(node("strong", "", "진행 메모"));
+    secret.append(node("strong", "", uiText("gm_note", "진행 메모")));
     appendFacts(secret, entity.gm);
     entry.append(secret);
   }
@@ -359,13 +326,16 @@ function relationSection(relations) {
   const section = node("details", "world-section");
   rememberSection(section, "relations");
   const summary = node("summary");
-  summary.append(node("span", "", "관계"), node("span", "world-count", relations.length));
+  summary.append(
+    node("span", "", uiText("relations_section", "관계")),
+    node("span", "world-count", relations.length)
+  );
   const body = node("div", "world-section-body");
   for (const relation of relations) {
     const source = entityById(relation.source_id);
     const target = entityById(relation.target_id);
     if (!source || !target) continue;
-    const predicate = PREDICATES[relation.predicate] || "연관됨";
+    const predicate = relation.predicate_label || relation.predicate;
     const line = node("div", "relation-line", `${source.name} · ${predicate} · ${target.name}`);
     const detail = valueText(relation.public);
     if (detail) line.append(node("div", "", detail));
@@ -382,17 +352,29 @@ function renderWorld() {
   const all = model.state?.entities || [];
   const player = getPlayer();
   const scene = getScene();
+  const grouped = new Map();
+  for (const entity of all) {
+    if (entity.id === player?.id || entity.id === scene?.id) continue;
+    const group = grouped.get(entity.kind) || {
+      title: entity.kind_label || entity.kind,
+      entities: [],
+    };
+    group.entities.push(entity);
+    grouped.set(entity.kind, group);
+  }
+  const entityGroups = [...grouped.entries()]
+    .sort((left, right) => left[1].title.localeCompare(right[1].title))
+    .map(([kind, group]) => worldSection(group.title, group.entities, `kind:${kind}`));
   const groups = [
-    worldSection("현재 장면", scene ? [scene] : [], "scene", true),
-    worldSection("등장인물", all.filter((entity) => entity.kind === "character" && entity.id !== player?.id), "characters"),
-    worldSection("진행 중", all.filter((entity) => ["thread", "quest", "threat"].includes(entity.kind)), "threads", true),
-    worldSection("종족과 문화", all.filter((entity) => entity.kind === "culture"), "cultures"),
-    worldSection("장소와 세력", all.filter((entity) => ["place", "faction", "world"].includes(entity.kind)), "places"),
-    worldSection("규칙과 물건", all.filter((entity) => ["rule", "item"].includes(entity.kind)), "rules"),
+    worldSection(uiText("scene_section", "현재 장면"), scene ? [scene] : [], "scene", true),
+    ...entityGroups,
     relationSection(model.state?.relations || []),
   ].filter(Boolean);
   if (!groups.length) {
-    elements.worldContent.append(node("p", "world-empty", "플레이를 시작하면 발견한 인물과 장소, 이어지는 사건이 이곳에 쌓입니다."));
+    elements.worldContent.append(node("p", "world-empty", uiText(
+      "world_empty",
+      "플레이를 시작하면 발견한 인물과 장소, 이어지는 사건이 이곳에 쌓입니다."
+    )));
     return;
   }
   elements.worldContent.append(...groups);
@@ -407,8 +389,8 @@ function renderTurn(turn) {
   const exchange = node("article", "exchange");
   exchange.dataset.turnId = turn.id;
   const intent = node("div", `player-intent${turn.kind === "studio" ? " concept" : ""}`);
-  const mark = turn.kind === "studio" ? "구상" : "›";
-  const visibleInput = turn.kind === "begin" ? "모험을 시작한다." : turn.user_text;
+  const mark = turn.kind === "studio" ? uiText("concept_mark", "구상") : "›";
+  const visibleInput = turn.user_text;
   const intentText = node("p", "intent-text");
   appendFormattedText(intentText, visibleInput);
   intent.append(node("span", "intent-mark", mark), intentText);
@@ -417,7 +399,7 @@ function renderTurn(turn) {
   if (turn.response) {
     if (turn.response.scene_label) exchange.append(node("div", "scene-label", turn.response.scene_label));
     const narration = node("div", "narration");
-    appendFormattedText(narration, turn.response.markdown);
+    appendFormattedText(narration, turn.response.markdown, turn.response.emphasis);
     exchange.append(narration);
     if (Array.isArray(turn.response.visuals) && turn.response.visuals.length) {
       const visuals = node("div", "visual-list");
@@ -426,7 +408,7 @@ function renderTurn(turn) {
         const figure = node("figure");
         const image = node("img");
         image.src = visualPath(visual.asset_path);
-        image.alt = visual.alt || "이야기 장면";
+        image.alt = visual.alt || uiText("visual_alt", "이야기 장면");
         figure.append(image);
         if (visual.caption) figure.append(node("figcaption", "", visual.caption));
         visuals.append(figure);
@@ -434,9 +416,9 @@ function renderTurn(turn) {
       exchange.append(visuals);
     }
   } else if (turn.status === "pending" || turn.status === "processing") {
-    exchange.append(node("p", "turn-wait", "세계가 반응하고 있습니다…"));
+    exchange.append(node("p", "turn-wait", uiText("processing_turn", "세계가 반응하고 있습니다…")));
   } else if (turn.error) {
-    exchange.append(node("p", "turn-wait", "이 장면을 이어가지 못했습니다."));
+    exchange.append(node("p", "turn-wait", uiText("turn_error", "이 장면을 이어가지 못했습니다.")));
   }
   return exchange;
 }
@@ -451,19 +433,25 @@ function renderCommand() {
   const studio = model.state?.mode !== "play";
   const busy = Boolean(model.state?.processing) || model.submitting;
   const scene = getScene();
-  elements.commandLabel.textContent = studio ? "세계 구상" : "행동 또는 대사";
-  elements.commandContext.textContent = studio ? "설정을 함께 구체화합니다" : scene?.name || "현재 장면";
-  elements.commandMark.textContent = studio ? "+" : "›";
+  elements.commandLabel.textContent = studio
+    ? uiText("studio_input_title", "세계 구상")
+    : uiText("play_input_title", "행동 또는 대사");
+  elements.commandContext.textContent = studio
+    ? uiText("studio_input_context", "설정을 함께 구체화합니다")
+    : scene?.name || uiText("current_scene", "현재 장면");
   elements.worldInput.placeholder = studio
-    ? "원하는 세계와 주인공을 설명하세요…"
-    : "무엇을 하거나 말할지 자유롭게 적으세요…";
+    ? uiText("studio_placeholder", "원하는 세계와 주인공을 설명하세요…")
+    : uiText("play_placeholder", "무엇을 하거나 말할지 자유롭게 적으세요…");
   elements.worldInput.disabled = busy;
   elements.sendButton.disabled = busy;
-  elements.sendButton.textContent = busy ? "기다리는 중" : "전송";
+  elements.sendButton.textContent = busy
+    ? uiText("waiting", "기다리는 중")
+    : uiText("send", "전송");
   elements.beginButton.hidden = !model.state?.can_begin || busy;
 }
 
 function render() {
+  renderChrome();
   renderHeader();
   renderCharacter();
   renderWorld();
@@ -541,6 +529,7 @@ async function refresh() {
   model.stateSnapshot = stateSnapshot;
   model.turnSnapshot = turnSnapshot;
   if (stateChanged) {
+    renderChrome();
     renderHeader();
     renderCharacter();
     renderWorld();
@@ -611,7 +600,10 @@ elements.worldInput.addEventListener("keydown", (event) => {
   }
 });
 elements.worldInput.addEventListener("input", resizeInput);
-elements.beginButton.addEventListener("click", () => submit("/api/begin", "모험을 시작한다."));
+elements.beginButton.addEventListener("click", () => submit(
+  "/api/begin",
+  uiText("begin_input", "모험을 시작한다.")
+));
 elements.olderButton.addEventListener("click", loadOlder);
 for (const tab of elements.railTabs) tab.addEventListener("click", () => setActivePanel(tab.dataset.panel));
 elements.railToggle.addEventListener("click", () => setRailOpen(true));
@@ -623,8 +615,8 @@ document.addEventListener("keydown", (event) => {
 
 loadInitial().catch((error) => {
   setNotice(error.message);
-  elements.emptyState.querySelector("h2").textContent = "세계를 불러오지 못했습니다";
-  elements.emptyState.querySelector("p").textContent = "서버가 실행 중인지 확인해주세요.";
+  elements.emptyTitle.textContent = uiText("load_error_title", "세계를 불러오지 못했습니다");
+  elements.emptyBody.textContent = uiText("load_error_body", "서버가 실행 중인지 확인해주세요.");
 });
 
 setInterval(() => {

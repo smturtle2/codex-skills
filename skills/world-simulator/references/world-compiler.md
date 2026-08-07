@@ -1,44 +1,65 @@
 # World Compiler
 
-Use this guide for every Studio turn and for the `begin` transition.
+Use this guide for Studio turns and the `begin` transition.
 
-## Purpose
+## Choose a Direction Worth Playing
 
-Turn the user's language into a playable causal model, not a decorative lore dump. The result must support immediate scenes, future consequences, and natural revision without requiring the user to fill a form.
+Interpret the user's constraints, desired fantasy, tone, boundaries, named facts, and deliberate unknowns as a creative brief. Preserve the experience and degree of familiarity or novelty the user asked for.
 
-## Compile in This Order
+Before writing canon, privately explore genuinely different directions that honor that brief. Do not expose the brainstorm or adopt the first idea merely because it is coherent, unusual, or easy to explain. Select, combine, and develop the direction that creates the strongest desire to enter the world and act within it.
 
-1. Extract hard constraints: genre, tone, scale, player fantasy, boundaries, named facts, and requested exceptions.
-2. Find the world's engine: what people want, what prevents them from getting it, what changes if nobody intervenes, and why the player can matter.
-3. Reconcile gaps with the smallest useful assumptions. State material assumptions in the visible Studio response; do not bury them as settled canon.
-4. Create or update stable records. Typical kinds include `player`, `scene`, `character`, `place`, `faction`, `rule`, `item`, `thread`, `quest`, and `threat`; these are vocabulary, not a mandatory schema.
-5. Connect records with directed relations whose predicates say something operational, such as `owes`, `controls`, `hunts`, `protects`, or `located-in`.
-6. Give active threats and threads a present condition, pressure, likely next development, and—when useful—a numeric `gm.next_due` turn.
-7. Establish a player record and prospective scene as soon as the user's concept supports them. Keep unknown player details open rather than inventing a biography.
+Judge the direction from play outward. It should offer people with chemistry and conflicting wants, immediate situations with pressure and room for the player, and places, customs, institutions, or mysteries that can produce meaningfully different scenes. Its appeal should be tangible before the underlying lore is explained. A unifying concept earns prominence when it expands those possibilities; repeating the same motif through every power, secret, place, and character does not create depth by itself.
 
-## Separate Public and GM Truth
+Privately audition the direction as an opening encounter and as unlike future situations. If its attraction depends on explaining the premise, or those situations collapse into repetitions of one device, deepen or replace the direction before committing it.
 
-Put established player-visible knowledge in `public`. Put secrets, concealed motives, unrevealed causes, future pressure, and adjudication notes in `gm`. Mark an entire entity or relation `visibility: "gm"` when even its existence is secret.
+## Build a World With Breadth
 
-The Studio UI may show GM structure so the user can co-author the world. Once play begins, the API removes GM fields and GM-only records from the browser.
+Once the direction is worth playing, establish a rich setting early rather than delaying every fact until it appears on screen. Develop whichever geography, history, cultures, factions, institutions, important NPCs, relationships, secrets, conflicts, and opening pressures make this particular world coherent and playable.
+
+Find the causal texture of the world: what its people want, what is in their way, what they misunderstand, what power structures shape them, what may change without the player, and why the player can matter. Connect these elements through consequences while retaining independent motives, histories, and sources of conflict. Prepare a living situation with many possible developments, not a predetermined plot or one thesis expressed at world scale.
+
+Make useful assumptions when the concept leaves room. Surface only assumptions whose revision would materially change play. Accept revision naturally instead of running a setup questionnaire.
+
+## Author Canon and Presentation Together
+
+Store all canonical setting data in English:
+
+- canonical entity names and Latin/English aliases;
+- `public` and `gm` facts;
+- relation predicates and facts;
+- event summaries and data;
+- the session narration profile.
+
+Store the user's language and script separately under `presentation`. Localize names, aliases, kind and predicate labels, fact labels and values, the narration profile, the world title, and browser chrome. The localized layer expresses canon; it does not replace or reinterpret it.
+
+Separate player-visible knowledge in `public` from concealed motives, causes, misconceptions, secrets, and unrevealed consequences in `gm`. During Studio the browser may show GM material for co-authoring. During Play the browser omits GM-only material.
+
+## Establish Roleplay
+
+Create the canonical session narration profile with free-form English prose fields:
+
+- `role`: what kind of storyteller is speaking;
+- `focalization`: whose perceptions and knowledge shape what can be told;
+- `voice`: the narrator's personality, diction, distance, and attitude;
+- `delivery`: how the voice handles pace, clarity, dialogue, action, reflection, and scene changes.
+
+Give consequential NPCs enough inner structure to act rather than wait for plot instructions: desires, current intent, knowledge and misconceptions, secrets, relationships, emotional state, and speaking voice. These are semantic facts for Codex to interpret, not fields for Python to evaluate.
 
 ## Write the Studio Response
 
-Summarize what the world has become in clear prose. Highlight the few assumptions or tensions that most affect play. Ask a natural open question only when its answer would materially reshape the world; do not emit a numbered setup wizard or a list of canned options.
+Tell the user what the world has become and which tensions or assumptions most affect play. Keep the visible explanation easy to grasp; do not dump every stored fact. Write clean prose without inline emphasis markup. Put the exact localized defining terms, material assumptions, revisions, or sentences that most affect play in `response.emphasis`. The browser emphasizes quoted dialogue automatically. Keep ordinary supporting prose unmarked so the reading hierarchy remains meaningful.
 
-Mark the few defining terms, assumptions, or sentences with `**bold**`. If the response contains spoken dialogue, bold the complete spoken line including its quotation marks. Keep ordinary supporting prose unbolded so the emphasis remains meaningful.
-
-Revision is compilation, not append-only lore. When the user changes a premise, update every affected entity and relation so the ledger has one current truth. Retire obsolete relations explicitly.
+Revision changes the current truth. Patch all affected records and retire obsolete relations so the ledger does not contain competing versions.
 
 ## Begin Play
 
-For a `begin` turn:
+For `begin`:
 
-- apply any final instruction in the input;
+- apply any final world instruction;
 - set `session.mode` to `play`;
 - set valid `player_id` and `scene_id` values;
-- open on a concrete situation already in motion;
-- give the player sensory facts and meaningful room to act;
-- avoid narrating the player's choice, feelings, or response.
+- open on a concrete situation already moving;
+- make the result, immediate reactions, and room to act legible;
+- do not narrate the player's unsubmitted choice, feelings, or response.
 
-The opening is the first play scene, not a recap followed by an action menu.
+The opening is a performed scene, not a lore recap followed by a menu.
