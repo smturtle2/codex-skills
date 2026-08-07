@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-8-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/assets-16-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
+[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/assets-16-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
 
-A small, installable catalog of Codex skills for image generation, EPUB translation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, and Gomoku.
+A small, installable catalog of Codex skills for silent idea capture, image generation, EPUB translation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, and Gomoku.
 
 Each skill is self-contained with a `SKILL.md` trigger contract plus any local scripts, references, assets, and agent metadata it needs.
 
@@ -21,6 +21,7 @@ Languages: English | [한국어](README.ko.md)
 
 | Skill | Best for | Output | Install |
 | --- | --- | --- | --- |
+| [`idea-scribe`](#idea-scribe) | Silently capturing a stream of ideas while maintaining the current organized view | Append-only `raw.txt` and rewritten `organized.html` | [Prompt](#idea-scribe) |
 | [`image-creator`](#image-creator) | Generating, editing, or removing backgrounds from project-local raster images | Saved raster file or true-alpha PNG plus the exact final prompt | [Prompt](#image-creator) |
 | [`epub-translator`](#epub-translator) | Naturally translating EPUB books with text-slot extraction and text-bearing images | New translated `.epub`, run folder, chunk translations, image job ledger, and validation summary | [Prompt](#epub-translator) |
 | [`animation-creator`](#animation-creator) | Creating project-local character animation assets | Run folder with prompts, layout guides, frames, validation, contact sheets, and previews | [Prompt](#animation-creator) |
@@ -39,6 +40,23 @@ Use $skill-installer to install skills/<skill-name> from https://github.com/smtu
 ```
 
 ## Catalog
+
+### `idea-scribe`
+
+Record the user's ongoing idea stream verbatim while maintaining a readable brief of only the ideas that remain active.
+
+| Field | Details |
+| --- | --- |
+| Folder | `skills/idea-scribe` |
+| Use when | The user wants to think aloud without conversational interruption while Codex records and organizes the material. |
+| Produces | Exactly two files: append-only `raw.txt` and a self-contained, single-column `organized.html` current-state brief. |
+| Avoids | Clarifying dialogue, invented conclusions, change history in the organized view, spatial graphs, and additional user-facing artifacts. |
+
+Install:
+
+```text
+Use $skill-installer to install skills/idea-scribe from https://github.com/smturtle2/codex-skills.
+```
 
 ### `image-creator`
 

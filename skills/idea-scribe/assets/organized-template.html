@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Idea Scribe</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
+      font-synthesis: none;
+      line-height: 1.65;
+      color: #202124;
+      background: #f6f5f2;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: inherit;
+    }
+
+    main {
+      width: min(calc(100% - 2rem), 72ch);
+      margin-inline: auto;
+      padding-block: clamp(3rem, 8vw, 7rem);
+    }
+
+    header {
+      margin-block-end: 3.5rem;
+      padding-block-end: 2rem;
+      border-block-end: 1px solid #d8d5ce;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.22;
+      text-wrap: balance;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.25rem, 7vw, 4.5rem);
+      letter-spacing: -0.045em;
+    }
+
+    h2 {
+      margin-block: 3.5rem 1rem;
+      font-size: clamp(1.45rem, 4vw, 2rem);
+      letter-spacing: -0.025em;
+    }
+
+    h3 {
+      margin-block: 2rem 0.75rem;
+      font-size: 1.15rem;
+    }
+
+    p,
+    ul,
+    ol,
+    dl,
+    blockquote {
+      margin-block: 0 1.25rem;
+    }
+
+    .lede {
+      margin-block: 1.5rem 0;
+      max-width: 60ch;
+      color: #55534e;
+      font-size: clamp(1.1rem, 2.5vw, 1.3rem);
+    }
+
+    ul,
+    ol {
+      padding-inline-start: 1.4rem;
+    }
+
+    li + li {
+      margin-block-start: 0.6rem;
+    }
+
+    dt {
+      font-weight: 700;
+    }
+
+    dd {
+      margin: 0.25rem 0 1.25rem;
+    }
+
+    blockquote {
+      margin-inline: 0;
+      padding-inline-start: 1.25rem;
+      border-inline-start: 3px solid #8b7355;
+      color: #55534e;
+    }
+
+    code {
+      font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color: #e8e6e1;
+        background: #181817;
+      }
+
+      header {
+        border-color: #3c3a36;
+      }
+
+      .lede,
+      blockquote {
+        color: #bdb9b0;
+      }
+    }
+
+    @media print {
+      :root {
+        color: #000;
+        background: #fff;
+      }
+
+      main {
+        width: 100%;
+        padding: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+  </main>
+</body>
+</html>

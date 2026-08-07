@@ -1,8 +1,8 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-8-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/assets-16-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
+[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/assets-16-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
 
-이미지 생성, EPUB 번역, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 세계 시뮬레이션, 오목 플레이를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
+말없는 아이디어 기록, 이미지 생성, EPUB 번역, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 세계 시뮬레이션, 오목 플레이를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
 
 각 스킬은 `SKILL.md` 트리거 계약과 필요한 로컬 스크립트, 참조 문서, 에셋, agent 메타데이터를 함께 담는 독립 폴더다.
 
@@ -21,6 +21,7 @@
 
 | 스킬 | 적합한 작업 | 결과 | 설치 |
 | --- | --- | --- | --- |
+| [`idea-scribe`](#idea-scribe) | 아이디어 흐름을 방해하지 않고 기록하면서 현재 정리본 유지 | 누적형 `raw.txt`와 다시 작성되는 `organized.html` | [프롬프트](#idea-scribe) |
 | [`image-creator`](#image-creator) | 프로젝트 안에 raster 이미지 생성·편집 또는 배경 제거 | 저장된 raster 파일 또는 true-alpha PNG와 실제 전달된 최종 프롬프트 | [프롬프트](#image-creator) |
 | [`epub-translator`](#epub-translator) | text-slot 추출과 텍스트 포함 이미지를 처리하는 자연스러운 EPUB 번역 | 새 번역 `.epub`, run 폴더, chunk 번역, image job ledger, validation summary | [프롬프트](#epub-translator) |
 | [`animation-creator`](#animation-creator) | 프로젝트 안에 캐릭터 애니메이션 에셋 생성 | 프롬프트, 레이아웃 가이드, 프레임, 검증, contact sheet, preview를 포함한 run 폴더 | [프롬프트](#animation-creator) |
@@ -39,6 +40,23 @@ Use $skill-installer to install skills/<skill-name> from https://github.com/smtu
 ```
 
 ## 카탈로그
+
+### `idea-scribe`
+
+사용자가 계속 내놓는 아이디어를 원문 그대로 기록하면서, 현재도 유효한 내용만 읽기 좋은 정리본으로 유지한다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 위치 | `skills/idea-scribe` |
+| 사용 시점 | 사용자가 대화로 흐름을 끊지 않은 채 생각을 쏟아내고 Codex가 이를 기록·정리하기를 원할 때 |
+| 결과 | 누적형 `raw.txt`와 독립 실행 가능한 단일 열 현재본 `organized.html`, 정확히 두 파일 |
+| 피하는 일 | 정리 질문, 입력에 없는 결론, 정리본의 변경 이력, 공간 그래프, 추가 사용자 산출물 |
+
+설치:
+
+```text
+Use $skill-installer to install skills/idea-scribe from https://github.com/smturtle2/codex-skills.
+```
 
 ### `image-creator`
 
