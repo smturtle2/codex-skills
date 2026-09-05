@@ -1,386 +1,111 @@
 ---
 name: epub-translator
-description: Translate EPUB books from any source language into the user's requested language as natural Codex-authored published book prose without external machine-translation runtimes, apply a post-translation target-structure pass from Codex-authored XHTML composition plans, adapt EPUB layout and reading structure for the target-language edition through explicit mechanical plans, package a new EPUB, and resolve visible original text in raster images through main-agent visual triage, main-authored image edit briefs, and required one-image-per-subagent $image-creator execution. Use for .epub translation, literary EPUB prose translation, text-slot chunk workflows, target-edition EPUB composition and layout adaptation, EPUB packaging/validation, and original image text replacement workflows.
+description: Translate EPUB books as new target-language editions with deterministic mechanics — reading-flow IR extraction, slim narrative chunking, agent-owned translation, and build-time reconstruction into a brand-new EPUB. Use for .epub translation, vertically-written Japanese EPUB processing, translation continuity across large books, target-edition layout adaptation, EPUB packaging, and image text replacement workflows.
 ---
 
 # EPUB Translator
 
-Translate an EPUB as a book, not as a set of isolated strings. Use the bundled helper only for deterministic EPUB mechanics. Codex owns prose translation, target-edition layout policy, and style judgment. `$image-creator` owns visual image editing.
+The helper never patches source XHTML. It extracts a **reading-flow IR**, packs **slim chunks**, and **deterministically builds** a brand-new target-language EPUB. Codex owns language, translation quality, and edition policy; `$image-creator` owns raster-image generation. `$image-creator` is for image pixels only — never prose translation.
+
+The original EPUB is evidence, not an output contract. Source wrappers, paragraph shapes, fixed offsets, and ruby/furigana are flattened; only reading order, anchor order, link destinations, and image payloads are invariant. Target XHTML and CSS are generated, not patched.
 
 ## Operating Contract
 
-- Translate into the user's requested language. If the user does not name a target language, use the current user's language.
-- Codex must author content translations directly from the EPUB text, user context, and translation notes. Do not install, discover, download, run, or use external translation runtimes, machine-translation engines, translation libraries, model packs, CLI translators, APIs, services, or language-model packages for prose, content, metadata, or chunk translation.
-- Do not use package managers, model indexes, package indexes, or dependency probes to look for translation capability. Missing local translation tooling is irrelevant to this workflow.
-- Helper commands expose EPUB mechanics only. Language, terminology, glossary hints, and translation choices stay in Codex context.
-- Treat user-provided glossaries, notes, sample translations, or adjacent files as optional context for Codex decisions.
-- Always produce a new EPUB at a path distinct from the source EPUB.
-- Treat original EPUB layout as source-edition structure. Preserve book semantics and archive integrity, while adapting reading direction, writing mode, CSS, XHTML structure, ruby/furigana handling, spacing, and punctuation layout for the target-language edition.
-- Use chunk JSON as the text source of truth and `apply-text` as the write-back mechanism.
+- Translate into the user's requested language. If no language is named, use the current user's language.
+- **Deterministic mechanics are helper-owned; language is Codex-owned.** The helper extracts, chunks, and builds; it never invents target prose. Codex owns source/target language inference, prose quality, terminology and voice decisions, and edition policy. Never delegate prose, glossary, or translation work to subagents or background workers, and never call external machine-translation engines or translation APIs for prose, metadata, or chunks.
+- Helper commands expose EPUB mechanics only — don't put glossary hints or translation choices into plan files.
+- Treat user glossaries, notes, or sample translations as optional context for Codex.
+- Always produce a **new** EPUB at a path distinct from the source.
 - Every editable image job must end as `skipped_no_text` or `edited`.
-- For raster image text, use direct visual review by the main agent. Do not use OCR or automated image-text extraction.
+- For raster image text, use direct visual review by the main agent. Do not use OCR or automated bulk image-text extraction.
 
 ## Helper Boundary
 
-The helper script is an EPUB mechanics tool. It may:
-
-- inspect EPUB structure;
-- unpack the EPUB into a run folder;
-- extract text units and safe write-back slots;
-- export editable raster images as source files;
-- apply completed slot translations;
-- export translated XHTML structure blocks for Codex-owned target-structure planning;
-- apply an explicit Codex-authored target-structure plan to translated XHTML;
-- apply an explicit target-edition layout plan to OPF, CSS, or XHTML;
-- record an image job result;
-- embed a finished replacement image by copying the generated file bytes into the EPUB run;
-- package and validate the translated EPUB run.
-
-The helper script must not read, OCR, transcribe, classify, translate, or propose text from raster image pixels. It must treat images as files plus job records only.
-
-Main-agent-owned work:
-
-- translate all prose, content, metadata, and chunk text directly without external translation runtimes;
-- infer source and target language policy;
-- use optional glossary or terminology hints;
-- directly read the translated prose and decide target-language paragraphing, visual paragraph separation, line break, dialogue/narration rhythm, and XHTML composition;
-- decide target-edition layout policy;
-- visually inspect one exported source image at a time for image job triage;
-- decide whether an image job is `skipped_no_text` or requires an edited replacement;
-- prepare image edit briefs with translation context, explicit text overrides, preservation policy, and prompt constraints.
-
-Image-subagent-owned work:
-
-- execute one provided image edit brief through `$image-creator`;
-- receive exactly one source image as the edit input for that image job;
-- save the generated replacement image to the requested path;
-- report the saved replacement path and final prompt used.
-
-If a workflow needs translation judgment, layout judgment, image triage, or prompt intent, the main agent owns it. If a workflow needs image generation, a dedicated per-image subagent executes the main-authored edit brief through `$image-creator`, then hands the completed replacement image back to the main agent for helper recording and closure.
+The helper may: inspect an EPUB; ingest it into a run folder (extract the flow IR, write chunks, export raster sources, draft `edition.json`); report `status` plus the seam of the last finished chunk; record an image job result and keep its review copy; and generate a brand-new EPUB from flow IR plus translations plus `edition.json`, with completeness and internal-link validation plus a terminology-consistency report. It treats images as files plus job records and never transcribes pixels into prose.
 
 ## Workflow
 
 Set `<skill-dir>` to the installed `epub-translator` skill directory.
 
-1. Inspect and prepare:
-
+1. **Inspect and ingest**
    ```bash
    uv run --script <skill-dir>/scripts/epub_translate.py inspect --epub <book.epub> --json
-   uv run --script <skill-dir>/scripts/epub_translate.py prepare --epub <book.epub> --workdir <run-dir>
+   uv run --script <skill-dir>/scripts/epub_translate.py ingest --epub <book.epub> --workdir <run-dir>
    ```
+   `ingest` unpacks to `<run-dir>/unpacked/`, writes the normalized flow IR to `flow/book.flow.json` (tree nodes: ruby flattened, layout wrappers unwrapped, container structure owned by parents, element ids and title/aria-label preserved, report in `flow_stats`), writes slim translation chunks to `chunks/` (schema v3), exports editable raster images to `images/source/`, creates `image-jobs.json`, drafts `edition.json`, and writes `manifest.json`. Treat this as cost already paid: do not re-extract or rewrite the run except through the helper.
 
-2. Infer the translation and target-edition layout policy from metadata, user context, and early prose. Maintain `<run-dir>/translation-notes.md` as the lead translator's state file when useful.
+2. **Decide edition policy** (`<run-dir>/edition.json`)
+   - Read `flow/book.flow.json` and early prose; then write `<run-dir>/edition.json`. Language inference is Codex-owned: Codex must set `target_language` / `language_tag` and, when needed, `page_progression_direction` (e.g., `"ltr"` for Korean) and related finite enums — no prose in this file. Treat missing or wrong values here as the code owning them being wrong and fix them in place. Set target page progression and related fixed policy from the target edition, not from the numeric run — use the content to fix the code that sets the defaults, do not fudge each EPUB.
+   - `edition.json` contract (finite enum values only — no prose keys):
+     ```json
+     { "schema_version": 1, "target_language": "ko", "language_tag": "ko", "page_progression_direction": "ltr" }
+     ```
+   - No chunk text, translation, or image-brief prose inside `edition.json`. The helper validates the schema; Codex's edition choices own the text consequences that follow.
 
-3. Translate `chunks/chunk-*.json` in chunk order into matching `translations/chunk-*.json` files. The main translator must write every final segment row directly and sequentially.
+3. **Translate** `chunks/chunk-*.json` -> `translations/chunk-*.json`
+   - Work through chunks **in numeric order, sequentially, as the main translator**. Before starting a chunk, read `status` (next chunk plus seam tail) plus `translation-notes.md` for continuity; the seam shown there is the only memory you're promised across a compression boundary — without it a translated chunk may be summarized away, so re-establish context explicitly.
+   - Maintain `<run-dir>/translation-notes.md` as the lead translator's compact global state — the **rolling summary** plus the minimal glossary (`source → target`, one entry per name/term/catchphrase) are the primary defense against an inconsistent seam; without them quality is lost the moment the viewer compresses.
+   - Skinny chunks are not an excuse for short thinking — a single `{id, source}` block can hide a long beat, an aside anchor, and a separator; read the flow context (block order, block types, anchors, nearby headings) before translating any chunk.
+   - Peripheral text (image `alt`, OPF metadata, nav labels) is already isolated into its own chunk so that prose chunks stay purely narrative. Translate the peripheral chunk with terse UI-prose discipline, not literary rhythm.
+   - **Text ownership and parallelism**: Content translation is the main translator's sequential craft. Do not delegate prose, metadata, or chunk translation to subagents or parallel workers; do not use MT output as draft, glossary source, or validator; context, voice, and terminology must live in one reader's working memory.
 
-4. Apply text:
-
+4. **Image jobs**
    ```bash
-   uv run --script <skill-dir>/scripts/epub_translate.py apply-text --workdir <run-dir> --translations <run-dir>/translations
+   uv run --script <skill-dir>/scripts/epub_translate.py record-image --workdir <run-dir> --image-id <id> --skip-no-text
+   uv run --script <skill-dir>/scripts/epub_translate.py record-image --workdir <run-dir> --image-id <id> --replacement <edited-image>
    ```
+   Resolve every job from `image-jobs.json` using the image-job contract below.
 
-5. Export the translated XHTML structure, directly read the translated prose, perform Codex-authored cleanup and composition target-structure passes, and apply the resulting plans:
-
+5. **Build and validate**
    ```bash
-   uv run --script <skill-dir>/scripts/epub_translate.py export-target-structure --workdir <run-dir> --output <run-dir>/target-structure-source.json
-   uv run --script <skill-dir>/scripts/epub_translate.py apply-target-structure --workdir <run-dir> --plan <run-dir>/target-structure-cleanup-plan.json
-   uv run --script <skill-dir>/scripts/epub_translate.py export-target-structure --workdir <run-dir> --output <run-dir>/target-structure-after-cleanup.json
-   uv run --script <skill-dir>/scripts/epub_translate.py apply-target-structure --workdir <run-dir> --plan <run-dir>/target-structure-composition-plan.json
-   ```
-
-6. If the original EPUB layout does not fit the target-language edition, write `<run-dir>/layout-plan.json` and apply it:
-
-   ```bash
-   uv run --script <skill-dir>/scripts/epub_translate.py apply-layout --workdir <run-dir> --plan <run-dir>/layout-plan.json
-   ```
-
-7. Resolve each editable image job from `<run-dir>/image-jobs.json` using the image job contract below.
-
-8. Package and validate:
-
-   ```bash
-   uv run --script <skill-dir>/scripts/epub_translate.py package --workdir <run-dir> --output <translated.epub>
+   uv run --script <skill-dir>/scripts/epub_translate.py build --workdir <run-dir> --output <translated.epub>
    uv run --script <skill-dir>/scripts/epub_translate.py validate --workdir <run-dir> --output <translated.epub>
    ```
+   `build` fails when translations are missing, an internal link points to a missing anchor, `edition.json` holds an invalid value, or an editable image job is still `pending_review`. It also writes `build-report.json` with `untranslated_candidates` (translation === source, often proper nouns) and `divergences` (same source rendered into multiple distinct translations — flagged for Codex review, not failed). Wrong-translation quality is not auto-checkable; the main agent's editing is the quality gate.
 
 ## Natural Translation Contract
 
-The target EPUB must read like publishable prose in the target language. It must not read like a literal conversion of source slots.
+The target must read like publishable prose, not a literal conversion.
 
-Required behavior:
+- Preserve plot, speaker intent, emotional temperature, and character relationships.
+- Adapt sentence structure to the target language. Translationese is a defect.
+- Match genre, scene mood, narration distance, pacing, and formality; keep each character's voice steady (age, register, bluntness, humor, habits).
+- Translate dialogue as speech for that character; narration as prose for that atmosphere; localize idioms and beats that would sound foreign.
+- Preserve the chosen names, terms, titles, honorific policy, and style consistently — the glossary in `translation-notes.md` owns that list.
+- Never add plot, explanations, censorship, summaries, or translator footnotes; translate only what's there, in the voice that was chosen.
+- Target typography, punctuation, spacing, and line rhythm follow target publishing convention.
 
-- Preserve meaning, plot facts, speaker intent, emotional temperature, and character relationships.
-- Adapt sentence structure to the target language. Source-language mechanics should not survive when they create translationese.
-- Match the book's genre, scene mood, narration distance, pacing, and formality.
-- Keep character voices consistent across the entire book: age, social position, bluntness, politeness, humor, sarcasm, regional flavor, and recurring speech habits.
-- Translate dialogue as natural speech in the target language while preserving subtext and relationship dynamics.
-- Translate narration as prose that fits the book's atmosphere, not as explanatory paraphrase.
-- Localize idioms, jokes, rhetorical emphasis, and emotional beats when direct translation would sound unnatural.
-- Preserve recurring names, terms, titles, honorific policy, and stylistic choices consistently.
-- Avoid adding plot information, explanations, censorship, summaries, or translator notes.
+Quality gate before writing each chunk: re-read the target text without the source — dialogue should sound like the character, narration should keep the scene's mood, and punctuation should match the chosen style. Update `translation-notes.md` only with reusable decisions; do not invent book-level facts.
 
-Target-language publishing conventions control typography, punctuation, spacing, and line rhythm. Preserve a source-edition mark only when it still serves the translated text.
+## Chunk and Item Contract
 
-`translation-notes.md` should stay concise and track only reusable decisions:
+Chunks are helper-written and translator-read; they are not Codex-owned evidence. Items inside chunks are the translation units.
 
-- genre and atmosphere;
-- narration policy;
-- dialogue and character voice policy;
-- terms, names, titles, organizations, catchphrases, and intentionally untranslated words;
-- target-language punctuation and typography policy;
-- target-edition layout and reading-direction policy;
-- unresolved decisions and later consistency corrections.
-
-## Target Structure Pass Contract
-
-After `apply-text` succeeds, treat the translated EPUB as a target-language draft that still inherits source-edition XHTML structure. Perform a separate target-structure pass before layout normalization and image handling.
-
-The target-structure pass is not a second translation pass. Use the already translated target text as the editing material. Revise wording only when the structure review exposes a translation defect that must be corrected for the target-language edition.
-
-Codex owns all target-structure decisions:
-
-- decide source-structure cleanup policy, paragraph grouping, paragraph splitting, visible paragraph separation, dialogue and narration rhythm, line-break use, scene-transition spacing, ruby/furigana removal or retention, and prose block composition according to the target language;
-- use `target-structure-source.json` only as the current translated XHTML map;
-- create explicit cleanup and composition plans as mechanical plans;
-- keep book meaning, content order, and target-language prose intact while reshaping structure;
-- personally read the translated prose in order before deciding paragraph boundaries. Do not derive composition from source child counts, maximum character counts, regular expressions, source paragraph restoration, or helper/script-generated readability heuristics.
-
-The helper owns only mechanical application:
-
-- apply exactly the Codex-authored target-structure plan;
-- replace only the specified contiguous child-element ranges with the supplied XHTML fragments;
-- verify that preserved references such as `id`, `href`, and `src` from replaced ranges still exist in the new fragment;
-- reject invalid XHTML fragments or fragments containing `script` or `style`;
-- record `target_structure_status: "applied"` after successful application.
-
-The helper must not audit, classify, infer paragraphing, merge or split blocks by itself, judge translation quality, decide whether a structure is acceptable, prefer one structure, or force the source edition's structure.
-
-Required subpasses:
-
-1. Cleanup pass:
-   - Codex must inspect every XHTML document, not only long prose documents;
-   - remove or retain source-edition-only structures according to the target-language edition policy;
-   - when removing wrappers such as ruby/furigana structures, preserve translated base text and move required references to the nearest semantically equivalent replacement element;
-   - never satisfy reference preservation by moving anchors to an unrelated location when a local placement is available.
-2. Composition pass:
-   - read the translated prose document by document, in book order, before writing replacement XHTML;
-   - reshape paragraphs, line breaks, scene spacing, dialogue turns, headings, lists, tables, blockquotes, and image-adjacent text for the target-language reading experience;
-   - make paragraph units visible with actual XHTML structure at the intended paragraph boundaries;
-   - when a visible blank paragraph break is required, put a real spacer block in the target-structure plan, such as `<p class="para-gap"><br /></p>`, and use CSS only to size or normalize that explicit block;
-   - do not treat separate `<p>` elements, CSS margin changes, or line-height changes as sufficient when the target edition needs a visible paragraph break tag;
-   - use the target language's published prose rhythm, not source XHTML child count, as the paragraphing authority;
-   - split overlong blocks when they contain multiple breath units, scene beats, speaker turns, or rhetorical turns;
-   - merge only when a source split divides one target-language sentence, phrase, or inseparable beat;
-   - do not merge across speaker turns, headings, scene transitions, list/table boundaries, blockquotes, image references, navigation anchors, or meaningfully separate emphasis blocks;
-   - write replacement XHTML only after deciding the intended reading rhythm from the prose itself.
-3. Verification loop:
-   - re-export target structure after each applied plan;
-   - Codex must read the exported XHTML map and current XHTML for source-structure residue and target-language readability defects;
-   - if the structure still conflicts with the target-language edition policy, write and apply another explicit plan;
-   - finish only when remaining source-edition structures or unusual paragraphing choices are intentionally retained for a documented target-edition reason.
-
-`target-structure-plan.json` contract:
-
-```json
-{
-  "schema_version": 1,
-  "documents": [
-    {
-      "href": "item/xhtml/p-001.xhtml",
-      "replacements": [
-        {
-          "parent_path": "0/1",
-          "start": 3,
-          "end": 6,
-          "xhtml": "<p>...</p><p>...</p>"
-        }
-      ]
-    }
-  ]
-}
-```
-
-Rules:
-
-- `parent_path` identifies the parent element path from `target-structure-source.json`.
-- `start` is inclusive and `end` is exclusive over that parent's child elements.
-- `xhtml` must be a valid XHTML fragment containing element children.
-- Use an empty `documents` list for an explicit no-op target-structure pass.
-- Do not use this plan for OPF, CSS, image replacement, or text translation.
-
-## Target Edition Structure Contract
-
-The translated EPUB is a target-language edition. Structure changes are required when the source edition's structure exists to serve the source language rather than the book's meaning.
-
-Preserve:
-
-- archive validity, OPF manifest references, spine item order, navigation targets, filenames, links, media references, metadata roles, accessibility slots, and meaningful inline semantics;
-- the intended book flow and content order;
-- existing non-replaced image references.
-
-Change when needed:
-
-- OPF `page-progression-direction`;
-- CSS `writing-mode`, vendor writing-mode properties, `direction`, text orientation, vertical-layout spacing, and source-language typography rules;
-- XHTML attributes or wrappers that force source-language reading direction or writing mode;
-- ruby/furigana display when it no longer serves the target-language edition;
-- punctuation, quote marks, line rhythm, and spacing according to target-language publishing conventions;
-- paragraph margins, indentation, scene-break spacing, line height, and spacer-block styling that supports the explicit paragraph-break tags inserted by the target-structure plan.
-
-Codex must decide the target-edition structure policy. The helper may only apply an explicit mechanical plan.
-
-`layout-plan.json` is optional, but required whenever the source EPUB's layout would make the translation read in the wrong direction or writing mode. Its contract:
-
-```json
-{
-  "schema_version": 1,
-  "opf": {
-    "page_progression_direction": "ltr"
-  },
-  "css": [
-    {
-      "href": "*",
-      "replace_declarations": {
-        "writing-mode": "horizontal-tb",
-        "-epub-writing-mode": "horizontal-tb",
-        "-webkit-writing-mode": "horizontal-tb",
-        "direction": "ltr"
-      },
-      "remove_declarations": ["text-orientation"],
-      "append": "html, body { writing-mode: horizontal-tb; direction: ltr; }"
-    }
-  ],
-  "xhtml": [
-    {
-      "href": "item/xhtml/p-001.xhtml",
-      "set_attributes": [
-        {"path": ".", "attributes": {"dir": "ltr"}}
-      ],
-      "remove_attributes": [
-        {"path": ".", "names": ["style"]}
-      ]
-    }
-  ]
-}
-```
-
-Rules:
-
-- Use only explicit file paths or `href: "*"` for all CSS files.
-- Use `page_progression_direction: "ltr"` or `"rtl"` to set the OPF spine value. Use `null` to remove it.
-- Use CSS declaration replacement/removal only for mechanical layout normalization. Do not put translated prose in CSS.
-- Use XHTML attribute changes only for layout attributes. Do not use layout plans to translate text.
-- Omit sections that are not needed.
-
-## Text Ownership and Parallelism
-
-Content translation is sequential, main-owned translation.
-
-- The main translator owns final prose quality, terminology, character voice, punctuation style, and continuity.
-- The only translation engine for prose, content, metadata, and chunk rows is the main translator's own reading and writing in context.
-- Work through chunks in numeric order.
-- Before starting a chunk, use previous translated prose and `translation-notes.md` for continuity.
-- After finishing a chunk, update `translation-notes.md` only for reusable decisions.
-- Do not delegate prose, content, metadata, or chunk translation to parallel agents, text-worker subagents, or background workers.
-- Context preservation is part of translation quality: character voice, terminology, relationship dynamics, foreshadowing, pacing, punctuation style, and unresolved decisions evolve across chunks and must stay in one lead translator's working context.
-- Do not use speed, chunk independence, or later reconciliation as a reason to split content translation across agents.
-- Do not use machine translation output as a draft, fallback, benchmark, glossary source, or validation oracle for content translation.
-- A subagent must not draft, rewrite, fill, reconcile, or produce translation rows for content chunks.
-
-## Unit and Slot Method
-
-Use `units[]` as the translation thinking unit and `segments[]` as the mechanical write-back unit.
-
-For each chunk:
-
-- Read `units[]` first, in order. Each unit is a translation unit such as a heading, paragraph, list item, table cell, attribute text, or metadata group.
-- Use `unit.source` for prose flow and `unit.parts[]` to see slot IDs, inline tags, links, image markers, line breaks, and emphasis boundaries.
-- Translate the whole unit as book prose before filling segment rows. Do not translate slots as isolated fragments when the unit forms one sentence, phrase, paragraph, joke, or emotional beat.
-- Decide the target sentence that best fits the book's tone first; only then distribute that sentence into segment rows.
-- Use `segment_ids` to distribute the natural target unit back into the required slot rows.
-- Keep inline semantics attached to the right words: emphasized source slots should receive the emphasized target words, link slots should receive the linked target words, and tail slots should carry surrounding grammar.
-- Move words across slots inside the same unit when target-language grammar requires it.
-- Use an empty string for a slot only when its meaning has moved into another slot in the same unit. Do not duplicate moved text.
-- Preserve punctuation once. Move or replace punctuation according to target-language publishing convention.
-- Translate `xhtml_attribute` slots as concise accessibility/UI text, not literary prose.
-- Treat `opf_metadata` as book metadata. Use book-level context for title, creator, publisher, description, and subject consistency.
-- Write the final segment rows directly in `translations/chunk-*.json`. Use `units[]` for translation judgment; do not create intermediate unit placement files or run-local conversion scripts for segment distribution.
-
-Quality gate before writing each chunk:
-
-- Re-read the target unit text without looking at the source. If it sounds translated, rewrite it.
-- Check that dialogue sounds spoken by that character, not by a generic translator.
-- Check that narration keeps the scene's pacing and mood.
-- Check that punctuation and typography follow target-language publishing conventions.
-- Check that moved words remain inside the same unit unless the surrounding chunks make a cross-unit sentence unavoidable.
-- Check that slot distribution preserves inline tags, links, image positions, and accessibility text.
-
-## Chunk Schema
-
-Input chunk files contain:
-
-- `schema_version`: `2`
-- `chunk_index`
-- `units[]`: natural translation units with `id`, `source`, `segment_ids`, and `parts[]`
-- `segments[]`: write-back slots
-
-Each unit contains:
-
-- `id`: unit ID.
-- `source`: source prose preview with simple markers such as `[img]` or `[br]` where non-text inline structure appears.
-- `segment_ids`: slot IDs belonging to the unit.
-- `parts[]`: ordered unit parts. `type: "slot"` parts identify translatable slots. `type: "marker"` parts identify non-text EPUB structure that must not be written as translation text.
-
-Use markers only to understand where structure remains in the EPUB. Do not write marker text such as `[img]` or `[br]` into translations unless the source book literally contains that text.
-
-Each segment contains:
-
-- `id`: stable ID to preserve exactly.
-- `kind`: `xhtml_text`, `xhtml_tail`, `xhtml_attribute`, or `opf_metadata`.
-- `href`: EPUB-relative source document path.
-- `path`: XML element path used by the helper.
-- `source`: source text for this slot. Ruby pronunciation text from `rt` and `rp` is excluded.
-- `unit_id`: unit containing this slot, when applicable.
-- `context_before` and `context_after`: nearby slot text for continuity.
-- `child_index`: present only for `xhtml_tail`.
-- `attribute`: present only for `xhtml_attribute`.
-
-Output translation files must contain:
-
-```json
-{
-  "schema_version": 2,
-  "chunk_index": 1,
-  "translations": [
-    {"id": "t000001", "translation": "..."}
-  ]
-}
-```
-
-Rules:
-
-- Include one translation row for every input segment in the chunk.
-- Preserve every `id` exactly.
-- Put only target-language text in `translation`.
-- Do not include notes, explanations, alternatives, source text, or markup inside `translation`.
-- Preserve leading and trailing whitespace when it appears in `source`.
-- Keep names, terms, honorifics, punctuation policy, and style consistent across chunks using user context, previous chunks, and `translation-notes.md`.
-- If a segment is punctuation, a divider, or a symbol that should remain unchanged in the target-language edition, still emit the row with that content as `translation`.
+- Input: `chunks/chunk-*.json` — `{ schema_version: 3, chunk_index, kind: "peripheral" | "prose", items: [{ id, source, block_id, block_type, href, inline? }] }`
+  - `peripheral` holds image `alt`, element `title`/`aria-label`, and OPF metadata (terse UI prose). Ignore the chunk's `kind` for translation quality; use `source` only. Attributes on flattened transparent inline wrappers (span etc.) have no output node and are not carried into the target edition.
+  - `prose` holds narrative text in spine order. A single `{id, source}` item may already be an entire sentence or a breath unit pulled from a ruby-wrapped `漢<rt>かん</rt>字` — do not re-split it.
+  - `inline` (when present) records emphasis and links, e.g., `[{tag:"em"}]` or `[{tag:"a", href:"#note1"}]`. It is layout hinting for the builder, not translation content — keep emphasis on the right target words, put the linked target words on the link slot, do not invent links.
+- Output: `translations/chunk-*.json` — `{ schema_version: 3, chunk_index, translations: [{ id, translation }] }`
+  - One row per input item, preserving every `id` exactly.
+  - `translation` is pure target-language text — newly written, one string per item, no notes, alternatives, or markup.
+  - If the translator cannot finish a chunk in one turn, do not fabricate rows; record real progress and let `status` show the seam for the next turn.
+- Do not create intermediate placement files or run-local conversion scripts between items and rows.
+- **Chunk packing invariants** (helper guarantees; agent should rely on them): block-atomic (a block's slots never split), scene/heading-aware breaks at budget, peripheral isolated, source order preserved. The agent translating a chunk should not second-guess the packing.
 
 ## Image Job Contract
 
-`prepare` exports editable raster images under `<run-dir>/images/source/` and creates `<run-dir>/image-jobs.json`. `record-image` keeps the review copy for every resolved image job under `<run-dir>/images/replacements/`: edited jobs store the generated replacement there, and `skipped_no_text` jobs store a copy of the reviewed source image there.
+`ingest` exports editable raster images under `<run-dir>/images/source/` and creates `<run-dir>/image-jobs.json`. `record-image` keeps the review copy for every resolved job under `<run-dir>/images/replacements/` (edited keeps the generated replacement; `skipped_no_text` keeps a copy of the reviewed source).
 
-Image review and image text translation are isolated one-image tasks. Before opening source images for review, verify that the current session can spawn, wait on, and close subagents. Image processing requires a dedicated per-image subagent execution path; do not silently fall back to main-thread image generation.
+Image review and image text translation are isolated one-image tasks. Before opening source images for review, verify that the current session can spawn, wait on, and close subagents. Image processing requires a dedicated per-image subagent path; do not silently fall back to main-thread image generation.
 
 Image text reading boundary:
 
 - The main agent must directly view each source image needed for triage.
-- Do not run OCR, computer-vision text extraction, image-text transcription scripts, CLI tools, libraries, services, or model-assisted bulk extraction against EPUB raster images.
+- Do not run OCR, computer-vision text extraction, image-text transcription scripts, CLI tools, libraries, services, or model-assisted bulk extraction against raster images.
 - Do not create contact sheets, visual grids, crops, or intermediate sheets for reading image text.
-- Use existing EPUB text chunks, translated prose, `translation-notes.md`, glossaries, and user context only as book context or consistency sources; they are not substitutes for direct image review.
-- Put exact source-to-target overrides in an image brief only when the main agent can justify them from direct visual review or non-image book context. Otherwise use a broad source text scope and let the image generation model handle the scoped visible text in the provided image.
-- Image subagents do not own book-level translation judgment, image triage, or text extraction. They pass exactly one provided local source image path in `referenced_image_paths` as the `$image-creator` edit input and execute the supplied brief.
+- Use existing prose, `translation-notes.md`, glossaries, and user context only as book context; they are not substitutes for direct image review.
+- Put exact source-to-target overrides in an image brief only when the main agent can justify them from direct visual review or non-image book context.
+- Image subagents do not own book-level translation judgment, image triage, or text extraction.
 
 Subagent capability gate:
 
@@ -391,109 +116,32 @@ Subagent capability gate:
 
 Per-image dispatch contract:
 
-1. Process image jobs from `<run-dir>/image-jobs.json`; do not make a contact sheet or bulk visual sheet for triage.
+1. Process jobs from `<run-dir>/image-jobs.json`; do not make a contact sheet or bulk visual sheet for triage.
 2. Inspect source images one at a time, only when an edited-image subagent can be dispatched immediately if the image needs editing.
 3. Do not inspect ahead to build a backlog of image briefs.
-4. If the image has no visible source-edition text that needs translation, record `skipped_no_text`; this copies the reviewed source image into `<run-dir>/images/replacements/` so the completed run shows that the image was checked.
-5. If the image has visible source-edition text, write an image edit brief:
-   - target language;
-   - the image job ID;
-   - the source image path;
-   - the required generated replacement output path, preferably under `<run-dir>/images/replacements/`;
-   - a source text scope;
-   - explicit text overrides for clearly read, context-critical strings;
-   - a preservation policy for non-source-edition text and all non-text visual content;
-   - an edit-oriented prompt for `$image-creator`;
-   - an `$image-creator` handoff section that tells the subagent to read the installed `$image-creator` skill before execution and summarizes the EPUB image execution path: split the creative edit request from the save destination, rewrite the request as a concise English generation prompt, pass the provided local source image path as the sole `referenced_image_paths` entry without a `view_image` preparation step, call built-in `image_gen`, copy or save the built-in tool's generated source file to the replacement path with the `$image-creator` file-based save helper, keep the generated replacement exactly as returned without matching the source image's dimensions, aspect ratio, extension, or file format, and report the `$image-creator` response fields.
-6. Spawn one independent image subagent for that image immediately after its brief is ready.
-7. Pass only that local source image path as the sole `referenced_image_paths` entry plus the main-authored image edit brief.
-8. Keep using available subagent capacity with later image jobs, still one visually reviewed image at a time.
-9. Wait on active image subagents only to harvest completed jobs or free capacity.
-10. For each completed subagent, record the replacement with `record-image`, then close that subagent immediately.
-11. If a subagent fails to save a replacement, close it, keep that image job unresolved, adjust only the execution brief as needed, and dispatch a new subagent for the same image when capacity is available.
+4. If the image has no visible source-edition text that needs translation, record `skipped_no_text`; this copies the reviewed source into `<run-dir>/images/replacements/` so the run shows the image was checked.
+5. If the image has visible source-edition text, write an image edit brief: target language; the job ID; source and replacement paths; a broad source text scope; explicit text overrides for clearly read, context-critical strings; a preservation policy; and an edit-oriented prompt for `$image-creator`; plus an `$image-creator` handoff summarizing the execution path: split the creative edit request from the save destination, rewrite as concise English generation prompt, pass the provided local source image path as the sole `referenced_image_paths` entry without a `view_image` preparation step, call `image_gen`, copy or save the built-in tool's generated source file to the replacement path with the `$image-creator` file save helper, keep the generated replacement exactly as returned without matching dimensions, aspect ratio, extension, or format, and report the `$image-creator` response fields.
+6. Spawn one independent image subagent for that image immediately after its brief is ready; pass only that local source image path as the sole `referenced_image_paths` entry plus the brief.
+7. Keep using available subagent capacity with later jobs, still one visually reviewed image at a time.
+8. Wait on active subagents only to harvest completed jobs or free capacity.
+9. For each completed subagent, record the replacement with `record-image`, then close that subagent immediately.
+10. If a subagent fails to save a replacement, close it, keep that job unresolved, adjust the brief as needed, and dispatch a new subagent for the same image when capacity is available.
 
 Operational rules:
 
-- Do not use OCR, automated image-text extraction, contact sheets, visual grids, or crop sheets.
-- Maintain an active job ledger mapping image job ID to source path, replacement review path, subagent ID, status, and brief.
-- Translate visible communicative text that belongs to the source edition's source language. Preserve non-source-edition text unless the book context makes it part of the source-edition message.
-- Use edit-oriented prompt language that treats the provided image as the image to modify.
-- Keep generated replacement files as returned by the generation path. Do not normalize, resize, resample, recompress, or convert them before recording.
+- Do not use OCR, contact sheets, visual grids, or crop sheets.
+- Maintain an active job ledger mapping job ID to source path, replacement review path, subagent ID, status, and brief.
+- Translate visible communicative text of the source edition; preserve non-source-edition text unless book context makes it part of the message.
+- Edit-oriented prompts treat the provided image as the image to modify.
+- Keep generated replacement files as returned; do not normalize, resize, or recompress before recording.
 
-Main-agent image brief contract:
-
-- Main owns image triage, translation context, and prompt intent.
-- Main uses book context, `translation-notes.md`, prior translated prose, and visible image content to decide the edit scope.
-- Main provides exact target-language text only for strings that are clear enough and important enough to constrain explicitly.
-- Main gives unclear, small, numerous, or low-salience source-edition text to the image generation model through the source text scope.
-- The source text scope must be broad enough for complete translation of source-edition communicative text in the provided image.
-- Explicit text overrides are constraints for known strings.
-- The edit prompt describes a constrained edit to the provided image, scopes visual change to source-edition communicative text regions, and preserves all non-target visual content.
-- The edit prompt asks the model to translate scoped visible source-edition text into the target language and render it in the same semantic regions, with placement, scale, angle, and print style adapted to look native in the edited image.
-
-Image subagent execution contract:
-
-- The subagent's only image-job responsibility is `$image-creator` execution for one provided EPUB source image.
-- Before execution, the subagent must read the installed `$image-creator` skill and follow it.
-- The subagent uses the `$image-creator` workflow summarized in the handoff: rewrite the edit request into an English generation prompt, pass exactly the provided local source image path as the sole `referenced_image_paths` entry, call built-in `image_gen`, and copy or save the built-in tool's generated source file to the requested replacement path with the `$image-creator` file-based save helper.
-- The subagent must carry the generated-output preservation rule inside the `$image-creator` request: keep the generated replacement exactly as returned, and do not ask for or apply normalization, resizing, resampling, recompression, conversion, extension matching, format matching, or aspect-ratio matching against the source image.
-- The subagent must treat the EPUB replacement path as the destination for the file-based copy or save of the built-in tool's generated source file.
-- The supplied edit brief controls translation choices, text coverage, preservation policy, and prompt intent.
-- Do not call `view_image` to prepare, verify, load, or attach this edit input; the sole local source path in `referenced_image_paths` is sufficient.
-
-Image subagent return contract:
-
-```json
-{
-  "image_id": "img0001",
-  "status": "edited",
-  "source_text_scope": "all visible source-edition communicative text",
-  "explicit_term_overrides": [
-    {
-      "source": "known source string",
-      "target": "required target string"
-    }
-  ],
-  "preservation_policy": "visible text outside source-edition communicative content remains unchanged",
-  "replacement_path": "/absolute/path/to/replacement-image",
-  "image_creator_result": {
-    "skill_checked": true,
-    "saved_path": "/absolute/path/to/replacement-image",
-    "final_rewritten_prompt": "the exact English prompt passed to the generation path",
-    "input_images_used": ["/absolute/path/to/source-image"],
-    "generation_mode": "built-in image_gen",
-    "overwrite_status": "not overwritten"
-  }
-}
-```
-
-Rules:
-
-- `status: "edited"` means the subagent read `$image-creator`, executed its built-in `image_gen` generation path with exactly one local source path in `referenced_image_paths`, and copied or saved the built-in tool's generated source file to `replacement_path`.
-- `replacement_path` must equal `image_creator_result.saved_path`.
-- `input_images_used` must contain exactly the source image path assigned to that subagent.
-- `explicit_term_overrides` must match the main-authored image edit brief.
-
-If the image generation path fails to return a saved replacement, keep the same one-image job unresolved and retry with an adjusted edit-oriented prompt. The image job is resolved only after `record-image` records `edited` or `skipped_no_text`.
-
-Image recording commands:
-
-```bash
-uv run --script <skill-dir>/scripts/epub_translate.py record-image --workdir <run-dir> --image-id <id> --skip-no-text
-uv run --script <skill-dir>/scripts/epub_translate.py record-image --workdir <run-dir> --image-id <id> --replacement <edited-image>
-```
-
-`record-image --skip-no-text` copies the reviewed source image to `<run-dir>/images/replacements/` for run-level image review. `record-image --replacement` copies the finished generated replacement to `<run-dir>/images/replacements/` and embeds it into the EPUB run by byte-for-byte copy. The helper treats a replacement as an already-finished generated asset.
-
-Unsupported image media types are reported in `<run-dir>/manifest.json` as `unsupported_images`; handle them only when the user explicitly requests manual handling.
+Main-agent image brief contract, image subagent execution contract, subagent return contract, and image recording commands are unchanged from the previous revision — the brief, handoff wording, generation-mode assertion, and `record-image` flags are the same. Unsupported image media types are listed in `<run-dir>/image-jobs.json` as `unsupported` (their count is `unsupported_image_count` in `<run-dir>/manifest.json`); handle them only when the user explicitly requests manual handling.
 
 ## Completion Criteria
 
-- All chunk translation files exist and `apply-text` succeeds.
-- The post-translation target-structure pass is applied, even when the plan is an explicit no-op.
-- Text was translated directly by the main translator in chunk order, without text-worker subagents or parallel content translation.
-- Source-edition layout that conflicts with the target-language edition is changed through an explicit layout plan.
+- All `translations/chunk-*.json` rows exist; `build` succeeds and `validate` succeeds.
+- Text was translated **directly by the main translator in chunk order**, without text-worker subagents or parallel content translation.
 - Every editable image job is resolved through the per-image contract.
-- `package` writes a new EPUB path that is not the source EPUB.
-- `validate` succeeds.
-- Final response reports the output EPUB, run folder, text segment count, unit count, editable image job summary, unsupported image count, and validation result.
+- `build` writes a new EPUB path that is not the source EPUB.
+- Final response reports the output EPUB, run folder, item counts, per-chunk progress, image job summary, unsupported image count, any `build-report.json` flags that needed manual review (`divergences`, `untranslated_candidates`), and the build/validation result.
+- No rewrites of `translation-notes.md` beyond the curated rolling summary and glossary — the seam exists because the notes were kept minimal and stayed recoverable after compression.

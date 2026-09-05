@@ -23,7 +23,7 @@
 | --- | --- | --- | --- |
 | [`idea-scribe`](#idea-scribe) | 아이디어 흐름을 방해하지 않고 기록하면서 현재 정리본 유지 | 누적형 `raw.txt`와 다시 작성되는 `organized.html` | [프롬프트](#idea-scribe) |
 | [`image-creator`](#image-creator) | 프로젝트 안에 raster 이미지 생성·편집 또는 배경 제거 | 저장된 raster 파일 또는 true-alpha PNG와 실제 전달된 최종 프롬프트 | [프롬프트](#image-creator) |
-| [`epub-translator`](#epub-translator) | text-slot 추출과 텍스트 포함 이미지를 처리하는 자연스러운 EPUB 번역 | 새 번역 `.epub`, run 폴더, chunk 번역, image job ledger, validation summary | [프롬프트](#epub-translator) |
+| [`epub-translator`](#epub-translator) | reading-flow IR 추출과 텍스트 포함 이미지를 처리하는 자연스러운 EPUB 번역 | 새 번역 `.epub`, flow-IR run 폴더, slim chunk 번역, edition policy, image job ledger, validation summary | [프롬프트](#epub-translator) |
 | [`animation-creator`](#animation-creator) | 프로젝트 안에 캐릭터 애니메이션 에셋 생성 | 프롬프트, 레이아웃 가이드, 프레임, 검증, contact sheet, preview를 포함한 run 폴더 | [프롬프트](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | 프론트엔드 UI 제작 또는 큰 리디자인 | 생성된 UI mockup, 시각 노트, 구현된 UI | [프롬프트](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | Codex 커스텀 서브에이전트 생성 또는 수정 | 달성한 검증 수준을 명시한 하나 이상의 TOML agent 정의 | [프롬프트](#subagent-creator) |
@@ -79,16 +79,16 @@ Use $skill-installer to install skills/image-creator from https://github.com/smt
 
 ### `epub-translator`
 
-Text-slot 단위 텍스트 교체, 구조 보존, image job 추적으로 EPUB 책을 자연스러운 목표 언어 산문으로 번역한다.
+읽기 흐름 IR 추출, 슬림 청킹, 새 EPUB 결정적 빌드로 EPUB을 자연스러운 목표 언어 판본으로 번역한다 — 원본 래퍼·고정 오프셋은 평탄화하고 읽기/앵커/링크/이미지 불변성만 보존한다.
 
 ![EPUB Translator 워크플로](docs/assets/epub-translator-workflow.png)
 
 | 항목 | 내용 |
 | --- | --- |
 | 위치 | `skills/epub-translator` |
-| 사용 시점 | EPUB을 자연스러운 목표 언어의 새 EPUB으로 번역하고, XHTML/EPUB 구조를 보존하면서 텍스트가 들어간 editable embedded image까지 처리해야 할 때 |
-| 결과 | 새 번역 `.epub`, run 폴더, text-slot chunk JSON 파일, image job ledger, packaging 단계, validation summary |
-| 피하는 일 | 원본 EPUB 덮어쓰기, XHTML 전체 재작성, 추적 없는 이미지 편집, 번역할 텍스트가 없는 이미지에 image generation 사용 |
+| 사용 시점 | EPUB을 자연스러운 목표 언어의 새 EPUB으로 번역하고, 큰 책의 청크 연속성을 유지하며 텍스트가 들어간 embedded raster image까지 처리해야 할 때 |
+| 결과 | 새 번역 `.epub`, flow IR 포함 run 폴더, slim chunk JSON과 이음새(seam) 꼬리, edition 정책, image job ledger, build/validation 요약 |
+| 피하는 일 | 원본 XHTML 패치, 오버플로를 만드는 레이아웃 래퍼, 파일별 레이아웃 예외, 번역할 텍스트가 없는 이미지에 image generation 사용 |
 
 이미지 텍스트 번역이 필요하면 `$image-creator`도 함께 설치한다:
 

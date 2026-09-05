@@ -23,7 +23,7 @@ Languages: English | [한국어](README.ko.md)
 | --- | --- | --- | --- |
 | [`idea-scribe`](#idea-scribe) | Silently capturing a stream of ideas while maintaining the current organized view | Append-only `raw.txt` and rewritten `organized.html` | [Prompt](#idea-scribe) |
 | [`image-creator`](#image-creator) | Generating, editing, or removing backgrounds from project-local raster images | Saved raster file or true-alpha PNG plus the exact final prompt | [Prompt](#image-creator) |
-| [`epub-translator`](#epub-translator) | Naturally translating EPUB books with text-slot extraction and text-bearing images | New translated `.epub`, run folder, chunk translations, image job ledger, and validation summary | [Prompt](#epub-translator) |
+| [`epub-translator`](#epub-translator) | Translating EPUB books into natural new target-language editions | New translated `.epub`, flow-IR run folder, slim chunk translations, edition policy, image job ledger, and validation summary | [Prompt](#epub-translator) |
 | [`animation-creator`](#animation-creator) | Creating project-local character animation assets | Run folder with prompts, layout guides, frames, validation, contact sheets, and previews | [Prompt](#animation-creator) |
 | [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
 | [`subagent-creator`](#subagent-creator) | Creating or updating custom Codex subagents | One or more TOML agent definitions with the achieved validation level reported | [Prompt](#subagent-creator) |
@@ -79,16 +79,16 @@ Use $skill-installer to install skills/image-creator from https://github.com/smt
 
 ### `epub-translator`
 
-Translate EPUB books into natural target-language prose with text-slot replacement, structure preservation, and image job tracking.
+Translate EPUB books into natural new target-language editions. The helper extracts a normalized reading-flow IR, packs slim chunks, and deterministically builds a new EPUB — source wrappers and fixed offsets are flattened; only reading/anchor/link/image invariants are preserved.
 
 ![EPUB Translator workflow](docs/assets/epub-translator-workflow.png)
 
 | Field | Details |
 | --- | --- |
 | Folder | `skills/epub-translator` |
-| Use when | You need to translate an EPUB into a natural new target-language EPUB, preserve XHTML/EPUB structure, and handle editable embedded images that contain text. |
-| Produces | A new translated `.epub`, run folder, text-slot chunk JSON files, image job ledger, packaging step, and validation summary. |
-| Avoids | Overwriting the source EPUB, whole-XHTML rewrites, untracked image edits, and using image generation for images with no text to translate. |
+| Use when | You need to translate an EPUB into a natural new target-language EPUB, handle large books with chunk continuity, and process text inside embedded raster images. |
+| Produces | A new translated `.epub`, flow IR plus run folder, slim chunk JSON with a seam tail, edition policy, image job ledger, and build/validation summary. |
+| Avoids | Patching source XHTML, layout wrappers that create overflow, per-filename layout exceptions, and using image generation for images with no text to translate. |
 
 Install `$image-creator` as well when image text translation is needed:
 

@@ -6,16 +6,18 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
+import os
 import posixpath
 import re
 import shutil
 import sys
-import unicodedata
 import zipfile
+from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
-
 
 CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 OPF_NS = "http://www.idpf.org/2007/opf"
@@ -23,47 +25,53 @@ DC_NS = "http://purl.org/dc/elements/1.1/"
 XHTML_NS = "http://www.w3.org/1999/xhtml"
 EPUB_NS = "http://www.idpf.org/2007/ops"
 
-TEXT_SCHEMA_VERSION = 2
-DEFAULT_CHUNK_MAX_CHARS = 48_000
-DEFAULT_CHUNK_MAX_SEGMENTS = 640
-TEXT_ATTRS = ("alt", "title", "aria-label")
-SKIP_TEXT_TAGS = {"script", "style"}
-RUBY_NOTE_TAGS = {"rt", "rp"}
-STRUCTURE_MARKER_TAGS = {"br", "hr", "img"}
-TARGET_STRUCTURE_PRESERVED_ATTRS = {"id", "href", "src"}
-READING_UNIT_TAGS = {
-    "article",
-    "aside",
-    "blockquote",
-    "caption",
-    "dd",
-    "div",
-    "dt",
-    "figcaption",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "li",
-    "nav",
-    "p",
-    "section",
-    "td",
-    "th",
-    "title",
+FLOW_SCHEMA_VERSION = 2
+TEXT_SCHEMA_VERSION = 3
+
+DEFAULT_MAX_CHARS = 5000
+DEFAULT_SOFT_MIN = 1500
+SEAM_TAIL_CHARS = 240
+
+TRANSPARENT_BLOCKS = {
+    "body", "div", "section", "article", "main", "header", "footer",
+    "center", "details", "summary",
 }
-EDITABLE_IMAGE_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp"}
-IMAGE_SUFFIX_BY_MEDIA_TYPE = {
+HEADING_TAGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+INLINE_EM_TAGS = {"em", "i", "cite", "dfn", "var"}
+INLINE_STRONG_TAGS = {"strong", "b"}
+INLINE_SUBSUP = {"sub", "sup"}
+WRAPPER_TAGS = {"span", "font", "small", "mark", "u", "s", "q", "abbr", "time", "kbd", "samp"}
+EDITABLE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+IMAGE_SUFFIX_BY_TYPE = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
+    "image/gif": ".gif",
     "image/webp": ".webp",
 }
+SKIP_TEXT_TAGS = {"script", "style"}
+RUBY_NOTE_TAGS = {"rt", "rp"}
+SEPARATOR_RE = re.compile(r"^[\s*#✦✧◆◇○●☆★※―─\-−·•․…~⁂❖※]+$")
+FIXED_LAYOUT_CLASS_RE = re.compile(r"start-10em|vrtl|vert|tcy|sideways", re.IGNORECASE)
+IDEOGRAPHIC_SPACE = "　"
+
+NAV_HREF = "xhtml/nav.xhtml"
+CSS_HREF = "style/target.css"
+
+EDITION_KEYS = {"schema_version", "target_language", "language_tag", "page_progression_direction"}
+LANG_RE = re.compile(r"^[a-z]{2,8}(-[a-zA-Z0-9]{1,8})*$")
+
+# Attributes preserved as translatable slots on any node that keeps an output
+# element. Flattened transparent wrappers (span etc.) have no output node and
+# are intentionally excluded.
+ATTR_SLOT_NAMES = ("title", "aria-label")
 
 
 class EpubTranslatorError(RuntimeError):
     pass
+
+
+def X(tag: str) -> str:
+    return f"{{{XHTML_NS}}}{tag}"
 
 
 def utc_now() -> str:
@@ -71,1407 +79,1588 @@ def utc_now() -> str:
 
 
 def read_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise EpubTranslatorError(f"missing file: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise EpubTranslatorError(f"invalid JSON in {path}: {exc}") from exc
 
 
 def write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
 
 
-def normalize_text(value: str) -> str:
-    return unicodedata.normalize("NFC", value)
+def attr_value(el: ET.Element, name: str) -> str | None:
+    for k, v in el.attrib.items():
+        if local_name(k) == name:
+            return v
+    return None
 
 
-def has_text_content(value: str | None) -> bool:
-    return bool(value and value.strip())
+def has_text(v: str | None) -> bool:
+    return bool(v and v.strip())
 
 
-def safe_join(base: Path, internal_name: str) -> Path:
+def normalize_text(v: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFC", v)
+
+
+def normalize_spaces(value: str, stats: dict | None = None) -> str:
+    if IDEOGRAPHIC_SPACE in value and stats is not None:
+        stats["ideographic_spaces_normalized"] += value.count(IDEOGRAPHIC_SPACE)
+    value = value.replace(IDEOGRAPHIC_SPACE, " ")
+    value = re.sub(r"[ \t\r\n\f\v]+", " ", value)
+    return value.strip()
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def safe_join(base: Path, internal: str) -> Path:
     base_resolved = base.resolve()
-    candidate = (base / internal_name).resolve()
+    candidate = (base / internal).resolve()
     try:
         candidate.relative_to(base_resolved)
     except ValueError as exc:
-        raise EpubTranslatorError(f"Unsafe EPUB path: {internal_name}") from exc
+        raise EpubTranslatorError(f"unsafe EPUB path: {internal}") from exc
     return candidate
 
 
-def safe_extract(epub: Path, destination: Path) -> None:
+def safe_extract(epub: Path, dest: Path) -> None:
     with zipfile.ZipFile(epub) as archive:
         for info in archive.infolist():
             if info.is_dir():
-                safe_join(destination, info.filename).mkdir(parents=True, exist_ok=True)
+                safe_join(dest, info.filename).mkdir(parents=True, exist_ok=True)
                 continue
-            target = safe_join(destination, info.filename)
+            target = safe_join(dest, info.filename)
             target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info) as source, target.open("wb") as output:
-                shutil.copyfileobj(source, output)
+            with archive.open(info) as src, target.open("wb") as out:
+                shutil.copyfileobj(src, out)
 
 
 def parse_xml(path: Path) -> ET.ElementTree:
     try:
         return ET.parse(path)
     except ET.ParseError as exc:
-        raise EpubTranslatorError(f"Could not parse XML: {path}") from exc
+        raise EpubTranslatorError(f"could not parse XML: {path}: {exc}") from exc
 
 
-def register_namespaces(default_ns: str) -> None:
+def register_ns(default_ns: str) -> None:
     ET.register_namespace("", default_ns)
     ET.register_namespace("dc", DC_NS)
     ET.register_namespace("epub", EPUB_NS)
 
 
 def write_xml(path: Path, tree: ET.ElementTree, default_ns: str) -> None:
-    register_namespaces(default_ns)
+    register_ns(default_ns)
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
 def container_rootfile(epub_root: Path) -> str:
-    container_path = epub_root / "META-INF" / "container.xml"
-    tree = parse_xml(container_path)
-    rootfile = tree.getroot().find(f".//{{{CONTAINER_NS}}}rootfile")
-    if rootfile is None or not rootfile.get("full-path"):
-        raise EpubTranslatorError("META-INF/container.xml has no rootfile full-path")
-    return rootfile.get("full-path", "")
+    tree = parse_xml(epub_root / "META-INF" / "container.xml")
+    rf = tree.getroot().find(f".//{{{CONTAINER_NS}}}rootfile")
+    if rf is None or not rf.get("full-path"):
+        raise EpubTranslatorError("META-INF/container.xml has no rootfile")
+    return rf.get("full-path", "")
 
 
 def opf_root(epub_root: Path, rootfile: str) -> tuple[Path, ET.ElementTree, ET.Element]:
-    path = safe_join(epub_root, rootfile)
-    tree = parse_xml(path)
-    return path, tree, tree.getroot()
+    p = safe_join(epub_root, rootfile)
+    t = parse_xml(p)
+    return p, t, t.getroot()
 
 
 def manifest_items(opf: ET.Element) -> list[dict]:
-    manifest = opf.find(f"{{{OPF_NS}}}manifest")
-    if manifest is None:
+    m = opf.find(f"{{{OPF_NS}}}manifest")
+    if m is None:
         raise EpubTranslatorError("OPF manifest missing")
-    items: list[dict] = []
-    for item in manifest.findall(f"{{{OPF_NS}}}item"):
-        items.append(
-            {
-                "id": item.get("id", ""),
-                "href": item.get("href", ""),
-                "media_type": item.get("media-type", ""),
-                "properties": item.get("properties", ""),
-            }
-        )
-    return items
+    out = []
+    for item in m.findall(f"{{{OPF_NS}}}item"):
+        out.append({
+            "id": item.get("id", ""),
+            "href": item.get("href", ""),
+            "media_type": item.get("media-type", ""),
+            "properties": item.get("properties", ""),
+        })
+    return out
 
 
 def spine_info(opf: ET.Element) -> dict:
-    spine = opf.find(f"{{{OPF_NS}}}spine")
-    if spine is None:
+    s = opf.find(f"{{{OPF_NS}}}spine")
+    if s is None:
         return {"page_progression_direction": None, "idrefs": []}
     return {
-        "page_progression_direction": spine.get("page-progression-direction"),
-        "idrefs": [itemref.get("idref", "") for itemref in spine.findall(f"{{{OPF_NS}}}itemref")],
+        "page_progression_direction": s.get("page-progression-direction"),
+        "idrefs": [r.get("idref", "") for r in s.findall(f"{{{OPF_NS}}}itemref")],
     }
 
 
 def metadata_value(opf: ET.Element, tag: str) -> str | None:
-    value = opf.find(f".//{{{DC_NS}}}{tag}")
-    if value is None or value.text is None:
+    el = opf.find(f".//{{{DC_NS}}}{tag}")
+    if el is None or el.text is None:
         return None
-    return value.text.strip()
+    return el.text.strip()
 
 
-def full_internal_path(rootfile: str, manifest_href: str) -> str:
-    opf_dir = posixpath.dirname(rootfile)
-    return posixpath.normpath(posixpath.join(opf_dir, manifest_href))
+def full_internal(rootfile: str, href: str) -> str:
+    return posixpath.normpath(posixpath.join(posixpath.dirname(rootfile), href))
 
 
 def inspect_epub(epub: Path) -> dict:
-    with zipfile.ZipFile(epub) as archive:
-        names = archive.namelist()
-        with zipfile.ZipFile(epub) as source, source.open("META-INF/container.xml") as container:
-            container_xml = ET.parse(container)
-        rootfile = container_xml.getroot().find(f".//{{{CONTAINER_NS}}}rootfile")
-        if rootfile is None or not rootfile.get("full-path"):
-            raise EpubTranslatorError("META-INF/container.xml has no rootfile full-path")
-        rootfile_path = rootfile.get("full-path", "")
-        with archive.open(rootfile_path) as opf_file:
-            opf_tree = ET.parse(opf_file)
-    root = opf_tree.getroot()
-    items = manifest_items(root)
-    images = [item for item in items if item["media_type"].startswith("image/")]
-    editable_images = [item for item in images if item["media_type"] in EDITABLE_IMAGE_MEDIA_TYPES]
-    unsupported_images = [item for item in images if item["media_type"] not in EDITABLE_IMAGE_MEDIA_TYPES]
-    xhtml = [item for item in items if item["media_type"] == "application/xhtml+xml"]
-    css = [item for item in items if item["media_type"] == "text/css"]
+    with zipfile.ZipFile(epub) as z:
+        names = z.namelist()
+        with z.open("META-INF/container.xml") as f:
+            rootfile = ET.parse(f).getroot().find(f".//{{{CONTAINER_NS}}}rootfile").get("full-path", "")  # type: ignore
+        with z.open(rootfile) as f:
+            opf = ET.parse(f).getroot()
+    items = manifest_items(opf)
+    images = [x for x in items if x["media_type"].startswith("image/")]
+    editable = [x for x in images if x["media_type"] in EDITABLE_IMAGE_TYPES]
+    unsupported = [x for x in images if x["media_type"] not in EDITABLE_IMAGE_TYPES]
+    xhtml = [x for x in items if x["media_type"] == "application/xhtml+xml"]
+    css = [x for x in items if x["media_type"] == "text/css"]
     return {
         "epub": str(epub),
         "entry_count": len(names),
-        "rootfile": rootfile_path,
-        "title": metadata_value(root, "title"),
-        "creator": metadata_value(root, "creator"),
-        "language": metadata_value(root, "language"),
-        "spine": spine_info(root),
+        "rootfile": rootfile,
+        "title": metadata_value(opf, "title"),
+        "creator": metadata_value(opf, "creator"),
+        "language": metadata_value(opf, "language"),
+        "spine": spine_info(opf),
         "counts": {
             "images": len(images),
-            "editable_images": len(editable_images),
-            "unsupported_images": len(unsupported_images),
+            "editable_images": len(editable),
+            "unsupported_images": len(unsupported),
             "xhtml": len(xhtml),
             "css": len(css),
             "manifest_items": len(items),
         },
         "images": [
-            {
-                "id": item["id"],
-                "href": full_internal_path(rootfile_path, item["href"]),
-                "media_type": item["media_type"],
-                "editable": item["media_type"] in EDITABLE_IMAGE_MEDIA_TYPES,
-            }
-            for item in images
+            {"id": x["id"], "href": full_internal(rootfile, x["href"]), "media_type": x["media_type"], "editable": x["media_type"] in EDITABLE_IMAGE_TYPES}
+            for x in images
         ],
     }
 
 
-def element_at_path(root: ET.Element, path: list[int]) -> ET.Element:
-    element = root
-    for index in path:
-        children = list(element)
-        if index >= len(children):
-            raise EpubTranslatorError(f"XML path no longer exists: {path}")
-        element = children[index]
-    return element
+# ---------------------------------------------------------------------------
+# Flow IR extraction — node tree
+#
+# A node tree replaces the flat block list with explicit ownership:
+#   - every node captures its element's id -> `anchors` and title/aria-label ->
+#     `attr_slots` in ONE place (node construction), so no per-tag branch can
+#     forget them (section ids, <a id>, title/aria-label are preserved);
+#   - containers own their children by id, so rendering and packing follow
+#     `children` with no scan-ahead, no container_id/row side refs, and no
+#     orphan li/td (a table_cell/list_item can only exist as a child);
+#   - render, link validation, and chunk packing read the same tree.
+
+@dataclass
+class FlowBuilder:
+    stats: dict
+    block_counter: int = 0
+    slot_counter: int = 0
+    blocks: list = field(default_factory=list)
+
+    def next_block_id(self) -> str:
+        self.block_counter += 1
+        return f"b{self.block_counter:06d}"
+
+    def next_slot_id(self) -> str:
+        self.slot_counter += 1
+        return f"t{self.slot_counter:06d}"
+
+    def add(self, node: dict) -> None:
+        self.blocks.append(node)
+
+    def blocks_by_id(self) -> dict[str, dict]:
+        return {b["id"]: b for b in self.blocks}
 
 
-def path_key(path: list[int]) -> str:
-    return "/".join(str(part) for part in path) if path else "."
+def _is_separator_text(text: str) -> bool:
+    return bool(text) and bool(SEPARATOR_RE.match(text))
 
 
-def collect_xhtml_segments(
-    tree: ET.ElementTree,
-    href: str,
-    next_id,
-) -> tuple[list[dict], dict[str, list[dict]]]:
-    root = tree.getroot()
-    segments: list[dict] = []
-    unit_parts: dict[str, list[dict]] = {}
-
-    def add_segment(
-        kind: str,
-        path: list[int],
-        source: str,
-        unit_key: str,
-        attr: str | None = None,
-        child_index: int | None = None,
-        tag: str | None = None,
-        after_tag: str | None = None,
-    ) -> None:
-        segment = {
-            "id": next_id(),
-            "kind": kind,
-            "href": href,
-            "path": path,
-            "source": normalize_text(source),
-            "context_before": "",
-            "context_after": "",
-            "_unit_key": unit_key,
-        }
-        if tag:
-            segment["tag"] = tag
-        if attr:
-            segment["attribute"] = attr
-        if child_index is not None:
-            segment["child_index"] = child_index
-        if after_tag:
-            segment["after_tag"] = after_tag
-        segments.append(segment)
-        part = {
-            "type": "slot",
-            "segment_id": segment["id"],
-            "kind": kind,
-            "source": segment["source"],
-        }
-        if tag:
-            part["tag"] = tag
-        if attr:
-            part["attribute"] = attr
-        if after_tag:
-            part["after_tag"] = after_tag
-        unit_parts.setdefault(unit_key, []).append(part)
-
-    def add_marker(unit_key: str, child: ET.Element) -> None:
-        name = local_name(child.tag)
-        marker = {"type": "marker", "tag": name}
-        for attr in ("href", "src", "alt", "title"):
-            if child.get(attr):
-                marker[attr] = child.get(attr)
-        unit_parts.setdefault(unit_key, []).append(marker)
-
-    def visit(element: ET.Element, path: list[int], current_unit: str | None = None) -> None:
-        name = local_name(element.tag)
-        if name in SKIP_TEXT_TAGS or name in RUBY_NOTE_TAGS:
-            return
-        if name in READING_UNIT_TAGS or current_unit is None:
-            current_unit = f"{href}:text:{path_key(path)}"
-        for attr in TEXT_ATTRS:
-            if has_text_content(element.get(attr)):
-                add_segment(
-                    "xhtml_attribute",
-                    path,
-                    element.get(attr) or "",
-                    f"{href}:attr:{path_key(path)}:{attr}",
-                    attr,
-                    tag=name,
-                )
-        if has_text_content(element.text):
-            add_segment("xhtml_text", path, element.text or "", current_unit, tag=name)
-        for index, child in enumerate(list(element)):
-            child_name = local_name(child.tag)
-            if child_name in STRUCTURE_MARKER_TAGS:
-                add_marker(current_unit, child)
-            visit(child, [*path, index], current_unit)
-            if has_text_content(child.tail):
-                add_segment(
-                    "xhtml_tail",
-                    path,
-                    child.tail or "",
-                    current_unit,
-                    child_index=index,
-                    tag=name,
-                    after_tag=child_name,
-                )
-
-    visit(root, [])
-    for index, segment in enumerate(segments):
-        if index > 0:
-            segment["context_before"] = segments[index - 1]["source"]
-        if index + 1 < len(segments):
-            segment["context_after"] = segments[index + 1]["source"]
-    return segments, unit_parts
+def _text_token(ctx: FlowBuilder, source: str, inline_stack: list[dict]) -> dict | None:
+    norm = normalize_spaces(source, ctx.stats)
+    if not norm:
+        return None
+    return {"type": "text", "id": ctx.next_slot_id(), "source": norm, "inline": list(inline_stack)}
 
 
-def unit_source_from_parts(parts: list[dict]) -> str:
-    rendered: list[str] = []
-    for part in parts:
-        if part["type"] == "slot":
-            rendered.append(part["source"])
-        elif part["type"] == "marker":
-            rendered.append(f"[{part['tag']}]")
-    return normalize_text("".join(rendered))
+def capture_attrs(el: ET.Element, ctx: FlowBuilder) -> list[dict]:
+    """title/aria-label on an element that keeps an output node."""
+    out: list[dict] = []
+    for attr in ATTR_SLOT_NAMES:
+        v = el.get(attr)
+        if v and v.strip():
+            norm = normalize_spaces(v, ctx.stats)
+            if norm:
+                out.append({"attr": attr, "id": ctx.next_slot_id(), "source": norm})
+    return out
 
 
-def build_text_units(segments: list[dict], unit_parts: dict[str, list[dict]]) -> list[dict]:
-    grouped: dict[str, list[dict]] = {}
-    order: list[str] = []
-    for segment in segments:
-        unit_key = segment.get("_unit_key")
-        if not unit_key:
+def inline_tokens(el: ET.Element, ctx: FlowBuilder, inline_stack: list[dict], anchors: list[str]) -> list[dict]:
+    """The single recursive inline walker shared by every leaf node.
+
+    Handles ruby collapse (base text only, rt/rp counted in stats), wrapper
+    flattening (fixed-layout classes + writing-mode), emphasis/link stacks,
+    <br>, and <img> — an image always carries an alt slot plus its own
+    title/aria-label slots, so nested images never leak into prose.
+    """
+    out: list[dict] = []
+
+    def emit(text: str) -> None:
+        tok = _text_token(ctx, text, inline_stack)
+        if tok is not None:
+            out.append(tok)
+
+    if has_text(el.text):
+        emit(el.text or "")
+    for child in list(el):
+        cname = local_name(child.tag)
+        if cname in SKIP_TEXT_TAGS:
+            if has_text(child.tail):
+                emit(child.tail or "")
             continue
-        if unit_key not in grouped:
-            grouped[unit_key] = []
-            order.append(unit_key)
-        grouped[unit_key].append(segment)
+        if cname in RUBY_NOTE_TAGS:
+            ctx.stats["rubies_collapsed"] += 1
+            if has_text(child.tail):
+                emit(child.tail or "")
+            continue
+        if cname == "ruby":
+            ctx.stats["ruby_elements"] += 1
+            if has_text(child.text):
+                emit(child.text or "")
+            for rc in list(child):
+                if local_name(rc.tag) in RUBY_NOTE_TAGS:
+                    ctx.stats["rubies_collapsed"] += 1
+                else:
+                    out.extend(inline_tokens(rc, ctx, inline_stack, anchors))
+                    if has_text(rc.tail):
+                        emit(rc.tail or "")
+            if has_text(child.tail):
+                emit(child.tail or "")
+            continue
+        if cname == "br":
+            out.append({"type": "br"})
+            if has_text(child.tail):
+                emit(child.tail or "")
+            continue
+        if cname == "img":
+            src = attr_value(child, "src") or child.get("src") or ""
+            alt = attr_value(child, "alt") or child.get("alt") or ""
+            tok = {"type": "image", "src": src, "alt_source": normalize_spaces(alt, ctx.stats)}
+            if tok["alt_source"]:
+                tok["alt_id"] = ctx.next_slot_id()
+            attr = capture_attrs(child, ctx)
+            if attr:
+                tok["attr_slots"] = attr
+            iid = attr_value(child, "id")
+            if iid:
+                tok["anchor"] = iid
+                anchors.append(iid)
+            out.append(tok)
+            if has_text(child.tail):
+                emit(child.tail or "")
+            continue
+        if cname in WRAPPER_TAGS:
+            cls = attr_value(child, "class") or child.get("class") or ""
+            style = attr_value(child, "style") or child.get("style") or ""
+            if FIXED_LAYOUT_CLASS_RE.search(cls) or "writing-mode" in style:
+                ctx.stats["wrappers_flattened"] += 1
+            iid = attr_value(child, "id")
+            if iid:
+                anchors.append(iid)
+            # transparent: recurse with the same stack; recursion emits child.text
+            out.extend(inline_tokens(child, ctx, inline_stack, anchors))
+            if has_text(child.tail):
+                emit(child.tail or "")
+            continue
+        if cname in INLINE_EM_TAGS or cname in INLINE_STRONG_TAGS or cname in INLINE_SUBSUP:
+            tag = "em" if cname in INLINE_EM_TAGS else ("strong" if cname in INLINE_STRONG_TAGS else cname)
+            new_stack = inline_stack + [{"tag": tag}]
+            out.extend(inline_tokens(child, ctx, new_stack, anchors))
+            if has_text(child.tail):
+                emit(child.tail or "")
+            continue
+        if cname == "a":
+            href = attr_value(child, "href") or child.get("href") or ""
+            aid = attr_value(child, "id")
+            if aid:
+                anchors.append(aid)  # pre-order: before descendants
+            new_stack = inline_stack + [{"tag": "a", "href": href}]
+            out.extend(inline_tokens(child, ctx, new_stack, anchors))
+            if has_text(child.tail):
+                emit(child.tail or "")
+            continue
+        # unknown inline element — flatten transparently
+        iid = attr_value(child, "id")
+        if iid:
+            anchors.append(iid)
+        out.extend(inline_tokens(child, ctx, inline_stack, anchors))
+        if has_text(child.tail):
+            emit(child.tail or "")
+    return out
 
-    units: list[dict] = []
-    for index, unit_key in enumerate(order, start=1):
-        unit_segments = grouped[unit_key]
-        parts = unit_parts.get(unit_key, [])
-        units.append(
-            {
-                "id": f"u{index:06d}",
-                "source": unit_source_from_parts(parts),
-                "segment_ids": [segment["id"] for segment in unit_segments],
-                "parts": parts,
-            }
-        )
-        for segment in unit_segments:
-            segment["unit_id"] = f"u{index:06d}"
-            segment.pop("_unit_key", None)
-    for segment in segments:
-        segment.pop("_unit_key", None)
+
+def _leaf_node(el: ET.Element, ctx: FlowBuilder, doc_href: str, spine_index: int, kind: str, *, tokens: list[dict] | None = None, extra_anchors: list[str] | None = None, **extra) -> dict | None:
+    el_id = attr_value(el, "id")
+    anchors: list[str] = ([el_id] if el_id else []) + (extra_anchors or [])
+    if tokens is None:
+        tokens = inline_tokens(el, ctx, [], anchors)
+    attr_slots = capture_attrs(el, ctx)
+    text = " ".join(t["source"] for t in tokens if t["type"] == "text")
+    text = normalize_spaces(text, ctx.stats) if text else ""
+    if not tokens and not anchors and not attr_slots:
+        return None
+    kind_eff = kind
+    if not tokens and anchors:
+        kind_eff = "anchor_only" if not attr_slots else kind
+    node = {
+        "id": ctx.next_block_id(),
+        "kind": kind_eff,
+        "href": doc_href,
+        "spine_index": spine_index,
+        "anchors": anchors,
+        "attr_slots": attr_slots,
+        "children": [],
+        "tokens": tokens,
+        "text": text,
+        "review_flags": [],
+        **extra,
+    }
+    ctx.add(node)
+    return node
+
+
+def _image_node(el: ET.Element, ctx: FlowBuilder, doc_href: str, spine_index: int) -> dict | None:
+    src = attr_value(el, "src") or el.get("src") or ""
+    alt = attr_value(el, "alt") or el.get("alt") or ""
+    tok = {"type": "image", "src": src, "alt_source": normalize_spaces(alt, ctx.stats)}
+    if tok["alt_source"]:
+        tok["alt_id"] = ctx.next_slot_id()
+    attr = capture_attrs(el, ctx)
+    if attr:
+        tok["attr_slots"] = attr
+    el_id = attr_value(el, "id")
+    if not (tok.get("alt_id") or tok["alt_source"] or tok.get("attr_slots") or el_id):
+        return None
+    node = {
+        "id": ctx.next_block_id(),
+        "kind": "image",
+        "href": doc_href,
+        "spine_index": spine_index,
+        "anchors": [el_id] if el_id else [],
+        "attr_slots": [],  # image attrs live on the token, not duplicated here
+        "children": [],
+        "tokens": [tok],
+        "text": "",
+        "review_flags": [],
+    }
+    ctx.add(node)
+    return node
+
+
+def _container_node(el: ET.Element, ctx: FlowBuilder, doc_href: str, spine_index: int, kind: str, *, ordered: bool | None = None) -> dict | None:
+    """A structure node owning child nodes. Its subtree is packed and rendered
+    as one atomic unit. Captures the element's own id and attrs, and recurses
+    into element children only (interleaved text is dropped, per HTML flow)."""
+    el_id = attr_value(el, "id")
+    node = {
+        "id": ctx.next_block_id(),
+        "kind": kind,
+        "href": doc_href,
+        "spine_index": spine_index,
+        "anchors": [el_id] if el_id else [],
+        "attr_slots": capture_attrs(el, ctx),
+        "children": [],
+        "tokens": [],
+        "text": "",
+        "review_flags": [],
+    }
+    if ordered is not None:
+        node["ordered"] = ordered
+    ctx.add(node)
+    for child_el in list(el):
+        cname = local_name(child_el.tag)
+        if cname in SKIP_TEXT_TAGS:
+            continue
+        child = node_from_element(child_el, ctx, doc_href, spine_index)
+        if child is not None:
+            node["children"].append(child["id"])
+    if not node["children"] and not node["anchors"] and not node["attr_slots"] and kind not in ("figure",):
+        # empty transparent wrapper — drop (it is the last appended node)
+        ctx.blocks.pop()
+        return None
+    if kind == "figure" and not node["children"] and not node["anchors"] and not node["attr_slots"]:
+        ctx.blocks.pop()
+        return None
+    return node
+
+
+def _table_node(el: ET.Element, ctx: FlowBuilder, doc_href: str, spine_index: int) -> dict | None:
+    node = _container_node(el, ctx, doc_href, spine_index, "table")
+    # table already recursed into <tr>/<td> children via node_from_element
+    return node
+
+
+def node_from_element(el: ET.Element, ctx: FlowBuilder, doc_href: str, spine_index: int) -> dict | None:
+    cname = local_name(el.tag)
+    if cname in SKIP_TEXT_TAGS:
+        return None
+    if cname == "nav":
+        return None
+    if cname in TRANSPARENT_BLOCKS:
+        return _container_node(el, ctx, doc_href, spine_index, "section")
+    if cname in HEADING_TAGS:
+        return _leaf_node(el, ctx, doc_href, spine_index, "heading", level=HEADING_TAGS[cname])
+    if cname == "p":
+        visible = "".join(el.itertext()) if list(el) else (el.text or "")
+        visible = normalize_spaces(visible)
+        if visible and _is_separator_text(visible):
+            return _leaf_node(el, ctx, doc_href, spine_index, "separator", tokens=[{"type": "sep"}])
+        return _leaf_node(el, ctx, doc_href, spine_index, "paragraph")
+    if cname == "blockquote":
+        if any(local_name(c.tag) in HEADING_TAGS or local_name(c.tag) in ("p", "ul", "ol", "table", "blockquote") for c in list(el)):
+            return _container_node(el, ctx, doc_href, spine_index, "blockquote")
+        return _leaf_node(el, ctx, doc_href, spine_index, "blockquote")
+    if cname == "aside":
+        if any(local_name(c.tag) in HEADING_TAGS or local_name(c.tag) in ("p", "ul", "ol", "table") for c in list(el)):
+            return _container_node(el, ctx, doc_href, spine_index, "aside")
+        return _leaf_node(el, ctx, doc_href, spine_index, "aside")
+    if cname in ("ul", "ol"):
+        return _container_node(el, ctx, doc_href, spine_index, "list", ordered=(cname == "ol"))
+    if cname == "table":
+        return _table_node(el, ctx, doc_href, spine_index)
+    if cname == "tr":
+        return _container_node(el, ctx, doc_href, spine_index, "table_row")
+    if cname in ("td", "th"):
+        return _leaf_node(el, ctx, doc_href, spine_index, "table_cell", header=(cname == "th"))
+    if cname in ("li",):
+        # treat the whole <li> as one translatable cell (flat tokens)
+        return _leaf_node(el, ctx, doc_href, spine_index, "list_item")
+    if cname == "figure":
+        return _container_node(el, ctx, doc_href, spine_index, "figure")
+    if cname == "figcaption":
+        return _leaf_node(el, ctx, doc_href, spine_index, "figcaption")
+    if cname == "img":
+        return _image_node(el, ctx, doc_href, spine_index)
+    if cname == "hr":
+        el_id = attr_value(el, "id")
+        return _leaf_node(el, ctx, doc_href, spine_index, "separator", tokens=[{"type": "sep"}], extra_anchors=[el_id] if el_id else [])
+    # fallback: text-bearing element -> paragraph leaf, else recurse as section
+    if has_text(el.text) or any(has_text(c.text) or has_text(c.tail) for c in el.iter() if c is not el):
+        return _leaf_node(el, ctx, doc_href, spine_index, "paragraph")
+    return _container_node(el, ctx, doc_href, spine_index, "section")
+
+
+def build_flow(unpacked: Path, rootfile: str, spine_hrefs: list[str], manifest_by_href: dict) -> tuple[dict, dict]:
+    stats = {"rubies_collapsed": 0, "ruby_elements": 0, "wrappers_flattened": 0, "ideographic_spaces_normalized": 0}
+    ctx = FlowBuilder(stats)
+    documents: list[dict] = []
+    opf_dir = posixpath.dirname(rootfile)
+    for spine_index, href in enumerate(spine_hrefs):
+        internal = posixpath.normpath(posixpath.join(opf_dir, href))
+        try:
+            xhtml_path = safe_join(unpacked, internal)
+        except EpubTranslatorError as exc:
+            documents.append({"href": href, "internal": internal, "roots": [], "unsafe": str(exc)})
+            continue
+        if not xhtml_path.is_file():
+            documents.append({"href": href, "internal": internal, "roots": [], "missing": True})
+            continue
+        try:
+            tree = parse_xml(xhtml_path)
+        except EpubTranslatorError:
+            documents.append({"href": href, "internal": internal, "roots": [], "parse_error": True})
+            continue
+        root = tree.getroot()
+        body = None
+        for el in root.iter():
+            if local_name(el.tag) == "body":
+                body = el
+                break
+        if body is None:
+            documents.append({"href": href, "internal": internal, "roots": [], "no_body": True})
+            continue
+        before = len(ctx.blocks)
+        roots: list[str] = []
+        for child in list(body):
+            cname = local_name(child.tag)
+            if cname in SKIP_TEXT_TAGS:
+                continue
+            node = node_from_element(child, ctx, href, spine_index)
+            if node is not None:
+                roots.append(node["id"])
+        documents.append({"href": href, "internal": internal, "roots": roots})
+    flow = {
+        "schema_version": FLOW_SCHEMA_VERSION,
+        "generated_at": utc_now(),
+        "stats": stats,
+        "documents": documents,
+        "blocks": ctx.blocks,
+    }
+    return flow, stats
+
+
+def collect_metadata_segments(opf_root_el: ET.Element, rootfile: str) -> list[dict]:
+    segs = []
+    counter = 0
+
+    def nid():
+        nonlocal counter
+        counter += 1
+        return f"m{counter:06d}"
+
+    wanted = ["title", "creator", "publisher", "description", "subject"]
+    for tag in wanted:
+        for el in opf_root_el.iter():
+            if local_name(el.tag) != tag:
+                continue
+            if el.tag.split("}")[0].strip("{") != DC_NS:
+                continue
+            if not has_text(el.text):
+                continue
+            segs.append({"id": nid(), "kind": "opf_metadata", "field": tag, "source": normalize_text(el.text or ""), "href": rootfile})
+    return segs
+
+
+# ---------------------------------------------------------------------------
+# Chunk writer (slim schema v3) — atomic units from the node tree
+
+def _subtree_ids(blocks_by_id: dict[str, dict], node_id: str, out: list[str]) -> None:
+    out.append(node_id)
+    for c in blocks_by_id[node_id].get("children", []):
+        _subtree_ids(blocks_by_id, c, out)
+
+
+def _collect_items(node: dict, blocks_by_id: dict[str, dict]) -> tuple[list[dict], list[dict]]:
+    """Return (prose_items, peripheral_items) for a node and its subtree."""
+    prose: list[dict] = []
+    peripheral: list[dict] = []
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        for s in n.get("attr_slots", []):
+            peripheral.append({"id": s["id"], "source": s["source"], "block_id": n["id"], "block_type": n["kind"], "href": n.get("href")})
+        for tok in n.get("tokens", []):
+            if tok["type"] == "text":
+                item = {"id": tok["id"], "source": tok["source"], "block_id": n["id"], "block_type": n["kind"], "href": n.get("href")}
+                if tok.get("inline"):
+                    item["inline"] = tok["inline"]
+                prose.append(item)
+            elif tok["type"] == "image":
+                if tok.get("alt_id"):
+                    peripheral.append({"id": tok["alt_id"], "source": tok["alt_source"], "block_id": n["id"], "block_type": n["kind"], "href": n.get("href")})
+                for s in tok.get("attr_slots", []):
+                    peripheral.append({"id": s["id"], "source": s["source"], "block_id": n["id"], "block_type": n["kind"], "href": n.get("href")})
+        for c in n.get("children", []):
+            stack.append(blocks_by_id[c])
+    return prose, peripheral
+
+
+def chunk_units(flow: dict) -> list[str]:
+    """Depth-first unit ids: a container + its whole subtree is ONE atomic unit."""
+    blocks_by_id = {b["id"]: b for b in flow["blocks"]}
+    units: list[str] = []
+
+    def walk(nid: str) -> None:
+        units.append(nid)
+        node = blocks_by_id[nid]
+        if node.get("children"):
+            return  # container absorbs its subtree into one unit
+
+    for doc in flow.get("documents", []):
+        for rid in doc.get("roots", []):
+            walk(rid)
     return units
 
 
-def collect_opf_segments(
-    tree: ET.ElementTree,
-    href: str,
-    next_id,
-) -> list[dict]:
-    root = tree.getroot()
-    wanted = {"title", "creator", "publisher", "description", "subject"}
-    segments: list[dict] = []
-
-    def visit(element: ET.Element, path: list[int]) -> None:
-        if local_name(element.tag) in wanted and has_text_content(element.text):
-            source = element.text or ""
-            segments.append(
-                {
-                    "id": next_id(),
-                    "kind": "opf_metadata",
-                    "href": href,
-                    "path": path,
-                    "source": normalize_text(source),
-                    "context_before": "",
-                    "context_after": "",
-                    "unit_id": "metadata",
-                }
-            )
-        for index, child in enumerate(list(element)):
-            visit(child, [*path, index])
-
-    visit(root, [])
-    return segments
-
-
-def chunk_segments(
-    segments: list[dict],
-    units: list[dict],
-    chunks_dir: Path,
-    max_chars: int = DEFAULT_CHUNK_MAX_CHARS,
-    max_segments: int = DEFAULT_CHUNK_MAX_SEGMENTS,
-) -> int:
+def write_chunks(flow: dict, metadata_segs: list[dict], chunks_dir: Path, max_chars: int = DEFAULT_MAX_CHARS, soft_min: int = DEFAULT_SOFT_MIN) -> dict:
     chunks_dir.mkdir(parents=True, exist_ok=True)
-    chunk: list[dict] = []
-    chunk_units: list[dict] = []
-    char_count = 0
-    index = 1
+    for p in chunks_dir.glob("chunk-*.json"):
+        p.unlink()
 
-    def flush() -> None:
-        nonlocal chunk, chunk_units, char_count, index
-        if not chunk:
+    blocks_by_id = {b["id"]: b for b in flow["blocks"]}
+    peripheral_items: list[dict] = []
+    for seg in metadata_segs:
+        peripheral_items.append({"id": seg["id"], "source": seg["source"], "block_id": None, "block_type": "metadata", "href": seg["href"]})
+
+    # units with their items, in reading order
+    unit_items: list[tuple[str, list[dict]]] = []
+    for unit in chunk_units(flow):
+        prose, peripheral = _collect_items(blocks_by_id[unit], blocks_by_id)
+        peripheral_items.extend(peripheral)
+        unit_items.append((unit, prose))
+
+    chunks_meta: list[dict] = []
+    idx = 1
+    if peripheral_items:
+        p = chunks_dir / f"chunk-{idx:04d}.json"
+        write_json(p, {"schema_version": TEXT_SCHEMA_VERSION, "chunk_index": idx, "kind": "peripheral", "items": peripheral_items})
+        chunks_meta.append({"chunk_index": idx, "kind": "peripheral", "item_count": len(peripheral_items), "chars": sum(len(x["source"]) for x in peripheral_items)})
+        idx += 1
+
+    cur: list[dict] = []
+    cur_chars = 0
+    cur_units: list[str] = []
+
+    def flush():
+        nonlocal cur, cur_chars, cur_units, idx
+        if not cur:
             return
-        write_json(
-            chunks_dir / f"chunk-{index:04d}.json",
-            {
-                "schema_version": TEXT_SCHEMA_VERSION,
-                "chunk_index": index,
-                "units": chunk_units,
-                "segments": chunk,
-            },
-        )
-        index += 1
-        chunk = []
-        chunk_units = []
-        char_count = 0
+        p = chunks_dir / f"chunk-{idx:04d}.json"
+        write_json(p, {"schema_version": TEXT_SCHEMA_VERSION, "chunk_index": idx, "kind": "prose", "items": list(cur)})
+        chunks_meta.append({"chunk_index": idx, "kind": "prose", "item_count": len(cur), "chars": cur_chars, "units": list(cur_units)})
+        idx += 1
+        cur = []
+        cur_chars = 0
+        cur_units = []
 
-    segments_by_unit: dict[str, list[dict]] = {}
-    for segment in segments:
-        unit_id = segment.get("unit_id")
-        if unit_id:
-            segments_by_unit.setdefault(unit_id, []).append(segment)
-
-    metadata_segments = segments_by_unit.get("metadata", [])
-    if metadata_segments:
-        metadata_unit = {
-            "id": "metadata",
-            "source": "\n".join(segment["source"] for segment in metadata_segments),
-            "segment_ids": [segment["id"] for segment in metadata_segments],
-            "parts": [
-                {
-                    "type": "slot",
-                    "segment_id": segment["id"],
-                    "kind": segment["kind"],
-                    "source": segment["source"],
-                }
-                for segment in metadata_segments
-            ],
-        }
-        units_in_order = [metadata_unit, *units]
-    else:
-        units_in_order = units
-
-    for unit in units_in_order:
-        unit_segments = segments_by_unit.get(unit["id"], [])
-        size = sum(len(segment["source"]) for segment in unit_segments)
-        if chunk and (char_count + size > max_chars or len(chunk) + len(unit_segments) > max_segments):
+    for unit, items in unit_items:
+        unit_kind = blocks_by_id[unit]["kind"]
+        unit_chars = sum(len(it["source"]) for it in items)
+        is_break = unit_kind in ("heading", "separator")
+        if cur and cur_chars >= soft_min:
+            if is_break:
+                flush()
+            elif cur_chars + unit_chars > max_chars:
+                flush()
+        cur.extend(items)
+        cur_chars += unit_chars
+        cur_units.append(unit)
+        if unit_kind == "separator" and cur_chars >= soft_min:
             flush()
-        chunk_units.append(unit)
-        chunk.extend(unit_segments)
-        char_count += size
     flush()
-    return index - 1
+
+    if not chunks_meta:
+        p = chunks_dir / f"chunk-{idx:04d}.json"
+        write_json(p, {"schema_version": TEXT_SCHEMA_VERSION, "chunk_index": idx, "kind": "prose", "items": []})
+        chunks_meta.append({"chunk_index": idx, "kind": "prose", "item_count": 0, "chars": 0, "units": []})
+
+    return {"chunks": chunks_meta, "total_items": sum(len(items) for _, items in unit_items) + len(peripheral_items), "prose_items": sum(len(items) for _, items in unit_items), "peripheral_items": len(peripheral_items)}
 
 
-def make_segment_id_factory():
-    counter = 0
+# ---------------------------------------------------------------------------
+# Edition policy
 
-    def next_id() -> str:
-        nonlocal counter
-        counter += 1
-        return f"t{counter:06d}"
-
-    return next_id
-
-
-def prepare_run(args: argparse.Namespace) -> int:
-    epub = Path(args.epub).expanduser().resolve()
-    workdir = Path(args.workdir).expanduser().resolve()
-    if not epub.is_file():
-        raise EpubTranslatorError(f"EPUB not found: {epub}")
-    if workdir.exists() and any(workdir.iterdir()):
-        raise EpubTranslatorError(f"Workdir already exists and is not empty: {workdir}")
-
-    workdir.mkdir(parents=True, exist_ok=True)
-    unpacked = workdir / "unpacked"
-    safe_extract(epub, unpacked)
-    shutil.copy2(epub, workdir / "source.epub")
-
-    rootfile = container_rootfile(unpacked)
-    _opf_path, opf_tree, opf = opf_root(unpacked, rootfile)
-    items = manifest_items(opf)
-    next_id = make_segment_id_factory()
-
-    xhtml_items = [item for item in items if item["media_type"] == "application/xhtml+xml"]
-    xhtml_by_id = {item["id"]: item for item in xhtml_items}
-    ordered_xhtml: list[dict] = []
-    seen_xhtml_ids: set[str] = set()
-    for idref in spine_info(opf)["idrefs"]:
-        item = xhtml_by_id.get(idref)
-        if item:
-            ordered_xhtml.append(item)
-            seen_xhtml_ids.add(item["id"])
-    for item in xhtml_items:
-        if item["id"] not in seen_xhtml_ids:
-            ordered_xhtml.append(item)
-    documents = [
-        {
-            **item,
-            "href": full_internal_path(rootfile, item["href"]),
-            "opf_href": item["href"],
-        }
-        for item in ordered_xhtml
-    ]
-    all_images = [
-        {
-            **item,
-            "href": full_internal_path(rootfile, item["href"]),
-            "opf_href": item["href"],
-        }
-        for item in items
-        if item["media_type"].startswith("image/")
-    ]
-    editable_images = [image for image in all_images if image["media_type"] in EDITABLE_IMAGE_MEDIA_TYPES]
-    unsupported_images = [
-        {
-            "manifest_id": image["id"],
-            "href": image["href"],
-            "opf_href": image["opf_href"],
-            "media_type": image["media_type"],
-            "reason": "unsupported_image_media_type",
-        }
-        for image in all_images
-        if image["media_type"] not in EDITABLE_IMAGE_MEDIA_TYPES
-    ]
-
-    segments = collect_opf_segments(opf_tree, rootfile, next_id)
-    unit_parts: dict[str, list[dict]] = {}
-    for document in documents:
-        doc_path = safe_join(unpacked, document["href"])
-        doc_segments, doc_unit_parts = collect_xhtml_segments(
-            parse_xml(doc_path),
-            document["href"],
-            next_id,
-        )
-        segments.extend(doc_segments)
-        unit_parts.update(doc_unit_parts)
-
-    units = build_text_units(segments, unit_parts)
-    chunk_count = chunk_segments(
-        segments,
-        units,
-        workdir / "chunks",
-    )
-    (workdir / "translations").mkdir(parents=True, exist_ok=True)
-    write_json(
-        workdir / "segment-index.json",
-        {"schema_version": TEXT_SCHEMA_VERSION, "units": units, "segments": segments},
-    )
-
-    image_jobs = []
-    image_source_dir = workdir / "images" / "source"
-    image_replacement_dir = workdir / "images" / "replacements"
-    image_source_dir.mkdir(parents=True, exist_ok=True)
-    image_replacement_dir.mkdir(parents=True, exist_ok=True)
-    for index, image in enumerate(editable_images, start=1):
-        source_path = safe_join(unpacked, image["href"])
-        suffix = IMAGE_SUFFIX_BY_MEDIA_TYPE.get(image["media_type"], Path(image["href"]).suffix or ".img")
-        job_id = f"img{index:04d}"
-        export_path = image_source_dir / f"{job_id}{suffix}"
-        if source_path.is_file():
-            shutil.copy2(source_path, export_path)
-        image_jobs.append(
-            {
-                "id": job_id,
-                "manifest_id": image["id"],
-                "href": image["href"],
-                "opf_href": image["opf_href"],
-                "media_type": image["media_type"],
-                "source_export": str(export_path.relative_to(workdir)),
-                "status": "pending_review",
-                "updated_at": utc_now(),
-            }
-        )
-
-    run_manifest = {
-        "schema_version": 2,
-        "created_at": utc_now(),
-        "source_epub": str(epub),
-        "rootfile": rootfile,
-        "text_status": "prepared",
-        "text_schema_version": TEXT_SCHEMA_VERSION,
-        "target_structure_status": "not_started",
-        "segment_count": len(segments),
-        "unit_count": len(units),
-        "chunk_count": chunk_count,
-        "documents": documents,
-        "image_count": len(image_jobs),
-        "unsupported_image_count": len(unsupported_images),
-        "unsupported_images": unsupported_images,
-        "output_epub": None,
+def write_edition_template(workdir: Path, flow: dict, inspect: dict) -> Path:
+    p = workdir / "edition.json"
+    if p.exists():
+        return p
+    template = {
+        "schema_version": 1,
+        "target_language": None,
+        "language_tag": "ko",
+        "page_progression_direction": "ltr",
     }
-    write_json(workdir / "manifest.json", run_manifest)
-    write_json(workdir / "image-jobs.json", {"schema_version": 2, "jobs": image_jobs})
-    print(workdir)
-    return 0
-
-
-def read_segments(workdir: Path) -> list[dict]:
-    index_path = workdir / "segment-index.json"
-    if index_path.is_file():
-        return read_json(index_path)["segments"]
-    segments: list[dict] = []
-    for chunk_path in sorted((workdir / "chunks").glob("chunk-*.json")):
-        segments.extend(read_json(chunk_path).get("segments", []))
-    return segments
-
-
-def read_translation_map(translations_dir: Path) -> dict[str, str]:
-    translations: dict[str, str] = {}
-    for path in sorted(translations_dir.glob("chunk-*.json")):
-        data = read_json(path)
-        if data.get("schema_version") != TEXT_SCHEMA_VERSION:
-            raise EpubTranslatorError(
-                f"Translation file schema_version must be {TEXT_SCHEMA_VERSION}: {path}"
-            )
-        if "translations" not in data or not isinstance(data["translations"], list):
-            raise EpubTranslatorError(f"Translation file must contain translations[]: {path}")
-        rows = data["translations"]
-        for row in rows:
-            segment_id = row.get("id")
-            if not segment_id or "translation" not in row:
-                raise EpubTranslatorError(f"Translation row must contain id and translation: {path}")
-            if segment_id in translations:
-                raise EpubTranslatorError(f"Duplicate translation id: {segment_id}")
-            translations[segment_id] = normalize_text(str(row["translation"]))
-    return translations
-
-
-def preserve_boundary_whitespace(source: str, translation: str) -> str:
-    if not source.strip() or not translation.strip():
-        return translation
-    leading_count = len(source) - len(source.lstrip())
-    trailing_count = len(source) - len(source.rstrip())
-    leading = source[:leading_count]
-    trailing = source[len(source) - trailing_count :] if trailing_count else ""
-    return f"{leading}{translation.strip()}{trailing}"
-
-
-def subtree_target_text(element: ET.Element) -> str:
-    parts: list[str] = []
-
-    def visit(node: ET.Element) -> None:
-        if node.text:
-            parts.append(normalize_text(node.text))
-        for child in list(node):
-            child_name = local_name(child.tag)
-            if child_name in STRUCTURE_MARKER_TAGS:
-                parts.append(f"[{child_name}]")
-            visit(child)
-            if child.tail:
-                parts.append(normalize_text(child.tail))
-
-    visit(element)
-    return "".join(parts).strip()
-
-
-def element_attributes(element: ET.Element) -> dict[str, str]:
-    return {local_name(name): value for name, value in sorted(element.attrib.items())}
-
-
-def iter_subtree(element: ET.Element):
-    yield element
-    for child in list(element):
-        yield from iter_subtree(child)
-
-
-def preserved_references(elements: list[ET.Element]) -> list[dict]:
-    refs: set[tuple[str, str]] = set()
-    for element in elements:
-        for node in iter_subtree(element):
-            for name, value in node.attrib.items():
-                attr = local_name(name)
-                if attr in TARGET_STRUCTURE_PRESERVED_ATTRS and value:
-                    refs.add((attr, value))
-    return [{"attribute": attr, "value": value} for attr, value in sorted(refs)]
-
-
-def serialize_xhtml(element: ET.Element) -> str:
-    register_namespaces(XHTML_NS)
-    return ET.tostring(element, encoding="unicode", short_empty_elements=True)
-
-
-def target_structure_child_summary(child: ET.Element, path: list[int], index: int) -> dict:
-    return {
-        "index": index,
-        "path": path_key(path),
-        "tag": local_name(child.tag),
-        "attributes": element_attributes(child),
-        "text": subtree_target_text(child),
-        "preserved_references": preserved_references([child]),
-        "xhtml": serialize_xhtml(child),
-    }
-
-
-def target_structure_blocks(root: ET.Element) -> list[dict]:
-    blocks: list[dict] = []
-
-    def visit(element: ET.Element, path: list[int]) -> None:
-        children = list(element)
-        if children:
-            blocks.append(
-                {
-                    "path": path_key(path),
-                    "tag": local_name(element.tag),
-                    "attributes": element_attributes(element),
-                    "text": subtree_target_text(element),
-                    "preserved_references": preserved_references([element]),
-                    "children": [
-                        target_structure_child_summary(child, [*path, index], index)
-                        for index, child in enumerate(children)
-                    ],
-                }
-            )
-        for index, child in enumerate(children):
-            visit(child, [*path, index])
-
-    visit(root, [])
-    return blocks
-
-
-def export_target_structure(args: argparse.Namespace) -> int:
-    workdir = Path(args.workdir).expanduser().resolve()
-    output = Path(args.output).expanduser().resolve()
-    manifest = read_json(workdir / "manifest.json")
-    if manifest.get("text_status") != "applied":
-        raise EpubTranslatorError("Text translations must be applied before exporting target structure")
-    unpacked = workdir / "unpacked"
-    rootfile = manifest.get("rootfile") or container_rootfile(unpacked)
-    documents = []
-    for document in manifest.get("documents", []):
-        href = document.get("href")
-        if not isinstance(href, str):
-            continue
-        doc_path = resolve_layout_href(unpacked, rootfile, href)
-        tree = parse_xml(doc_path)
-        root = tree.getroot()
-        documents.append(
-            {
-                "href": href,
-                "root_tag": local_name(root.tag),
-                "blocks": target_structure_blocks(root),
-            }
-        )
-    write_json(
-        output,
-        {
-            "schema_version": 1,
-            "workdir": str(workdir),
-            "documents": documents,
-        },
-    )
-    print(output)
-    return 0
-
-
-def parse_xhtml_fragment(fragment: str) -> list[ET.Element]:
-    if not isinstance(fragment, str):
-        raise EpubTranslatorError("target-structure replacement xhtml must be a string")
-    wrapper_source = f'<wrapper xmlns="{XHTML_NS}">{fragment}</wrapper>'
-    try:
-        wrapper = ET.fromstring(wrapper_source)
-    except ET.ParseError as exc:
-        raise EpubTranslatorError(f"Invalid target-structure XHTML fragment: {exc}") from exc
-    if wrapper.text and wrapper.text.strip():
-        raise EpubTranslatorError("target-structure XHTML fragment must contain element children, not root text")
-    children = list(wrapper)
-    for child in children:
-        for node in iter_subtree(child):
-            if local_name(node.tag) in SKIP_TEXT_TAGS:
-                raise EpubTranslatorError("target-structure XHTML fragment must not contain script or style")
-    return children
-
-
-def apply_target_structure_replacements(root: ET.Element, replacements: list) -> list[str]:
-    if not isinstance(replacements, list):
-        raise EpubTranslatorError("target-structure replacements must be a list")
-    parsed: list[tuple[list[int], int, int, str]] = []
-    for replacement in replacements:
-        if not isinstance(replacement, dict):
-            raise EpubTranslatorError("target-structure replacement entries must be objects")
-        if "parent_path" not in replacement:
-            raise EpubTranslatorError("target-structure replacement requires parent_path")
-        parent_path = parse_layout_path(replacement["parent_path"])
-        start = replacement.get("start")
-        end = replacement.get("end")
-        fragment = replacement.get("xhtml")
-        if not isinstance(start, int) or not isinstance(end, int):
-            raise EpubTranslatorError("target-structure start and end must be integers")
-        if start < 0 or end < start:
-            raise EpubTranslatorError("target-structure replacement has invalid start/end range")
-        if not isinstance(fragment, str):
-            raise EpubTranslatorError("target-structure replacement requires string xhtml")
-        parsed.append((parent_path, start, end, fragment))
-
-    changes: list[str] = []
-    for parent_path, start, end, fragment in sorted(parsed, key=lambda item: (item[0], item[1]), reverse=True):
-        parent = element_at_path(root, parent_path)
-        children = list(parent)
-        if end > len(children):
-            raise EpubTranslatorError(
-                f"target-structure range exceeds child count at {path_key(parent_path)}: {start}:{end}"
-            )
-        original_children = children[start:end]
-        new_children = parse_xhtml_fragment(fragment)
-        required_refs = {
-            (ref["attribute"], ref["value"])
-            for ref in preserved_references(original_children)
-        }
-        new_refs = {
-            (ref["attribute"], ref["value"])
-            for ref in preserved_references(new_children)
-        }
-        missing_refs = sorted(required_refs - new_refs)
-        if missing_refs:
-            missing = ", ".join(f"{attr}={value}" for attr, value in missing_refs[:8])
-            raise EpubTranslatorError(f"target-structure replacement drops preserved references: {missing}")
-        parent[start:end] = new_children
-        changes.append(f"{path_key(parent_path)}[{start}:{end}]")
-    return changes
-
-
-def apply_target_structure(args: argparse.Namespace) -> int:
-    workdir = Path(args.workdir).expanduser().resolve()
-    plan_path = Path(args.plan).expanduser().resolve()
-    if not plan_path.is_file():
-        raise EpubTranslatorError(f"Target structure plan not found: {plan_path}")
-    plan = read_json(plan_path)
-    if plan.get("schema_version") != 1:
-        raise EpubTranslatorError("target-structure-plan schema_version must be 1")
-    documents = plan.get("documents", [])
-    if not isinstance(documents, list):
-        raise EpubTranslatorError("target-structure-plan documents must be a list")
-    unpacked = workdir / "unpacked"
-    if not unpacked.is_dir():
-        raise EpubTranslatorError(f"Unpacked EPUB not found: {unpacked}")
-    manifest_path = workdir / "manifest.json"
-    manifest = read_json(manifest_path)
-    if manifest.get("text_status") != "applied":
-        raise EpubTranslatorError("Text translations must be applied before target structure")
-    rootfile = manifest.get("rootfile") or container_rootfile(unpacked)
-
-    changes: list[str] = []
-    for document in documents:
-        if not isinstance(document, dict):
-            raise EpubTranslatorError("target-structure documents entries must be objects")
-        href = document.get("href")
-        if not isinstance(href, str):
-            raise EpubTranslatorError("target-structure document requires string href")
-        doc_path = resolve_layout_href(unpacked, rootfile, href)
-        tree = parse_xml(doc_path)
-        root = tree.getroot()
-        document_changes = apply_target_structure_replacements(root, document.get("replacements", []))
-        if document_changes:
-            write_xml(doc_path, tree, XHTML_NS)
-            changes.extend(f"xhtml:{href}:{change}" for change in document_changes)
-
-    manifest["target_structure_status"] = "applied"
-    manifest["target_structure_applied_at"] = utc_now()
-    manifest["target_structure_plan"] = str(plan_path)
-    manifest["target_structure_change_count"] = len(changes)
-    write_json(manifest_path, manifest)
-    summary = {
-        "target_structure_status": "applied",
-        "change_count": len(changes),
-        "changes": changes,
-    }
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def apply_segments_to_tree(tree: ET.ElementTree, segments: list[dict], translations: dict[str, str]) -> None:
-    root = tree.getroot()
-    for segment in segments:
-        translation = translations[segment["id"]]
-        element = element_at_path(root, segment["path"])
-        kind = segment["kind"]
-        if kind == "xhtml_text":
-            element.text = preserve_boundary_whitespace(segment["source"], translation)
-        elif kind == "xhtml_tail":
-            child_index = segment.get("child_index")
-            if child_index is None:
-                raise EpubTranslatorError(f"xhtml_tail segment missing child_index: {segment['id']}")
-            children = list(element)
-            if child_index >= len(children):
-                raise EpubTranslatorError(f"XML child index no longer exists: {segment['path']}[{child_index}]")
-            children[child_index].tail = preserve_boundary_whitespace(segment["source"], translation)
-        elif kind == "opf_metadata":
-            element.text = translation
-        elif kind == "xhtml_attribute":
-            element.set(segment["attribute"], translation)
-        else:
-            raise EpubTranslatorError(f"Unsupported segment kind: {kind}")
-
-
-def apply_text(args: argparse.Namespace) -> int:
-    workdir = Path(args.workdir).expanduser().resolve()
-    translations_dir = Path(args.translations).expanduser().resolve()
-    manifest = read_json(workdir / "manifest.json")
-    unpacked = workdir / "unpacked"
-    rootfile = manifest["rootfile"]
-    segments = read_segments(workdir)
-    translations = read_translation_map(translations_dir)
-    missing = [segment["id"] for segment in segments if segment["id"] not in translations]
-    if missing:
-        raise EpubTranslatorError(f"Missing translations for {len(missing)} segments: {', '.join(missing[:8])}")
-    known_ids = {segment["id"] for segment in segments}
-    unknown = [segment_id for segment_id in translations if segment_id not in known_ids]
-    if unknown:
-        raise EpubTranslatorError(f"Unknown translation ids: {', '.join(unknown[:8])}")
-
-    opf_segments = [segment for segment in segments if segment["kind"] == "opf_metadata"]
-    if opf_segments:
-        opf_path, opf_tree, _opf = opf_root(unpacked, rootfile)
-        apply_segments_to_tree(opf_tree, opf_segments, translations)
-        write_xml(opf_path, opf_tree, OPF_NS)
-
-    by_doc: dict[str, list[dict]] = {}
-    for segment in segments:
-        if segment["kind"].startswith("xhtml_"):
-            by_doc.setdefault(segment["href"], []).append(segment)
-
-    for href, doc_segments in sorted(by_doc.items()):
-        doc_path = safe_join(unpacked, href)
-        tree = parse_xml(doc_path)
-        apply_segments_to_tree(tree, doc_segments, translations)
-        write_xml(doc_path, tree, XHTML_NS)
-
-    manifest["text_status"] = "applied"
-    manifest["text_applied_at"] = utc_now()
-    manifest["target_structure_status"] = "pending"
-    write_json(workdir / "manifest.json", manifest)
-    print(f"Applied {len(segments)} translated text segments")
-    return 0
-
-
-def copy_image_verbatim(source: Path, destination: Path, media_type: str) -> str:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if media_type not in EDITABLE_IMAGE_MEDIA_TYPES:
-        raise EpubTranslatorError(f"Unsupported editable image media type: {media_type}")
-    shutil.copy2(source, destination)
-    return "copied-verbatim"
-
-
-def image_review_path(workdir: Path, job: dict, source: Path) -> Path:
-    suffix = source.suffix or IMAGE_SUFFIX_BY_MEDIA_TYPE.get(job["media_type"], Path(job["href"]).suffix or ".img")
-    return workdir / "images" / "replacements" / f"{job['id']}{suffix}"
-
-
-def copy_image_review_file(source: Path, review_path: Path) -> None:
-    review_path.parent.mkdir(parents=True, exist_ok=True)
-    if source.resolve() != review_path.resolve():
-        shutil.copy2(source, review_path)
-
-
-def record_image(args: argparse.Namespace) -> int:
-    workdir = Path(args.workdir).expanduser().resolve()
-    jobs_path = workdir / "image-jobs.json"
-    jobs_data = read_json(jobs_path)
-    jobs = jobs_data["jobs"]
-    job = next((item for item in jobs if item["id"] == args.image_id), None)
-    if job is None:
-        raise EpubTranslatorError(f"Unknown image id: {args.image_id}")
-
-    actions = [bool(args.replacement), bool(args.skip_no_text)]
-    if sum(actions) != 1:
-        raise EpubTranslatorError("Choose exactly one of --replacement or --skip-no-text")
-
-    if args.skip_no_text:
-        source_export = safe_join(workdir, job["source_export"])
-        if not source_export.is_file():
-            raise EpubTranslatorError(f"Source image export not found: {source_export}")
-        review_path = image_review_path(workdir, job, source_export)
-        copy_image_review_file(source_export, review_path)
-        job["status"] = "skipped_no_text"
-        job["replacement_export"] = str(review_path.relative_to(workdir))
-        job["replacement_mode"] = "source-copy-for-review"
-    else:
-        replacement = Path(args.replacement).expanduser().resolve()
-        if not replacement.is_file():
-            raise EpubTranslatorError(f"Replacement image not found: {replacement}")
-        review_path = image_review_path(workdir, job, replacement)
-        copy_image_review_file(replacement, review_path)
-        destination = safe_join(workdir / "unpacked", job["href"])
-        mode = copy_image_verbatim(replacement, destination, job["media_type"])
-        job["status"] = "edited"
-        job["replacement_source"] = str(replacement)
-        job["replacement_export"] = str(review_path.relative_to(workdir))
-        job["replacement_mode"] = mode
-    job["updated_at"] = utc_now()
-    write_json(jobs_path, jobs_data)
-    print(f"{job['id']} {job['status']}")
-    return 0
-
-
-def parse_layout_path(value) -> list[int]:
-    if value in (None, "", "."):
-        return []
-    if isinstance(value, list):
-        path = value
-    elif isinstance(value, str):
-        path = value.split("/")
-    else:
-        raise EpubTranslatorError(f"Invalid XHTML layout path: {value!r}")
-    result: list[int] = []
-    for part in path:
-        if part in ("", "."):
-            continue
-        try:
-            index = int(part)
-        except (TypeError, ValueError) as exc:
-            raise EpubTranslatorError(f"Invalid XHTML layout path component: {part!r}") from exc
-        if index < 0:
-            raise EpubTranslatorError(f"Invalid negative XHTML layout path component: {part!r}")
-        result.append(index)
-    return result
-
-
-def resolve_layout_href(unpacked: Path, rootfile: str, href: str) -> Path:
-    if not href:
-        raise EpubTranslatorError("Layout href must not be empty")
-    direct = safe_join(unpacked, href)
-    if direct.exists():
-        return direct
-    opf_relative = safe_join(unpacked, full_internal_path(rootfile, href))
-    if opf_relative.exists():
-        return opf_relative
-    raise EpubTranslatorError(f"Layout href not found in unpacked EPUB: {href}")
-
-
-def css_hrefs(unpacked: Path, rootfile: str) -> list[str]:
-    _opf_path, _opf_tree, opf = opf_root(unpacked, rootfile)
-    return [
-        full_internal_path(rootfile, item["href"])
-        for item in manifest_items(opf)
-        if item["media_type"] == "text/css"
-    ]
-
-
-def replace_css_declarations(css: str, replacements: dict) -> str:
-    for property_name, value in replacements.items():
-        if not isinstance(property_name, str) or not isinstance(value, str):
-            raise EpubTranslatorError("CSS replace_declarations must map strings to strings")
-        pattern = re.compile(
-            rf"(?i)(?P<prefix>(^|[;{{])\s*{re.escape(property_name)}\s*:\s*)[^;}}]+"
-        )
-        css = pattern.sub(lambda match: f"{match.group('prefix')}{value}", css)
-    return css
-
-
-def remove_css_declarations(css: str, property_names: list) -> str:
-    for property_name in property_names:
-        if not isinstance(property_name, str):
-            raise EpubTranslatorError("CSS remove_declarations must contain strings")
-        pattern = re.compile(
-            rf"(?i)(?P<prefix>^|[;{{])\s*{re.escape(property_name)}\s*:[^;}}]+;?"
-        )
-        css = pattern.sub(lambda match: match.group("prefix"), css)
-    return css
-
-
-def apply_opf_layout(unpacked: Path, rootfile: str, opf_plan: dict | None) -> list[str]:
-    if not opf_plan:
-        return []
-    if not isinstance(opf_plan, dict):
-        raise EpubTranslatorError("layout-plan opf must be an object")
-    opf_path, opf_tree, opf = opf_root(unpacked, rootfile)
-    spine = opf.find(f"{{{OPF_NS}}}spine")
-    if spine is None:
-        raise EpubTranslatorError("OPF spine missing")
-    changes: list[str] = []
-    if "page_progression_direction" in opf_plan:
-        value = opf_plan["page_progression_direction"]
-        if value is None:
-            if "page-progression-direction" in spine.attrib:
-                spine.attrib.pop("page-progression-direction", None)
-                changes.append("opf.page-progression-direction removed")
-        elif value in {"ltr", "rtl"}:
-            spine.set("page-progression-direction", value)
-            changes.append(f"opf.page-progression-direction={value}")
-        else:
-            raise EpubTranslatorError("opf.page_progression_direction must be ltr, rtl, or null")
-    if changes:
-        write_xml(opf_path, opf_tree, OPF_NS)
-    return changes
-
-
-def apply_css_layout(unpacked: Path, rootfile: str, css_plan: list | None) -> list[str]:
-    if not css_plan:
-        return []
-    if not isinstance(css_plan, list):
-        raise EpubTranslatorError("layout-plan css must be a list")
-    changes: list[str] = []
-    for entry in css_plan:
-        if not isinstance(entry, dict):
-            raise EpubTranslatorError("layout-plan css entries must be objects")
-        href = entry.get("href")
-        if not isinstance(href, str):
-            raise EpubTranslatorError("layout-plan css entry requires string href")
-        targets = css_hrefs(unpacked, rootfile) if href == "*" else [href]
-        if not targets:
-            raise EpubTranslatorError("layout-plan css wildcard matched no CSS files")
-        replacements = entry.get("replace_declarations", {})
-        removals = entry.get("remove_declarations", [])
-        append = entry.get("append", "")
-        if not isinstance(replacements, dict):
-            raise EpubTranslatorError("layout-plan css replace_declarations must be an object")
-        if not isinstance(removals, list):
-            raise EpubTranslatorError("layout-plan css remove_declarations must be a list")
-        if not isinstance(append, str):
-            raise EpubTranslatorError("layout-plan css append must be a string")
-        for target in targets:
-            css_path = resolve_layout_href(unpacked, rootfile, target)
-            before = css_path.read_text(encoding="utf-8")
-            after = remove_css_declarations(before, removals)
-            after = replace_css_declarations(after, replacements)
-            if append:
-                after = after.rstrip() + "\n\n" + append.rstrip() + "\n"
-            if after != before:
-                css_path.write_text(after, encoding="utf-8")
-                changes.append(f"css:{target}")
-    return changes
-
-
-def apply_xhtml_layout(unpacked: Path, rootfile: str, xhtml_plan: list | None) -> list[str]:
-    if not xhtml_plan:
-        return []
-    if not isinstance(xhtml_plan, list):
-        raise EpubTranslatorError("layout-plan xhtml must be a list")
-    changes: list[str] = []
-    for entry in xhtml_plan:
-        if not isinstance(entry, dict):
-            raise EpubTranslatorError("layout-plan xhtml entries must be objects")
-        href = entry.get("href")
-        if not isinstance(href, str):
-            raise EpubTranslatorError("layout-plan xhtml entry requires string href")
-        xhtml_path = resolve_layout_href(unpacked, rootfile, href)
-        tree = parse_xml(xhtml_path)
-        root = tree.getroot()
-        changed = False
-        for update in entry.get("set_attributes", []):
-            if not isinstance(update, dict):
-                raise EpubTranslatorError("xhtml set_attributes entries must be objects")
-            attributes = update.get("attributes", {})
-            if not isinstance(attributes, dict):
-                raise EpubTranslatorError("xhtml set_attributes.attributes must be an object")
-            element = element_at_path(root, parse_layout_path(update.get("path", ".")))
-            for name, value in attributes.items():
-                if not isinstance(name, str):
-                    raise EpubTranslatorError("xhtml attribute names must be strings")
-                if value is None:
-                    if name in element.attrib:
-                        element.attrib.pop(name, None)
-                        changed = True
-                else:
-                    element.set(name, str(value))
-                    changed = True
-        for update in entry.get("remove_attributes", []):
-            if not isinstance(update, dict):
-                raise EpubTranslatorError("xhtml remove_attributes entries must be objects")
-            names = update.get("names", [])
-            if not isinstance(names, list):
-                raise EpubTranslatorError("xhtml remove_attributes.names must be a list")
-            element = element_at_path(root, parse_layout_path(update.get("path", ".")))
-            for name in names:
-                if not isinstance(name, str):
-                    raise EpubTranslatorError("xhtml remove_attributes.names must contain strings")
-                if name in element.attrib:
-                    element.attrib.pop(name, None)
-                    changed = True
-        if changed:
-            write_xml(xhtml_path, tree, XHTML_NS)
-            changes.append(f"xhtml:{href}")
-    return changes
-
-
-def apply_layout(args: argparse.Namespace) -> int:
-    workdir = Path(args.workdir).expanduser().resolve()
-    plan_path = Path(args.plan).expanduser().resolve()
-    if not plan_path.is_file():
-        raise EpubTranslatorError(f"Layout plan not found: {plan_path}")
-    plan = read_json(plan_path)
-    if plan.get("schema_version") != 1:
-        raise EpubTranslatorError("layout-plan schema_version must be 1")
-    unpacked = workdir / "unpacked"
-    if not unpacked.is_dir():
-        raise EpubTranslatorError(f"Unpacked EPUB not found: {unpacked}")
-    manifest_path = workdir / "manifest.json"
-    manifest = read_json(manifest_path)
-    rootfile = manifest.get("rootfile") or container_rootfile(unpacked)
-    changes: list[str] = []
-    changes.extend(apply_opf_layout(unpacked, rootfile, plan.get("opf")))
-    changes.extend(apply_css_layout(unpacked, rootfile, plan.get("css")))
-    changes.extend(apply_xhtml_layout(unpacked, rootfile, plan.get("xhtml")))
-    manifest["layout_status"] = "applied"
-    manifest["layout_applied_at"] = utc_now()
-    manifest["layout_plan"] = str(plan_path)
-    manifest["layout_change_count"] = len(changes)
-    write_json(manifest_path, manifest)
-    summary = {"layout_status": "applied", "change_count": len(changes), "changes": changes}
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def package_epub(args: argparse.Namespace) -> int:
-    workdir = Path(args.workdir).expanduser().resolve()
-    unpacked = workdir / "unpacked"
-    output = Path(args.output).expanduser().resolve()
-    manifest_path = workdir / "manifest.json"
-    manifest = read_json(manifest_path)
-    source_epub = Path(manifest["source_epub"]).expanduser().resolve()
-    run_source = (workdir / "source.epub").resolve()
-    if output == source_epub or output == run_source:
-        raise EpubTranslatorError("Refusing to overwrite the source EPUB")
-    mimetype = unpacked / "mimetype"
-    if not mimetype.is_file():
-        raise EpubTranslatorError("Unpacked EPUB has no mimetype file")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output, "w") as archive:
-        archive.write(mimetype, "mimetype", compress_type=zipfile.ZIP_STORED)
-        for path in sorted(unpacked.rglob("*")):
-            if not path.is_file() or path == mimetype:
-                continue
-            archive.write(
-                path,
-                path.relative_to(unpacked).as_posix(),
-                compress_type=zipfile.ZIP_DEFLATED,
-            )
-    manifest["output_epub"] = str(output)
-    manifest["packaged_at"] = utc_now()
-    write_json(manifest_path, manifest)
-    print(output)
-    return 0
-
-
-def validate_epub_archive(output: Path) -> list[str]:
-    errors: list[str] = []
-    if not output.is_file():
-        return [f"Output EPUB not found: {output}"]
-    try:
-        with zipfile.ZipFile(output) as archive:
-            infos = archive.infolist()
-            if not infos or infos[0].filename != "mimetype":
-                errors.append("mimetype must be the first ZIP entry")
-            elif infos[0].compress_type != zipfile.ZIP_STORED:
-                errors.append("mimetype must be stored without compression")
-            try:
-                if archive.read("mimetype") != b"application/epub+zip":
-                    errors.append("mimetype content must be application/epub+zip")
-            except KeyError:
-                errors.append("mimetype file missing")
-            try:
-                container = ET.parse(archive.open("META-INF/container.xml"))
-                rootfile = container.getroot().find(f".//{{{CONTAINER_NS}}}rootfile")
-                if rootfile is None or not rootfile.get("full-path"):
-                    errors.append("container.xml rootfile missing")
-                    return errors
-                rootfile_path = rootfile.get("full-path", "")
-                opf_tree = ET.parse(archive.open(rootfile_path))
-            except (KeyError, ET.ParseError) as exc:
-                errors.append(f"Could not parse EPUB container/OPF: {exc}")
-                return errors
-            root = opf_tree.getroot()
-            items = manifest_items(root)
-            ids = {item["id"] for item in items}
-            root_dir = posixpath.dirname(rootfile_path)
-            names = set(archive.namelist())
-            for item in items:
-                href = posixpath.normpath(posixpath.join(root_dir, item["href"]))
-                if href not in names:
-                    errors.append(f"Manifest href missing from archive: {href}")
-            for idref in spine_info(root)["idrefs"]:
-                if idref not in ids:
-                    errors.append(f"Spine idref has no manifest item: {idref}")
-    except zipfile.BadZipFile as exc:
-        errors.append(f"Invalid ZIP archive: {exc}")
+    write_json(p, template)
+    return p
+
+
+def validate_edition(edition: dict) -> list[str]:
+    errors = []
+    for k in edition:
+        if k not in EDITION_KEYS:
+            errors.append(f"edition.json: unknown key {k!r} (allowed: {sorted(EDITION_KEYS)})")
+    sv = edition.get("schema_version")
+    if sv is not None and sv != 1:
+        errors.append(f"edition.json: schema_version must be 1 (got {sv!r})")
+    ppd = edition.get("page_progression_direction")
+    if ppd is not None and ppd not in ("ltr", "rtl"):
+        errors.append(f"edition.json: page_progression_direction must be 'ltr' or 'rtl' (got {ppd!r})")
+    for key in ("target_language", "language_tag"):
+        val = edition.get(key)
+        if val is not None and (not isinstance(val, str) or not LANG_RE.fullmatch(val)):
+            errors.append(f"edition.json: {key} must be a BCP-47 language tag (got {val!r})")
     return errors
 
 
-def validate_run(args: argparse.Namespace) -> int:
-    workdir = Path(args.workdir).expanduser().resolve()
-    output = Path(args.output).expanduser().resolve()
-    errors: list[str] = []
-    manifest = read_json(workdir / "manifest.json")
-    jobs = read_json(workdir / "image-jobs.json")["jobs"]
+# ---------------------------------------------------------------------------
+# Image jobs
 
-    if manifest.get("text_status") != "applied":
-        errors.append("Text translations have not been applied")
-    if manifest.get("target_structure_status") != "applied":
-        errors.append("Target structure has not been applied")
-    if not manifest.get("packaged_at") or not manifest.get("output_epub"):
-        errors.append("EPUB has not been packaged by this run")
-    else:
-        packaged_output = Path(manifest["output_epub"]).expanduser().resolve()
-        if packaged_output != output:
-            errors.append(f"Validation output does not match packaged output: {packaged_output}")
-        elif output.exists():
-            packaged_at = dt.datetime.fromisoformat(manifest["packaged_at"])
-            output_mtime = dt.datetime.fromtimestamp(output.stat().st_mtime, dt.UTC)
-            if output_mtime < packaged_at - dt.timedelta(seconds=1):
-                errors.append("Output EPUB appears older than the recorded package step")
-    resolved_image_statuses = {"skipped_no_text", "edited"}
-    unresolved = [job for job in jobs if job.get("status") not in resolved_image_statuses]
-    if unresolved:
-        errors.append(
-            "Image jobs still unreviewed: "
-            + ", ".join(f"{job['id']}={job.get('status')}" for job in unresolved[:10])
-        )
-    errors.extend(validate_epub_archive(output))
-
-    summary = {
-        "ok": not errors,
-        "errors": errors,
-        "segment_count": manifest.get("segment_count", 0),
-        "image_jobs": {
-            status: sum(1 for job in jobs if job.get("status") == status)
-            for status in sorted({job.get("status", "unknown") for job in jobs})
-        },
-        "unsupported_images": manifest.get("unsupported_image_count", 0),
-        "output": str(output),
-    }
-    write_json(workdir / "validation.json", summary)
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0 if not errors else 1
+def export_images(unpacked: Path, rootfile: str, manifest: list[dict], workdir: Path) -> dict:
+    images_dir = workdir / "images" / "source"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    jobs = []
+    unsupported = []
+    opf_dir = posixpath.dirname(rootfile)
+    for item in manifest:
+        mt = item["media_type"]
+        if not mt.startswith("image/"):
+            continue
+        internal = posixpath.normpath(posixpath.join(opf_dir, item["href"]))
+        if mt not in EDITABLE_IMAGE_TYPES:
+            unsupported.append({"id": item["id"], "href": internal, "media_type": mt})
+            continue
+        try:
+            src_path = safe_join(unpacked, internal)
+        except EpubTranslatorError as exc:
+            unsupported.append({"id": item["id"], "href": internal, "media_type": mt, "unsafe": str(exc)})
+            continue
+        if not src_path.is_file():
+            unsupported.append({"id": item["id"], "href": internal, "media_type": mt, "missing": True})
+            continue
+        suffix = IMAGE_SUFFIX_BY_TYPE.get(mt, ".bin")
+        job_id = f"img{len(jobs)+1:04d}"
+        dest = images_dir / f"{job_id}{suffix}"
+        shutil.copy2(src_path, dest)
+        jobs.append({
+            "id": job_id,
+            "manifest_id": item["id"],
+            "href": internal,
+            "media_type": mt,
+            "source_export": str(dest.relative_to(workdir)),
+            "status": "pending_review",
+            "sha256": sha256_bytes(dest.read_bytes()),
+        })
+    jobs_path = workdir / "image-jobs.json"
+    write_json(jobs_path, {"generated_at": utc_now(), "jobs": jobs, "unsupported": unsupported})
+    return {"jobs": jobs, "unsupported": unsupported}
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=(
-            "EPUB mechanics helper: inspect, prepare safe text slots, apply completed "
-            "translations, export and apply explicit target-structure plans, apply "
-            "layout plans, record finished image results, package, and validate."
-        )
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+# ---------------------------------------------------------------------------
+# Commands
 
-    inspect_parser = subparsers.add_parser("inspect", help="Inspect EPUB structure")
-    inspect_parser.add_argument("--epub", required=True)
-    inspect_parser.add_argument("--json", action="store_true", help="Print JSON output")
-    inspect_parser.set_defaults(func=lambda args: print_inspect(args))
-
-    prepare_parser = subparsers.add_parser(
-        "prepare",
-        help="Unpack an EPUB and extract safe text slots and image jobs",
-    )
-    prepare_parser.add_argument("--epub", required=True)
-    prepare_parser.add_argument("--workdir", required=True)
-    prepare_parser.set_defaults(func=prepare_run)
-
-    apply_parser = subparsers.add_parser(
-        "apply-text",
-        help="Apply completed chunk JSON text to the unpacked EPUB",
-    )
-    apply_parser.add_argument("--workdir", required=True)
-    apply_parser.add_argument("--translations", required=True)
-    apply_parser.set_defaults(func=apply_text)
-
-    export_structure_parser = subparsers.add_parser(
-        "export-target-structure",
-        help="Export translated XHTML structure blocks for Codex-authored target-structure planning",
-    )
-    export_structure_parser.add_argument("--workdir", required=True)
-    export_structure_parser.add_argument("--output", required=True)
-    export_structure_parser.set_defaults(func=export_target_structure)
-
-    target_structure_parser = subparsers.add_parser(
-        "apply-target-structure",
-        help="Apply an explicit Codex-authored target-structure XHTML plan",
-    )
-    target_structure_parser.add_argument("--workdir", required=True)
-    target_structure_parser.add_argument("--plan", required=True)
-    target_structure_parser.set_defaults(func=apply_target_structure)
-
-    layout_parser = subparsers.add_parser(
-        "apply-layout",
-        help="Apply an explicit mechanical target-edition layout plan",
-    )
-    layout_parser.add_argument("--workdir", required=True)
-    layout_parser.add_argument("--plan", required=True)
-    layout_parser.set_defaults(func=apply_layout)
-
-    image_parser = subparsers.add_parser(
-        "record-image",
-        help="Record no-text or finished replacement image results",
-    )
-    image_parser.add_argument("--workdir", required=True)
-    image_parser.add_argument("--image-id", required=True)
-    image_parser.add_argument("--replacement", help="Finished generated replacement image to embed and copy for review")
-    image_parser.add_argument(
-        "--skip-no-text",
-        action="store_true",
-        help="Mark image as having no text to replace and copy the source image for review",
-    )
-    image_parser.set_defaults(func=record_image)
-
-    package_parser = subparsers.add_parser(
-        "package",
-        help="Package the EPUB run into a new EPUB",
-    )
-    package_parser.add_argument("--workdir", required=True)
-    package_parser.add_argument("--output", required=True)
-    package_parser.set_defaults(func=package_epub)
-
-    validate_parser = subparsers.add_parser(
-        "validate",
-        help="Validate an EPUB translation run mechanically",
-    )
-    validate_parser.add_argument("--workdir", required=True)
-    validate_parser.add_argument("--output", required=True)
-    validate_parser.set_defaults(func=validate_run)
-    return parser
-
-
-def print_inspect(args: argparse.Namespace) -> int:
-    data = inspect_epub(Path(args.epub).expanduser().resolve())
+def cmd_inspect(args) -> int:
+    epub = Path(args.epub)
+    if not epub.is_file():
+        raise EpubTranslatorError(f"EPUB not found: {epub}")
+    info = inspect_epub(epub)
     if args.json:
-        print(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
+        print(json.dumps(info, ensure_ascii=False, indent=2))
     else:
-        print(f"EPUB: {data['epub']}")
-        print(f"Rootfile: {data['rootfile']}")
-        print(f"Language: {data['language']}")
-        print(f"Title: {data['title']}")
-        print(f"Counts: {data['counts']}")
+        print(f"title: {info['title']}")
+        print(f"language: {info['language']}")
+        print(f"counts: {info['counts']}")
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def cmd_ingest(args) -> int:
+    epub = Path(args.epub)
+    workdir = Path(args.workdir)
+    if not epub.is_file():
+        raise EpubTranslatorError(f"EPUB not found: {epub}")
+    workdir.mkdir(parents=True, exist_ok=True)
+    unpacked = workdir / "unpacked"
+    if unpacked.exists():
+        shutil.rmtree(unpacked)
+    unpacked.mkdir(parents=True)
+    safe_extract(epub, unpacked)
+    rootfile = container_rootfile(unpacked)
+    _opf_path, tree, root = opf_root(unpacked, rootfile)
+    manifest = manifest_items(root)
+    spine = spine_info(root)
+    id_to_href = {m["id"]: m["href"] for m in manifest}
+    spine_hrefs = [id_to_href[i] for i in spine["idrefs"] if i in id_to_href]
+    if not spine_hrefs:
+        spine_hrefs = [m["href"] for m in manifest if m["media_type"] == "application/xhtml+xml"]
+
+    flow, stats = build_flow(unpacked, rootfile, spine_hrefs, {m["href"]: m for m in manifest})
+    flow_dir = workdir / "flow"
+    flow_dir.mkdir(parents=True, exist_ok=True)
+    write_json(flow_dir / "book.flow.json", flow)
+
+    metadata_segs = collect_metadata_segments(root, rootfile)
+    chunk_info = write_chunks(flow, metadata_segs, workdir / "chunks", max_chars=args.max_chars, soft_min=args.soft_min)
+
+    inspect = inspect_epub(epub)
+    export = export_images(unpacked, rootfile, manifest, workdir)
+    write_edition_template(workdir, flow, inspect)
+
+    (workdir / "translations").mkdir(parents=True, exist_ok=True)
+
+    total_slots = 0
+    for b in flow["blocks"]:
+        total_slots += len(b.get("attr_slots", []))
+        for t in b.get("tokens", []):
+            if t["type"] == "text":
+                total_slots += 1
+            elif t["type"] == "image":
+                if t.get("alt_id"):
+                    total_slots += 1
+                total_slots += len(t.get("attr_slots", []))
+    manifest_out = {
+        "generated_at": utc_now(),
+        "epub": str(epub.resolve()),
+        "rootfile": rootfile,
+        "flow_schema_version": FLOW_SCHEMA_VERSION,
+        "text_schema_version": TEXT_SCHEMA_VERSION,
+        "spine_hrefs": spine_hrefs,
+        "block_count": len(flow["blocks"]),
+        "slot_count": total_slots,
+        "chunk_count": len(chunk_info["chunks"]),
+        "chunks": chunk_info["chunks"],
+        "total_items": chunk_info["total_items"],
+        "prose_items": chunk_info["prose_items"],
+        "peripheral_items": chunk_info["peripheral_items"],
+        "image_job_count": len(export["jobs"]),
+        "unsupported_image_count": len(export["unsupported"]),
+        "flow_stats": stats,
+        "inspect": inspect,
+    }
+    write_json(workdir / "manifest.json", manifest_out)
+    notes_path = workdir / "translation-notes.md"
+    if not notes_path.exists():
+        notes_path.write_text(
+            "# Translation notes\n\n> Compact, reusable state. Update after each chunk.\n\n"
+            "## Rolling summary\n\n- (fill after chunk 1: where we are, open threads)\n\n"
+            "## Glossary (source → target)\n\n| source | target | note |\n|---|---|---|\n|  |  |  |\n\n"
+            "## Style\n\n- Narration: \n- Dialogue: \n- Punctuation: \n",
+            encoding="utf-8",
+        )
+    print(json.dumps({"ok": True, "manifest": str(workdir / "manifest.json"), "flow": str(flow_dir / "book.flow.json"), "chunks": str(workdir / "chunks"), "edition": str(workdir / "edition.json")}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _load_chunk_sources(workdir: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    cdir = workdir / "chunks"
+    if not cdir.is_dir():
+        return out
+    for p in sorted(cdir.glob("chunk-*.json")):
+        data = json.loads(p.read_text(encoding="utf-8"))
+        for it in data.get("items", []):
+            out[it["id"]] = it.get("source", "")
+    return out
+
+
+def _read_translation_map(workdir: Path) -> dict[str, str]:
+    tdir = workdir / "translations"
+    mapping: dict[str, str] = {}
+    if not tdir.is_dir():
+        return mapping
+    for p in sorted(tdir.glob("chunk-*.json")):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for row in data.get("translations", []):
+            tid = row.get("id")
+            tr = row.get("translation")
+            if tr is None:
+                continue
+            if not tid:
+                continue
+            if tid in mapping:
+                raise EpubTranslatorError(f"duplicate translation id across files: {tid}")
+            mapping[tid] = tr if isinstance(tr, str) else ""
+    return mapping
+
+
+def cmd_status(args) -> int:
+    workdir = Path(args.workdir)
+    manifest = read_json(workdir / "manifest.json")
+    sources = _load_chunk_sources(workdir)
+    tmap = _read_translation_map(workdir)
+    total = len(sources)
+    done = sum(1 for k in sources if k in tmap and tmap[k] != "")
+    cdir = workdir / "chunks"
+    last_done = None
+    seam = ""
+    if cdir.is_dir():
+        for p in sorted(cdir.glob("chunk-*.json")):
+            data = json.loads(p.read_text(encoding="utf-8"))
+            items = data.get("items", [])
+            if not items:
+                continue
+            if all(it["id"] in tmap for it in items):
+                last_done = data.get("chunk_index")
+                tail_parts = []
+                chars = 0
+                for it in reversed(items):
+                    tr = tmap.get(it["id"], "")
+                    if not tr:
+                        continue
+                    tail_parts.append(tr)
+                    chars += len(tr)
+                    if chars >= SEAM_TAIL_CHARS:
+                        break
+                seam = " ".join(reversed(tail_parts))[-SEAM_TAIL_CHARS:]
+    nxt = None
+    if cdir.is_dir():
+        for p in sorted(cdir.glob("chunk-*.json")):
+            data = json.loads(p.read_text(encoding="utf-8"))
+            items = data.get("items", [])
+            if any(it["id"] not in tmap for it in items):
+                nxt = data.get("chunk_index")
+                break
+    result = {
+        "total_items": total,
+        "translated_items": done,
+        "remaining": total - done,
+        "last_finished_chunk": last_done,
+        "next_chunk": nxt,
+        "seam_tail": seam,
+        "manifest": manifest.get("generated_at"),
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_record_image(args) -> int:
+    workdir = Path(args.workdir)
+    jobs_path = workdir / "image-jobs.json"
+    data = read_json(jobs_path)
+    jobs = data.get("jobs", [])
+    job = next((j for j in jobs if j["id"] == args.image_id), None)
+    if job is None:
+        raise EpubTranslatorError(f"unknown image job id: {args.image_id}")
+    review_dir = workdir / "images" / "replacements"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    if args.skip_no_text:
+        src = workdir / job["source_export"]
+        if not src.is_file():
+            raise EpubTranslatorError(f"source export missing: {src}")
+        dest = review_dir / src.name
+        shutil.copy2(src, dest)
+        job["status"] = "skipped_no_text"
+        job["replacement_export"] = str(dest.relative_to(workdir))
+        job["resolved_at"] = utc_now()
+    else:
+        if not args.replacement:
+            raise EpubTranslatorError("--replacement is required unless --skip-no-text is set")
+        rep = Path(args.replacement)
+        if not rep.is_file():
+            raise EpubTranslatorError(f"replacement not found: {rep}")
+        dest = review_dir / f"{job['id']}{rep.suffix or '.png'}"
+        shutil.copy2(rep, dest)
+        job["status"] = "edited"
+        job["replacement_export"] = str(dest.relative_to(workdir))
+        job["sha256_after"] = sha256_bytes(dest.read_bytes())
+        job["resolved_at"] = utc_now()
+    write_json(jobs_path, data)
+    print(json.dumps({"ok": True, "job": job}, ensure_ascii=False, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Build helpers (ElementTree structural generation over the node tree)
+
+CANONICAL_CSS = """\
+/* generated target-edition stylesheet — horizontal, responsive */
+html, body { writing-mode: horizontal-tb; direction: ltr; margin: 0; padding: 0; }
+body { font-family: serif; line-height: 1.8; max-width: 40em; margin: 0 auto; padding: 1.2em 1em; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.35; margin: 1.6em 0 0.6em; font-weight: bold; }
+p { margin: 0.9em 0; text-align: justify; hanging-punctuation: allow-end; }
+blockquote { margin: 1em 0 1em 1.2em; padding-left: 0.8em; border-left: 2px solid #ccc; color: #333; }
+ul, ol { margin: 0.8em 0; padding-left: 1.6em; }
+li { margin: 0.4em 0; }
+table { border-collapse: collapse; margin: 1em 0; }
+td, th { border: 1px solid #ccc; padding: 0.4em 0.6em; }
+figure { margin: 1.2em 0; text-align: center; }
+figure img { max-width: 100%; height: auto; display: inline-block; }
+.separator { text-align: center; margin: 1.6em 0; color: #888; letter-spacing: 0.4em; }
+a { color: inherit; text-decoration: underline; text-underline-offset: 0.15em; }
+em { font-style: italic; }
+strong { font-weight: bold; }
+sup, sub { font-size: 0.8em; }
+"""
+
+
+def _clean_text(s: str) -> str:
+    s = s.replace(IDEOGRAPHIC_SPACE, " ")
+    s = re.sub(r"[ \t\r\n\f\v]+", " ", s).strip()
+    s = re.sub(r" ([。．、，.。!?:;)\]」』])", r"\1", s)
+    return s
+
+
+def _append_text(el: ET.Element, text: str) -> None:
+    if len(el) == 0:
+        el.text = (el.text or "") + text
+    else:
+        el[-1].tail = (el[-1].tail or "") + text
+
+
+def _append_inline(el: ET.Element, text: str, inline: list[dict]) -> None:
+    text = _clean_text(text)
+    if not text:
+        return
+    if not inline:
+        _append_text(el, text)
+        return
+    parent = el
+    for wrap in inline:
+        child = ET.SubElement(parent, wrap["tag"])
+        if wrap["tag"] == "a":
+            child.set("href", wrap.get("href", ""))
+        parent = child
+    parent.text = (parent.text or "") + text
+
+
+def _apply_attr_slots(el: ET.Element, slots: list[dict], tmap: dict[str, str]) -> None:
+    for s in slots or []:
+        tr = tmap.get(s["id"])
+        el.set(s["attr"], tr if tr is not None else s["source"])
+
+
+def _append_token(el: ET.Element, tok: dict, tmap: dict[str, str]) -> None:
+    ttype = tok["type"]
+    if ttype == "text":
+        tmap_text = tmap.get(tok["id"])
+        src = tmap_text if tmap_text is not None else tok.get("source", "")
+        _append_inline(el, str(src), tok.get("inline", []))
+    elif ttype == "image":
+        img = ET.SubElement(el, X("img"))
+        img.set("src", tok.get("src", ""))
+        alt = ""
+        if tok.get("alt_id"):
+            alt = str(tmap.get(tok["alt_id"]) or tok.get("alt_source", ""))
+        else:
+            alt = tok.get("alt_source", "")
+        img.set("alt", alt)
+        _apply_attr_slots(img, tok.get("attr_slots"), tmap)
+    elif ttype == "br":
+        ET.SubElement(el, X("br"))
+    elif ttype == "sep":
+        psep = ET.SubElement(el, X("span"))
+        psep.set("class", "separator")
+        psep.text = "⁂"
+
+
+def _append_anchors(el: ET.Element, anchors: list[str], *, first_as_id: bool = True) -> None:
+    if not anchors:
+        return
+    rest = anchors[1:] if first_as_id else anchors
+    if first_as_id:
+        el.set("id", anchors[0])
+    for a in rest:
+        sp = ET.SubElement(el, X("span"))
+        sp.set("id", a)
+
+
+def render_node(node: dict, parent_el: ET.Element, blocks_by_id: dict[str, dict], tmap: dict[str, str], edition: dict) -> None:
+    kind = node["kind"]
+    anchors = node.get("anchors", [])
+    attr_slots = node.get("attr_slots", [])
+
+    if kind == "section":
+        if not anchors and not attr_slots:
+            for c in node.get("children", []):
+                render_node(blocks_by_id[c], parent_el, blocks_by_id, tmap, edition)
+            return
+        el = ET.SubElement(parent_el, X("section"))
+        _append_anchors(el, anchors)
+        _apply_attr_slots(el, attr_slots, tmap)
+        for c in node.get("children", []):
+            render_node(blocks_by_id[c], el, blocks_by_id, tmap, edition)
+        return
+    if kind == "anchor_only":
+        for a in anchors:
+            sp = ET.Element(X("span"))
+            sp.set("id", a)
+            parent_el.append(sp)
+        return
+    if kind == "separator":
+        el = ET.SubElement(parent_el, X("p"))
+        el.set("class", "separator")
+        el.text = "⁂"
+        _append_anchors(el, anchors)
+        return
+    if kind == "image":
+        if not node.get("tokens"):
+            return
+        tok = node["tokens"][0]
+        el = ET.SubElement(parent_el, X("img"))
+        el.set("src", tok.get("src", ""))
+        alt = ""
+        if tok.get("alt_id"):
+            alt = str(tmap.get(tok["alt_id"]) or tok.get("alt_source", ""))
+        else:
+            alt = tok.get("alt_source", "")
+        el.set("alt", alt)
+        _apply_attr_slots(el, tok.get("attr_slots"), tmap)
+        if anchors:
+            el.set("id", anchors[0])
+        return
+
+    # tagged nodes
+    if kind == "list":
+        el = ET.SubElement(parent_el, X("ol" if node.get("ordered") else "ul"))
+    elif kind == "table":
+        el = ET.SubElement(parent_el, X("table"))
+    elif kind == "table_row":
+        el = ET.SubElement(parent_el, X("tr"))
+    elif kind == "figure":
+        el = ET.SubElement(parent_el, X("figure"))
+    elif kind == "heading":
+        el = ET.SubElement(parent_el, X(f"h{node.get('level', 1)}"))
+    elif kind == "paragraph":
+        el = ET.SubElement(parent_el, X("p"))
+    elif kind == "list_item":
+        el = ET.SubElement(parent_el, X("li"))
+    elif kind == "table_cell":
+        el = ET.SubElement(parent_el, X("th" if node.get("header") else "td"))
+    elif kind == "figcaption":
+        el = ET.SubElement(parent_el, X("figcaption"))
+    elif kind in ("blockquote", "aside"):
+        el = ET.SubElement(parent_el, X(kind))
+    else:
+        el = ET.SubElement(parent_el, X("p"))
+
+    _append_anchors(el, anchors)
+    _apply_attr_slots(el, attr_slots, tmap)
+
+    children = node.get("children", [])
+    if kind == "table":
+        tbody = ET.SubElement(el, X("tbody"))
+        for c in children:
+            render_node(blocks_by_id[c], tbody, blocks_by_id, tmap, edition)
+        return
+    if children:
+        if kind in ("blockquote", "aside"):
+            # blockquote/aside containers render their block children directly
+            for c in children:
+                render_node(blocks_by_id[c], el, blocks_by_id, tmap, edition)
+        else:
+            for c in children:
+                render_node(blocks_by_id[c], el, blocks_by_id, tmap, edition)
+        return
+    # leaf: tokens go into the element (blockquote/aside leaves need an inner <p>)
+    container = el
+    if kind in ("blockquote", "aside"):
+        inner = ET.SubElement(el, X("p"))
+        container = inner
+    for tok in node.get("tokens", []):
+        _append_token(container, tok, tmap)
+
+
+def node_heading_text(node: dict, tmap: dict[str, str]) -> str:
+    for tok in node.get("tokens", []):
+        if tok["type"] == "text":
+            tr = tmap.get(tok["id"])
+            if tr:
+                return str(tr)
+            return str(tok.get("source", ""))
+    return node.get("text", "")
+
+
+def render_document(doc_href: str, roots: list[str], blocks_by_id: dict[str, dict], tmap: dict[str, str], edition: dict) -> ET.Element:
+    lang = edition.get("language_tag") or "ko"
+    html = ET.Element(X("html"))
+    html.set("lang", lang)
+    html.set("xml:lang", lang)
+    head = ET.SubElement(html, X("head"))
+    title = ET.SubElement(head, X("title"))
+    title_node = next((blocks_by_id[r] for r in roots if blocks_by_id[r]["kind"] == "heading" and blocks_by_id[r].get("level") == 1), None)
+    title.text = node_heading_text(title_node, tmap) if title_node else doc_href
+    link = ET.SubElement(head, X("link"))
+    link.set("rel", "stylesheet")
+    link.set("type", "text/css")
+    css_rel = posixpath.relpath(CSS_HREF, posixpath.dirname(doc_href)) if posixpath.dirname(doc_href) else CSS_HREF
+    link.set("href", css_rel)
+    body = ET.SubElement(html, X("body"))
+    for r in roots:
+        render_node(blocks_by_id[r], body, blocks_by_id, tmap, edition)
+    return html
+
+
+def build_nav_xhtml(headings: list[dict], edition: dict) -> ET.Element:
+    lang = edition.get("language_tag") or "ko"
+    html = ET.Element(X("html"))
+    html.set("lang", lang)
+    html.set("xml:lang", lang)
+    head = ET.SubElement(html, X("head"))
+    t = ET.SubElement(head, X("title"))
+    t.text = "Table of Contents"
+    link = ET.SubElement(head, X("link"))
+    link.set("rel", "stylesheet")
+    link.set("type", "text/css")
+    link.set("href", posixpath.relpath(CSS_HREF, posixpath.dirname(NAV_HREF)))
+    body = ET.SubElement(html, X("body"))
+    nav = ET.SubElement(body, X("nav"))
+    nav.set(f"{{{EPUB_NS}}}type", "toc")
+    nav.set("id", "toc")
+    h1 = ET.SubElement(nav, X("h1"))
+    h1.text = "Contents"
+    ol = ET.SubElement(nav, X("ol"))
+    if headings:
+        for h in headings:
+            li = ET.SubElement(ol, X("li"))
+            a = ET.SubElement(li, X("a"))
+            a.set("href", h["href"])
+            a.text = h["text"] or "Section"
+    else:
+        li = ET.SubElement(ol, X("li"))
+        a = ET.SubElement(li, X("a"))
+        a.set("href", "#")
+        a.text = "Start"
+    return html
+
+
+def build_opf(title_out: str, creator_out: str, lang_out: str, ppd: str, manifest_items_out: list[dict], spine_idrefs: list[str]) -> ET.Element:
+    pkg = ET.Element(f"{{{OPF_NS}}}package")
+    pkg.set("version", "3.0")
+    pkg.set("unique-identifier", "bookid")
+    pkg.set("xml:lang", lang_out)
+    pkg.set("lang", lang_out)
+    metadata = ET.SubElement(pkg, f"{{{OPF_NS}}}metadata")
+    ident = ET.SubElement(metadata, f"{{{DC_NS}}}identifier")
+    ident.set("id", "bookid")
+    ident.text = f"urn:uuid:generated-{hashlib.md5(title_out.encode()).hexdigest()[:8]}"
+    title = ET.SubElement(metadata, f"{{{DC_NS}}}title")
+    title.text = title_out
+    if creator_out:
+        cr = ET.SubElement(metadata, f"{{{DC_NS}}}creator")
+        cr.text = creator_out
+    lang = ET.SubElement(metadata, f"{{{DC_NS}}}language")
+    lang.text = lang_out
+    mod = ET.SubElement(metadata, f"{{{OPF_NS}}}meta")
+    mod.set("property", "dcterms:modified")
+    mod.text = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    manifest = ET.SubElement(pkg, f"{{{OPF_NS}}}manifest")
+    for it in manifest_items_out:
+        item = ET.SubElement(manifest, f"{{{OPF_NS}}}item")
+        item.set("id", it["id"])
+        item.set("href", it["href"])
+        item.set("media-type", it["media_type"])
+        if it.get("properties"):
+            item.set("properties", it["properties"])
+    spine = ET.SubElement(pkg, f"{{{OPF_NS}}}spine")
+    spine.set("page-progression-direction", ppd)
+    for idref in spine_idrefs:
+        ir = ET.SubElement(spine, f"{{{OPF_NS}}}itemref")
+        ir.set("idref", idref)
+    return pkg
+
+
+def resolve_target(href: str, doc_href: str) -> tuple[str, str] | None:
+    """Resolve an <a href> to (target_doc, fragment) or None for external links."""
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:", href):
+        return None
+    path, _, frag = href.partition("#")
+    if not path:
+        target_doc = doc_href
+    else:
+        target_doc = posixpath.normpath(posixpath.join(posixpath.dirname(doc_href), path))
+    return target_doc, frag
+
+
+def cmd_build(args) -> int:
+    workdir = Path(args.workdir)
+    output = Path(args.output)
+    flow = read_json(workdir / "flow" / "book.flow.json")
+    edition = read_json(workdir / "edition.json") if (workdir / "edition.json").is_file() else {}
+    manifest = read_json(workdir / "manifest.json")
+    sources = _load_chunk_sources(workdir)
+    tmap = _read_translation_map(workdir)
+
+    # edition schema
+    errors = validate_edition(edition)
+    if errors:
+        raise EpubTranslatorError("; ".join(errors))
+
+    # completeness
+    missing = [sid for sid in sources if sid not in tmap]
+    if missing:
+        report = {
+            "ok": False,
+            "generated_at": utc_now(),
+            "missing_translations": sorted(missing)[:200],
+            "missing_count": len(missing),
+            "reason": "One or more translation rows are missing. Copy every id from chunks into translations.",
+        }
+        write_json(workdir / "build-report.json", report)
+        print(json.dumps(report, ensure_ascii=False, indent=2), file=sys.stderr)
+        raise EpubTranslatorError(f"build failed: {len(missing)} missing translations (e.g. {missing[:3]})")
+
+    # image jobs must be resolved before building a publishable EPUB
+    jobs_data = read_json(workdir / "image-jobs.json") if (workdir / "image-jobs.json").is_file() else {"jobs": []}
+    pending = [j["id"] for j in jobs_data.get("jobs", []) if j.get("status") in (None, "pending_review")]
+    if pending:
+        raise EpubTranslatorError(f"build failed: unresolved image job(s): {pending} — resolve each with record-image before building")
+
+    empty_suspect = [sid for sid, src in sources.items() if src.strip() and not (tmap.get(sid, "").strip())]
+    untranslated = [sid for sid, src in sources.items() if src.strip() and tmap.get(sid, "").strip() == src.strip()]
+
+    # terminology divergence: same normalized source -> multiple translations
+    by_source: dict[str, set[str]] = defaultdict(set)
+    source_to_ids: dict[str, list[str]] = defaultdict(list)
+    for sid, src in sources.items():
+        tr = (tmap.get(sid, "") or "").strip()
+        if not src.strip() or not tr:
+            continue
+        key = normalize_spaces(normalize_text(src))
+        by_source[key].add(tr)
+        source_to_ids[key].append(sid)
+    divergences = []
+    for src_norm, trs in by_source.items():
+        if len(trs) > 1 and len(source_to_ids[src_norm]) > 1:
+            divergences.append({"source": src_norm, "translations": sorted(trs), "ids": sorted(source_to_ids[src_norm])[:10], "occurrences": len(source_to_ids[src_norm])})
+
+    # link graph validation — anchors come from the same node tree that renders
+    doc_hrefs = {d["href"] for d in flow.get("documents", [])}
+    anchors_by_doc: dict[str, set[str]] = defaultdict(set)
+    for b in flow.get("blocks", []):
+        for a in b.get("anchors", []):
+            anchors_by_doc[b.get("href", "")].add(a)
+    broken_links = []
+    for b in flow.get("blocks", []):
+        for tok in b.get("tokens", []):
+            if tok["type"] != "text":
+                continue
+            for inline in tok.get("inline", []):
+                href = inline.get("href", "")
+                if not href:
+                    continue
+                target = resolve_target(href, b.get("href", ""))
+                if target is None:
+                    continue
+                target_doc, frag = target
+                if target_doc not in doc_hrefs:
+                    broken_links.append({"slot": tok["id"], "href": href, "block": b["id"], "reason": f"missing document {target_doc}"})
+                elif frag and frag not in anchors_by_doc[target_doc]:
+                    broken_links.append({"slot": tok["id"], "href": href, "block": b["id"], "reason": f"missing fragment #{frag} in {target_doc}"})
+
+    report = {
+        "ok": True,
+        "generated_at": utc_now(),
+        "total_items": len(sources),
+        "untranslated_candidates": sorted(untranslated)[:200],
+        "untranslated_count": len(untranslated),
+        "empty_translations": sorted(empty_suspect)[:50],
+        "divergences": divergences[:50],
+        "divergence_count": len(divergences),
+        "broken_links": broken_links[:100],
+        "broken_link_count": len(broken_links),
+        "flow_stats": flow.get("stats", {}),
+        "missing_translations": [],
+    }
+    if broken_links:
+        report["ok"] = False
+        report["reason"] = f"{len(broken_links)} internal link(s) point to missing anchors"
+        write_json(workdir / "build-report.json", report)
+        print(json.dumps(report, ensure_ascii=False, indent=2), file=sys.stderr)
+        raise EpubTranslatorError(f"build failed: broken internal links: {broken_links[:3]}")
+
+    # never overwrite the source EPUB
+    src_abs = Path(manifest.get("epub", "")).resolve() if manifest.get("epub") else None
+    if src_abs and output.resolve() == src_abs:
+        raise EpubTranslatorError(f"build failed: output path must differ from the source EPUB ({output})")
+
+    # --- generate new EPUB ---
+    build_dir = workdir / "build_epub"
+    if build_dir.exists():
+        shutil.rmtree(build_dir)
+    build_dir.mkdir(parents=True)
+    opf_dir = build_dir / "OEBPS"
+
+    ordered_hrefs: list[str] = [d["href"] for d in flow.get("documents", []) if d.get("href")]
+    rendered_hrefs = [h for h in ordered_hrefs if h != NAV_HREF]
+    blocks_by_id = {b["id"]: b for b in flow["blocks"]}
+
+    manifest_items_out: list[dict] = []
+    spine_idrefs: list[str] = []
+    for idx, href in enumerate(rendered_hrefs):
+        try:
+            out_path = safe_join(opf_dir, href)
+        except EpubTranslatorError as exc:
+            raise EpubTranslatorError(f"build failed: unsafe document href {href!r} ({exc})") from exc
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        doc = next((d for d in flow.get("documents", []) if d["href"] == href), None)
+        roots = doc.get("roots", []) if doc else []
+        root = render_document(href, roots, blocks_by_id, tmap, edition)
+        write_xml(out_path, ET.ElementTree(root), XHTML_NS)
+        item_id = f"doc{idx + 1:04d}"
+        manifest_items_out.append({"id": item_id, "href": href, "media_type": "application/xhtml+xml"})
+        spine_idrefs.append(item_id)
+
+    # nav — regenerate from translated headings (never a stale source TOC)
+    headings = []
+    for href in rendered_hrefs:
+        doc = next((d for d in flow.get("documents", []) if d["href"] == href), None)
+        for rid in (doc.get("roots", []) if doc else []):
+            stack = [blocks_by_id[rid]]
+            while stack:
+                node = stack.pop()
+                if node["kind"] == "heading":
+                    headings.append({"href": href, "text": node_heading_text(node, tmap), "level": node.get("level", 1)})
+                for c in node.get("children", []):
+                    stack.append(blocks_by_id[c])
+    nav_root = build_nav_xhtml(headings, edition)
+    nav_path = safe_join(opf_dir, NAV_HREF)
+    nav_path.parent.mkdir(parents=True, exist_ok=True)
+    write_xml(nav_path, ET.ElementTree(nav_root), XHTML_NS)
+    manifest_items_out.append({"id": "nav", "href": NAV_HREF, "media_type": "application/xhtml+xml", "properties": "nav"})
+
+    css_path = safe_join(opf_dir, CSS_HREF)
+    css_path.parent.mkdir(parents=True, exist_ok=True)
+    css_path.write_text(CANONICAL_CSS, encoding="utf-8")
+    manifest_items_out.append({"id": "css", "href": CSS_HREF, "media_type": "text/css"})
+
+    for job in jobs_data.get("jobs", []):
+        src_rel = job.get("replacement_export") if job.get("status") in ("edited", "skipped_no_text") else job.get("source_export")
+        if not src_rel:
+            continue
+        src_path = workdir / src_rel
+        if not src_path.is_file():
+            continue
+        dest_rel = job.get("href", f"image/{src_path.name}")
+        try:
+            dest_path = safe_join(opf_dir, dest_rel)
+        except EpubTranslatorError as exc:
+            raise EpubTranslatorError(f"build failed: unsafe image href {dest_rel!r} ({exc})") from exc
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_path, dest_path)
+        mt = job.get("media_type", "image/jpeg")
+        manifest_items_out.append({"id": job.get("manifest_id") or job["id"], "href": dest_rel, "media_type": mt})
+
+    # OPF + container
+    src_title = manifest.get("inspect", {}).get("title") or ""
+    src_creator = manifest.get("inspect", {}).get("creator") or ""
+    title_tr = next((tmap[sid] for sid, src in sources.items() if sid.startswith("m") and src == src_title), None)
+    creator_tr = next((tmap[sid] for sid, src in sources.items() if sid.startswith("m") and src == src_creator), None)
+    title_out = title_tr or src_title or "Untitled"
+    creator_out = creator_tr or src_creator or ""
+    lang_out = edition.get("language_tag") or "ko"
+    ppd = edition.get("page_progression_direction") or "ltr"
+    opf_root_el = build_opf(title_out, creator_out, lang_out, ppd, manifest_items_out, spine_idrefs)
+    opf_path = opf_dir / "content.opf"
+    write_xml(opf_path, ET.ElementTree(opf_root_el), OPF_NS)
+
+    meta_inf = build_dir / "META-INF"
+    meta_inf.mkdir(parents=True, exist_ok=True)
+    (meta_inf / "container.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n'
+        '  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>\n'
+        "</container>\n",
+        encoding="utf-8",
+    )
+
+    report["spine_hrefs"] = ordered_hrefs
+    report["image_jobs"] = len(jobs_data.get("jobs", []))
+    write_json(workdir / "build-report.json", report)
+
+    if output.exists():
+        output.unlink()
+    with zipfile.ZipFile(output, "w") as z:
+        z.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        for root, dirs, files in os.walk(build_dir):
+            dirs.sort()
+            files.sort()
+            for fname in files:
+                fpath = Path(root) / fname
+                arc = fpath.relative_to(build_dir).as_posix()
+                if arc == "mimetype":
+                    continue
+                z.write(fpath, arc, compress_type=zipfile.ZIP_DEFLATED)
+    print(json.dumps({"ok": True, "output": str(output), "report": str(workdir / "build-report.json")}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_validate(args) -> int:
+    workdir = Path(args.workdir) if args.workdir else None
+    output = Path(args.output) if args.output else None
+    issues: list[str] = []
+    if output and output.is_file():
+        try:
+            with zipfile.ZipFile(output) as z:
+                names = z.namelist()
+                if not names or names[0] != "mimetype":
+                    issues.append("mimetype must be first entry")
+                else:
+                    info = z.getinfo("mimetype")
+                    if info.compress_type != zipfile.ZIP_STORED:
+                        issues.append("mimetype must be uncompressed")
+                    if z.read("mimetype") != b"application/epub+zip":
+                        issues.append("mimetype content mismatch")
+                if "META-INF/container.xml" not in names:
+                    issues.append("container.xml missing")
+                if "OEBPS/content.opf" not in names:
+                    issues.append("OEBPS/content.opf missing")
+                for name in names:
+                    if name.endswith(".xhtml"):
+                        try:
+                            with z.open(name) as f:
+                                ET.parse(f)
+                        except ET.ParseError as exc:
+                            issues.append(f"invalid XHTML {name}: {exc}")
+                            break
+        except zipfile.BadZipFile as exc:
+            issues.append(f"not a valid zip: {exc}")
+    elif output:
+        issues.append(f"output not found: {output}")
+
+    build_report = None
+    if workdir and (workdir / "build-report.json").is_file():
+        build_report = json.loads((workdir / "build-report.json").read_text(encoding="utf-8"))
+
+    ok = not issues and (build_report is None or build_report.get("ok", True))
+    result = {
+        "ok": ok,
+        "issues": issues,
+        "build_report": build_report,
+        "output": str(output) if output else None,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if ok else 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="epub_translate.py")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    a = sub.add_parser("inspect", help="Summarize a source EPUB")
+    a.add_argument("--epub", required=True)
+    a.add_argument("--json", action="store_true")
+
+    b = sub.add_parser("ingest", help="Extract flow IR and write translation chunks")
+    b.add_argument("--epub", required=True)
+    b.add_argument("--workdir", required=True)
+    b.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS)
+    b.add_argument("--soft-min", type=int, default=DEFAULT_SOFT_MIN)
+
+    c = sub.add_parser("status", help="Progress plus seam tail")
+    c.add_argument("--workdir", required=True)
+
+    d = sub.add_parser("record-image", help="Resolve one image job")
+    d.add_argument("--workdir", required=True)
+    d.add_argument("--image-id", required=True)
+    d.add_argument("--replacement", default=None)
+    d.add_argument("--skip-no-text", action="store_true")
+
+    e = sub.add_parser("build", help="Generate a brand-new target EPUB")
+    e.add_argument("--workdir", required=True)
+    e.add_argument("--output", required=True)
+
+    f = sub.add_parser("validate", help="Light package check")
+    f.add_argument("--workdir", required=True)
+    f.add_argument("--output", required=True)
+
+    return p
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     try:
-        return args.func(args)
+        if args.command == "inspect":
+            return cmd_inspect(args)
+        if args.command == "ingest":
+            return cmd_ingest(args)
+        if args.command == "status":
+            return cmd_status(args)
+        if args.command == "record-image":
+            return cmd_record_image(args)
+        if args.command == "build":
+            return cmd_build(args)
+        if args.command == "validate":
+            return cmd_validate(args)
+        raise EpubTranslatorError(f"unknown command: {args.command}")
     except EpubTranslatorError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("interrupted", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":
