@@ -68,7 +68,7 @@ Generate or edit raster images, optionally produce a true-alpha transparent PNG,
 | --- | --- |
 | Folder | `skills/image-creator` |
 | Use when | You need a generated or edited raster image, a local image reference, or explicit transparent-background output saved into the current project. |
-| Produces | A saved raster file or rembg-processed true-alpha PNG, the exact final prompt, bound local input paths, and save metadata. |
+| Produces | An unchanged copy of the generated raster file or a natively generated transparent PNG with verified transparency, the exact final prompt, bound local input paths, and actual dimensions/format metadata. |
 | Avoids | Unbound image inputs, rollout or state-database payload lookup, silent opaque transparency fallbacks, and code-native SVG/HTML/CSS artwork. |
 
 Install:
