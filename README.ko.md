@@ -15,7 +15,7 @@
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#world-simulator">world&#8209;simulator</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a> · <a href="#world-simulator">world&#8209;simulator</a>
 </p>
 
 ---
@@ -161,6 +161,24 @@ image-creator, ui-blueprint
 ```
 
 [사용 가이드](docs/skills/ui-blueprint.ko.md) · [지침](skills/ui-blueprint/SKILL.md)
+
+---
+
+<a id="user-dialog"></a>
+
+<img src="docs/assets/catalog/user-dialog.svg" width="960" alt="user-dialog">
+
+소통 목적에 맞는 팝업 인터페이스를 구성하고, 사용자의 반응을 받아 전달합니다.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+user-dialog
+```
+
+[사용 가이드](docs/skills/user-dialog.ko.md) · [지침](skills/user-dialog/SKILL.md)
 
 ---
 

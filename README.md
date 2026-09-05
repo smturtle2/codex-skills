@@ -15,7 +15,7 @@ Copy a skill’s install prompt below into Codex. Once installed, use `$skill-na
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#world-simulator">world&#8209;simulator</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a> · <a href="#world-simulator">world&#8209;simulator</a>
 </p>
 
 ---
@@ -161,6 +161,24 @@ image-creator, ui-blueprint
 ```
 
 [Guide](docs/skills/ui-blueprint.md) · [Instructions](skills/ui-blueprint/SKILL.md)
+
+---
+
+<a id="user-dialog"></a>
+
+<img src="docs/assets/catalog/user-dialog.svg" width="960" alt="user-dialog">
+
+Compose a purpose-built popup interface, communicate with the user, and receive their response.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+user-dialog
+```
+
+[Guide](docs/skills/user-dialog.md) · [Instructions](skills/user-dialog/SKILL.md)
 
 ---
 

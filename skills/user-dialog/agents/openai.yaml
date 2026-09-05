@@ -1,0 +1,4 @@
+interface:
+  display_name: "User Dialog"
+  short_description: "Compose custom popups and receive user responses"
+  default_prompt: "Use $user-dialog to compose a popup interface for this conversation."
