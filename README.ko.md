@@ -1,251 +1,271 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#스킬) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#빠른-설치) [![Assets](https://img.shields.io/badge/assets-16-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-English-7c3aed)](README.md)
+[English](README.md) · **한국어**
 
-말없는 아이디어 기록, 이미지 생성, EPUB 번역, 애니메이션 에셋, UI 블루프린트, 서브에이전트 생성, 팟캐스트 대본, 세계 시뮬레이션, 오목 플레이를 위한 작고 설치 가능한 Codex 스킬 카탈로그다.
+생각을 정리하고, 무언가를 만들고, 가끔은 한 판 노는 Codex 작업대.
 
-각 스킬은 `SKILL.md` 트리거 계약과 필요한 로컬 스크립트, 참조 문서, 에셋, agent 메타데이터를 함께 담는 독립 폴더다.
+![책, 캐릭터 동작, 화면 스케치와 오목판이 놓인 작업대](docs/assets/workbench.png)
 
-언어: [English](README.md) | 한국어
+필요한 스킬만 골라 설치하세요. 각 폴더에는 지침과 필요한 보조 파일이 함께 들어 있습니다.
 
-![Codex 스킬 카탈로그](docs/assets/codex-skills-hero.png)
+[정리하고 쓰기](#write) · [만들고 구현하기](#make) · [놀고 탐험하기](#play)
 
-## 왜 쓰나
+## 시작하기
 
-- Codex 스킬 디렉터리에 그대로 복사할 수 있는 독립 스킬들.
-- 각 스킬마다 바로 붙여 넣을 수 있는 설치 프롬프트.
-- 데모가 아니라 실제 작업용 워크플로.
-- 설치 전에 훑어보기 쉬운 작은 구성.
-
-## 스킬
-
-| 스킬 | 적합한 작업 | 결과 | 설치 |
-| --- | --- | --- | --- |
-| [`idea-scribe`](#idea-scribe) | 아이디어 흐름을 방해하지 않고 기록하면서 현재 정리본 유지 | 누적형 `raw.txt`와 다시 작성되는 `organized.html` | [프롬프트](#idea-scribe) |
-| [`image-creator`](#image-creator) | 프로젝트 안에 raster 이미지 생성·편집 또는 배경 제거 | 저장된 raster 파일 또는 true-alpha PNG와 실제 전달된 최종 프롬프트 | [프롬프트](#image-creator) |
-| [`epub-translator`](#epub-translator) | reading-flow IR 추출과 텍스트 포함 이미지를 처리하는 자연스러운 EPUB 번역 | 새 번역 `.epub`, flow-IR run 폴더, slim chunk 번역, edition policy, image job ledger, validation summary | [프롬프트](#epub-translator) |
-| [`animation-creator`](#animation-creator) | 프로젝트 안에 캐릭터 애니메이션 에셋 생성 | 프롬프트, 레이아웃 가이드, 프레임, 검증, contact sheet, preview를 포함한 run 폴더 | [프롬프트](#animation-creator) |
-| [`ui-blueprint`](#ui-blueprint) | 프론트엔드 UI 제작 또는 큰 리디자인 | 생성된 UI mockup, 시각 노트, 구현된 UI | [프롬프트](#ui-blueprint) |
-| [`subagent-creator`](#subagent-creator) | Codex 커스텀 서브에이전트 생성 또는 수정 | 달성한 검증 수준을 명시한 하나 이상의 TOML agent 정의 | [프롬프트](#subagent-creator) |
-| [`podcast-writer`](#podcast-writer) | 소스를 1인 팟캐스트 대본으로 변환 | 저장된 `.txt` 대본과 엄격한 내용 품질 평가 | [프롬프트](#podcast-writer) |
-| [`world-simulator`](#world-simulator) | 지속되는 Codex-native 세계 RPG 제작과 플레이 | 원자적 SQLite 월드 원장 기반 브라우저 Studio와 Chronicle | [프롬프트](#world-simulator) |
-| [`gomoku`](#gomoku) | 로컬 GUI에서 Codex와 오목 대국 | Python 보드와 Codex 착수를 위한 JSON 상태 브리지 | [프롬프트](#gomoku) |
-
-## 빠른 설치
-
-기본 내장된 `$skill-installer` 시스템 스킬로 설치하고, 설치 뒤 Codex를 다시 시작해 반영한다.
+Codex에 아래처럼 요청하세요. `<skill-name>`은 아래 목록의 이름으로 바꾸면 됩니다.
 
 ```text
 Use $skill-installer to install skills/<skill-name> from https://github.com/smturtle2/codex-skills.
 ```
 
-## 카탈로그
+설치한 스킬은 `$스킬이름`으로 호출합니다. 새 스킬이 보이지 않으면 Codex를 다시 시작하세요. [공식 스킬 안내](https://learn.chatgpt.com/docs/build-skills)
 
-### `idea-scribe`
+아래 프롬프트는 사용 예시입니다. 결과물과 필요한 도구를 확인하고 선택하세요.
 
-사용자가 계속 내놓는 아이디어를 원문 그대로 기록하면서, 현재도 유효한 내용만 읽기 좋은 정리본으로 유지한다.
+<a id="write"></a>
 
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/idea-scribe` |
-| 사용 시점 | 사용자가 대화로 흐름을 끊지 않은 채 생각을 쏟아내고 Codex가 이를 기록·정리하기를 원할 때 |
-| 결과 | 누적형 `raw.txt`와 독립 실행 가능한 단일 열 현재본 `organized.html`, 정확히 두 파일 |
-| 피하는 일 | 정리 질문, 입력에 없는 결론, 정리본의 변경 이력, 공간 그래프, 추가 사용자 산출물 |
+## 정리하고 쓰기
 
-설치:
+### <img src="skills/idea-scribe/assets/icon.svg" width="28" height="28" alt=""> idea-scribe
+
+**생각은 자유롭게, 정리는 조용하게.**
+
+떠오르는 생각을 원문 그대로 기록하고, 현재 유효한 내용만 읽기 좋은 문서로 정리합니다.
+
+```text
+$idea-scribe로 동네 독서 모임 아이디어를 정리해줘. 내가 계속 말할 테니 끼어들지 말고 기록해.
+```
+
+**결과물** — `raw.txt`에는 원문이 쌓이고, `organized.html`에는 현재 정리본이 남습니다.
+
+![Idea Scribe 예시 정리본](docs/assets/idea-scribe-preview.png)
+
+*포함된 HTML 템플릿에 독서 모임 예시 내용을 넣어 렌더링한 화면입니다.*
+
+[스킬 지침](skills/idea-scribe/SKILL.md)
+
+<details>
+<summary>설치 프롬프트</summary>
 
 ```text
 Use $skill-installer to install skills/idea-scribe from https://github.com/smturtle2/codex-skills.
 ```
 
-### `image-creator`
+</details>
 
-Raster 이미지를 생성하거나 편집하고, 필요하면 true-alpha 투명 PNG로 처리해 현재 프로젝트 안에 저장한다.
+### <img src="skills/epub-translator/assets/icon.svg" width="28" height="28" alt=""> epub-translator
 
-![Image Creator 워크플로](docs/assets/image-creator-workflow.png)
+**다른 언어로도 자연스럽게 읽히는 책.**
 
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/image-creator` |
-| 사용 시점 | 생성·편집 raster 이미지, 로컬 참조 이미지, 또는 명시적 투명 배경 결과를 현재 프로젝트에 저장해야 할 때 |
-| 결과 | 생성 원본을 그대로 저장한 raster 파일 또는 투명도 검증을 거친 모델 생성 투명 PNG, 실제 전달된 최종 프롬프트, 결합된 로컬 입력 경로, 실제 크기·형식 메타데이터 |
-| 피하는 일 | 결합되지 않은 이미지 입력, rollout·상태 DB payload 조회, 불투명 결과로의 조용한 fallback, SVG/HTML/CSS 같은 코드 기반 그래픽 처리 |
-
-설치:
+EPUB을 번역해 용어와 장 사이의 맥락이 이어지는 새 판본을 만듭니다.
 
 ```text
-Use $skill-installer to install skills/image-creator from https://github.com/smturtle2/codex-skills.
+$epub-translator로 book.epub을 한국어로 번역해줘. 인명과 용어를 책 전체에서 일관되게 유지해.
 ```
 
-### `epub-translator`
+**결과물** — 번역된 `.epub`, 번역 작업 파일, 검증 요약. 읽기 순서·링크·이미지 위치를 기준으로 책을 다시 구성합니다.
 
-읽기 흐름 IR 추출, 슬림 청킹, 새 EPUB 결정적 빌드로 EPUB을 자연스러운 목표 언어 판본으로 번역한다 — 원본 래퍼·고정 오프셋은 평탄화하고 읽기/앵커/링크/이미지 불변성만 보존한다.
+래스터 이미지 속 글자도 번역하려면 `image-creator`를 함께 설치하세요.
 
-![EPUB Translator 워크플로](docs/assets/epub-translator-workflow.png)
+[스킬 지침](skills/epub-translator/SKILL.md)
 
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/epub-translator` |
-| 사용 시점 | EPUB을 자연스러운 목표 언어의 새 EPUB으로 번역하고, 큰 책의 청크 연속성을 유지하며 텍스트가 들어간 embedded raster image까지 처리해야 할 때 |
-| 결과 | 새 번역 `.epub`, flow IR 포함 run 폴더, slim chunk JSON과 이음새(seam) 꼬리, edition 정책, image job ledger, build/validation 요약 |
-| 피하는 일 | 원본 XHTML 패치, 오버플로를 만드는 레이아웃 래퍼, 파일별 레이아웃 예외, 번역할 텍스트가 없는 이미지에 image generation 사용 |
-
-이미지 텍스트 번역이 필요하면 `$image-creator`도 함께 설치한다:
+<details>
+<summary>설치 프롬프트</summary>
 
 ```text
-Use $skill-installer to install skills/image-creator and skills/epub-translator from https://github.com/smturtle2/codex-skills.
+Use $skill-installer to install skills/epub-translator from https://github.com/smturtle2/codex-skills.
 ```
 
-### `animation-creator`
+</details>
 
-소스 캐릭터 이미지 또는 생성된 base 캐릭터를 기준으로 캐릭터 애니메이션 에셋을 만든다.
+### <img src="skills/podcast-writer/assets/icon.svg" width="28" height="28" alt=""> podcast-writer
 
-![Animation Creator 워크플로](docs/assets/animation-creator-workflow.png)
+**자료를 듣기 좋은 이야기로.**
 
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/animation-creator` |
-| 사용 시점 | 한 캐릭터 정체성을 유지하는 sprite strip, frame sequence, GIF/WebP/MP4 preview, 추가 행동 애니메이션이 필요할 때 |
-| 결과 | canonical base reference, action prompt, layout guide, 추출 프레임, contact sheet, validation JSON, preview가 있는 run 폴더 |
-| 피하는 일 | 전역 패키징, 로컬 코드로 캐릭터 그림 생성 대체, 잘리거나 slot을 침범한 프레임 수락 |
-
-설치:
+문서·웹사이트·YouTube 자료를 하나의 독백형 대본으로 엮고, 독립적인 내용 검토를 거쳐 다듬습니다.
 
 ```text
-Use $skill-installer to install skills/animation-creator from https://github.com/smturtle2/codex-skills.
+$podcast-writer로 이 자료를 초보자용 10분짜리 1인 팟캐스트 대본으로 만들어줘. 일반 텍스트로 저장해.
 ```
 
-### `ui-blueprint`
+**결과물** — 말할 내용만 담긴 `.txt` 대본. 이후 TTS나 직접 녹음에 사용할 수 있습니다.
 
-먼저 UI mockup을 생성하고, 그 시각 블루프린트를 기준으로 프론트엔드 작업을 구현한다.
+내용 검토에 서브에이전트 도구가 필요합니다. YouTube는 자막을 먼저 사용하며, 음성 전사로 대체할 때는 호환 GPU가 필요합니다.
 
-![UI Blueprint 워크플로](docs/assets/ui-blueprint-workflow.png)
+[스킬 지침](skills/podcast-writer/SKILL.md)
 
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/ui-blueprint` |
-| 사용 시점 | 새 UI, 큰 리디자인, 시각 품질이 중요한 화면을 구현할 때 |
-| 결과 | 생성된 mockup, 레이아웃과 시각 결정 노트, 기존 프론트엔드 스택에 맞춘 구현 지침 |
-| 피하는 일 | 시각적으로 중요한 UI 작업에서 blueprint 건너뛰기, 좁은 버그픽스나 작은 유지보수에 이 흐름 적용 |
-
-설치:
-
-```text
-Use $skill-installer to install skills/ui-blueprint from https://github.com/smturtle2/codex-skills.
-```
-
-### `subagent-creator`
-
-자연어 역할 브리프에서 Codex 커스텀 서브에이전트를 생성하거나 수정하며, 사용자가 명시적으로 요청한 수량을 따른다.
-
-![Subagent Creator 워크플로](docs/assets/subagent-creator-workflow.png)
-
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/subagent-creator` |
-| 사용 시점 | 자연어 역할 브리프에서 하나 이상의 Codex 커스텀 서브에이전트를 생성하거나 수정해야 할 때 |
-| 결과 | 명확한 역할, 도구 정책, 제약과 달성한 검증 수준을 명시한, 사용자가 요청한 수량의 TOML agent 정의 |
-| 기본 위치 | `$CODEX_HOME/agents`; `CODEX_HOME`이 설정되지 않았을 때는 `~/.codex/agents` 사용 |
-| 책임 밖 | `[agents]` 런타임 설정과 서브에이전트 spawn 또는 실행 |
-| 피하는 일 | MCP URL이나 credentials 임의 생성, 필요 없는 canned role example 적용 |
-
-설치:
-
-```text
-Use $skill-installer to install skills/subagent-creator from https://github.com/smturtle2/codex-skills.
-```
-
-문서:
-
-- https://developers.openai.com/codex/subagents
-- https://developers.openai.com/codex/concepts/subagents
-
-### `podcast-writer`
-
-PDF, 텍스트 파일, 웹사이트, YouTube transcript를 1인 팟캐스트 대본으로 만들고 plain text로 저장한다.
-
-![Podcast Writer 워크플로](docs/assets/podcast-writer-workflow.png)
-
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/podcast-writer` |
-| 사용 시점 | Codex가 소스를 수집/전처리하고, 필요하면 YouTube caption 또는 GPU-only Whisper 전사를 사용해 1인 독백형 팟캐스트 대본을 작성한 뒤, 엄격한 내용 품질 평가가 통과될 때까지 수정해야 할 때 |
-| 결과 | 저장된 `.txt` 대본, 소스 처리 정보, 모든 rubric 항목이 pass된 엄격한 subagent 평가 |
-| 피하는 일 | 화자 라벨, 인터뷰/대화 형식, 출처 없는 주장, 최종 대본 안의 메타데이터, TTS나 형식 검사를 evaluator에게 맡기는 일 |
-
-설치:
+<details>
+<summary>설치 프롬프트</summary>
 
 ```text
 Use $skill-installer to install skills/podcast-writer from https://github.com/smturtle2/codex-skills.
 ```
 
-### `world-simulator`
+</details>
 
-브라우저 Studio에서 독창적인 세계를 만들고, 그 안에서 지속형 솔로 RPG를 플레이한다. Codex가 세계를 창작하고 장면을 진행하며, 내장 런타임은 서사를 대신 결정하지 않고 인터페이스·기록·세계 상태를 영속적으로 관리한다.
+<a id="make"></a>
 
-- **Studio:** 거친 구상을 설정 마법사 없이 공개 세계관, 숨은 압력, 인물, 세력, 장소, 관계, 플레이어, 첫 상황으로 엮는다.
-- **Play:** 제한 없는 자연어 행동을 받는다. 플레이어의 모든 입력과 이어지는 장면이 하나의 시간순 읽기 흐름에 남고, 대화와 결정적인 정보는 훑어보기 쉽게 강조된다.
-- **살아 있는 세계:** 플레이 중 마주치는 인물·장소·문화·제도·사물·역사를 기존 인과관계에 연결해 만들고, 설정 설명을 위해 장면을 멈추지 않은 채 원장에 보존한다.
-- **RPG 인터페이스:** 데스크톱 왼쪽 레일에 플레이어 정체성과 현재 상태를 유지하고, 같은 레일에서 인물·세계 정보를 전환하며, 연대기가 갱신되어도 펼친 항목을 보존한다.
-- **월드 원장:** 응답, 엔티티, 관계, 사건, 결과, 비공개 GM 갱신을 매 턴 `world.sqlite3`에 원자적으로 커밋한다. Play에서는 플레이어가 볼 수 있는 사실만 노출하고 같은 세션을 이어갈 수 있다.
+## 만들고 구현하기
 
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/world-simulator` |
-| 사용 시점 | 독창적인 세계를 함께 정리한 뒤 제한 없는 자연어 행동으로 지속형 솔로 RPG를 플레이하고 싶을 때 |
-| 결과 | 밝은 브라우저 Studio/Play UI, 모든 입력과 응답의 시간순 기록, 지속되는 플레이어 시트, 공개 worldbook, 비공개 GM 상태, 엔티티 그래프, 인과 사건 기록, 재개 가능한 `world.sqlite3` |
-| 피하는 일 | 채팅에서 스토리 입력 받기, lorebook 키워드 주입, 고정 RPG 스탯 스키마, 강제 선택지, Python으로 서사 판단 생성 |
+### <img src="skills/image-creator/assets/icon.svg" width="28" height="28" alt=""> image-creator
 
-설치:
+**설명에서 프로젝트 에셋까지.**
+
+래스터 이미지를 생성·편집해 프로젝트에 저장합니다. 요청하면 처음부터 투명 배경 PNG로 생성합니다.
+
+```text
+$image-creator로 청록색 목도리를 두른 작은 주황 여우 마스코트를 투명 배경으로 만들어 assets/fox.png에 저장해줘.
+```
+
+**결과물** — 저장된 이미지, 실제 생성 프롬프트, 확인된 파일 형식·크기·요청한 투명도.
+
+내장 이미지 생성 도구가 필요합니다. 위 배너도 이 작업 방식으로 만들었습니다.
+
+[스킬 지침](skills/image-creator/SKILL.md)
+
+<details>
+<summary>설치 프롬프트</summary>
+
+```text
+Use $skill-installer to install skills/image-creator from https://github.com/smturtle2/codex-skills.
+```
+
+</details>
+
+### <img src="skills/animation-creator/assets/icon.svg" width="28" height="28" alt=""> animation-creator
+
+**하나의 캐릭터에 다양한 움직임을.**
+
+동작을 의미 있는 자세 변화로 나누고, 같은 캐릭터 기준 이미지를 사용해 프레임을 생성합니다.
+
+```text
+$animation-creator로 이 여우가 손을 흔든 뒤 기본 자세로 돌아오는 루프 WebP를 만들어줘.
+```
+
+**결과물** — 애니메이션 WebP와 기준 이미지, 프레임 시트, 개별 프레임, 콘택트 시트, 검증 기록.
+
+`image-creator`도 설치하세요. 로컬 보조 스크립트는 `uv`와 rembg로 프레임을 처리합니다.
+
+[스킬 지침](skills/animation-creator/SKILL.md)
+
+<details>
+<summary>설치 프롬프트</summary>
+
+```text
+Use $skill-installer to install skills/image-creator and skills/animation-creator from https://github.com/smturtle2/codex-skills.
+```
+
+</details>
+
+### <img src="skills/ui-blueprint/assets/icon.svg" width="28" height="28" alt=""> ui-blueprint
+
+**만들 화면을 먼저 보고 시작하기.**
+
+시각적 시안을 생성하고 디자인 결정을 정리한 뒤, 기존 프런트엔드 스택으로 화면을 구현합니다.
+
+```text
+$ui-blueprint로 이 앱의 독서 대시보드를 개편해줘. 읽는 책, 독서 진행률, 최근 메모가 보여야 해.
+```
+
+**결과물** — `ui-blueprints/`에 저장된 시안, 구현된 화면, 데스크톱·모바일 시각 검증.
+
+`image-creator`도 설치하세요. 새 화면 제작과 큰 폭의 개편에 적합합니다.
+
+[스킬 지침](skills/ui-blueprint/SKILL.md)
+
+<details>
+<summary>설치 프롬프트</summary>
+
+```text
+Use $skill-installer to install skills/image-creator and skills/ui-blueprint from https://github.com/smturtle2/codex-skills.
+```
+
+</details>
+
+### <img src="skills/subagent-creator/assets/icon.svg" width="28" height="28" alt=""> subagent-creator
+
+**역할과 책임이 분명한 서브에이전트.**
+
+역할 설명을 책임 범위와 제약이 명확한 Codex 커스텀 에이전트 정의로 바꿉니다.
+
+```text
+$subagent-creator로 접근성을 점검하고 파일 위치와 함께 문제를 보고하는 읽기 전용 리뷰어 하나를 만들어줘.
+```
+
+**결과물** — 검증된 TOML 정의. 기본 저장 위치는 개인 agents 디렉터리이며, 요청하면 프로젝트 범위로 저장하거나 미리보기만 제공합니다.
+
+에이전트 정의를 만드는 스킬입니다. 실제 실행은 별도 단계입니다.
+
+[스킬 지침](skills/subagent-creator/SKILL.md)
+
+<details>
+<summary>설치 프롬프트</summary>
+
+```text
+Use $skill-installer to install skills/subagent-creator from https://github.com/smturtle2/codex-skills.
+```
+
+</details>
+
+<a id="play"></a>
+
+## 놀고 탐험하기
+
+### <img src="skills/world-simulator/assets/icon.svg" width="28" height="28" alt=""> world-simulator
+
+**세계를 만들고, 선택의 다음 장면으로.**
+
+브라우저 Studio에서 세계를 함께 만들고, 자연어 행동으로 이어지는 지속형 1인 RPG를 플레이합니다.
+
+```text
+$world-simulator로 기억을 거래하는 도시를 만들어줘. 첫 출근을 앞둔 견습 기록관으로 플레이하고 싶어.
+```
+
+**결과물** — 브라우저 Studio·Play 화면, 캐릭터 시트, 세계 설정집, 시간순 이야기, 재개 가능한 `world.sqlite3` 기록.
+
+로컬 브라우저와 Python 실행 환경이 필요합니다. Codex가 이야기를 진행하고 런타임이 세계와 이력을 저장합니다.
+
+[스킬 지침](skills/world-simulator/SKILL.md)
+
+<details>
+<summary>설치 프롬프트</summary>
 
 ```text
 Use $skill-installer to install skills/world-simulator from https://github.com/smturtle2/codex-skills.
 ```
 
-### `gomoku`
+</details>
 
-로컬 Python GUI에서 사용자가 오목을 두면 Codex가 기다리고, Codex view JSON을 읽어 자신의 수를 적용한다.
+### <img src="skills/gomoku/assets/icon.svg" width="28" height="28" alt=""> gomoku
 
-![Gomoku 워크플로](docs/assets/gomoku-workflow.png)
+**잠깐 쉬면서, 한 수.**
 
-| 항목 | 내용 |
-| --- | --- |
-| 위치 | `skills/gomoku` |
-| 사용 시점 | 로컬 Python GUI에서 사용자가 오목을 두고 Codex가 직접 다음 수를 골라 적용하게 할 때 |
-| 결과 | Pygame 보드, 내부 상태 관리, 착수 검증, 승패 판정, 선택적 렌주 금수, Codex wait/apply 명령 |
-| 피하는 일 | 고정 AI 엔진 구현, GUI에서 OpenAI API 호출 |
+로컬 보드에서 돌을 두면 Codex가 판세를 읽고 다음 수를 선택합니다.
 
-설치:
+```text
+$gomoku로 오목을 시작해줘. 15×15 보드에서 내가 흑으로 둘게.
+```
+
+**결과물** — 착수 검증, 승리 판정, 선택 가능한 렌주 제한을 갖춘 Pygame 보드.
+
+데스크톱 GUI 환경과 Pygame을 실행할 Python이 필요합니다. 상대의 수는 Codex가 결정합니다.
+
+[스킬 지침](skills/gomoku/SKILL.md)
+
+<details>
+<summary>설치 프롬프트</summary>
 
 ```text
 Use $skill-installer to install skills/gomoku from https://github.com/smturtle2/codex-skills.
 ```
 
-## 저장소 구조
+</details>
 
-- `skills/`: Codex 스킬 디렉터리로 복사해 사용할 수 있는 스킬 폴더들.
-- `skills/*/SKILL.md`: 스킬이 트리거될 때 Codex가 읽는 지침 본문.
-- `skills/*/scripts/`: 스킬과 함께 배포되는 보조 스크립트.
-- `skills/*/references/`: 스킬이 필요할 때 읽는 참조 문서.
-- `skills/*/assets/`: 스킬 아이콘 에셋과 재사용 가능한 bundled 파일.
-- `skills/*/agents/`: 스킬별 agent/provider 메타데이터.
-- `docs/assets/`: README 이미지와 저장소 수준 문서 에셋.
+## 저장소 둘러보기
 
-## 기여
+- [`skills/`](skills/) — 스킬별 지침, 스크립트, 참고 문서, 실행용 에셋과 아이콘.
+- [`docs/assets/`](docs/assets/) — README 배너와 예시 화면.
 
-새 스킬은 `SKILL.md`, 명확한 트리거 설명, 필요한 스크립트나 참조 문서를 스킬 폴더 안에 포함해야 한다.
+## 기여하기
 
-품질 기준:
-
-- 명확한 트리거 규칙.
-- 최소한의 bundled context.
-- 숨겨진 credentials 없음.
-- 로컬에서 확인 가능한 스크립트.
-- 카탈로그에 표시되는 스킬의 icon asset과 agent metadata 참조.
-- README 항목과 설치 프롬프트.
-
-## 메모
-
-- 루트 문서는 스킬 카탈로그를 설명한다.
-- 스킬 동작은 각 스킬의 `SKILL.md`에 둔다.
-- 스킬 설치나 업데이트 뒤에는 Codex를 다시 시작한다.
+새 스킬에는 사용 시점이 명확한 `SKILL.md`와 필요한 파일을 함께 넣어 주세요. 지침은 간결하게 유지하고, 보조 스크립트는 로컬에서 검토할 수 있게 작성하세요. 아이콘·에이전트 메타데이터·두 언어의 README도 함께 갱신해 주세요.

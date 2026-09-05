@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">World Simulator</title>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
+  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="32" cy="32" r="21"/><path d="M11 32h42M32 11c-12 9-12 33 0 42 12-9 12-33 0-42ZM16 20h32M16 44h32" opacity=".45"/><path d="m40 22-5 13-13 7 7-15z" fill="#C56D3A"/>
+  </g>
+</svg>

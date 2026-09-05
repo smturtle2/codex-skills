@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Gomoku</title>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
+  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 12v40M32 12v40M48 12v40M12 16h40M12 32h40M12 48h40" opacity=".45"/><circle cx="16" cy="16" r="6" fill="#203D37"/><circle cx="32" cy="32" r="6" fill="#203D37"/><circle cx="48" cy="48" r="6" fill="#C56D3A"/><circle cx="16" cy="32" r="6" fill="#FFF9EE"/><circle cx="32" cy="48" r="6" fill="#FFF9EE"/>
+  </g>
+</svg>

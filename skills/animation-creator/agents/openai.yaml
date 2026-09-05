@@ -1,6 +1,6 @@
 interface:
   display_name: "Animation Creator"
   short_description: "Create character animation assets"
-  icon_small: "./assets/animation-creator-small.svg"
-  icon_large: "./assets/animation-creator.png"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
   default_prompt: "Use $animation-creator to animate this character performing my requested action and save the WebP in my project."

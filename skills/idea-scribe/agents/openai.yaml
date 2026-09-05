@@ -1,4 +1,6 @@
 interface:
   display_name: "Idea Scribe"
   short_description: "Capture raw ideas and maintain a clean current brief"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
   default_prompt: "Use $idea-scribe to record my ideas verbatim while maintaining a clean current brief."

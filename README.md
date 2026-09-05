@@ -1,251 +1,271 @@
 # codex-skills
 
-[![Skills](https://img.shields.io/badge/skills-9-2563eb)](#skills) [![Codex](https://img.shields.io/badge/Codex-compatible-111827)](#quick-install) [![Assets](https://img.shields.io/badge/assets-16-16a34a)](docs/assets) [![Language](https://img.shields.io/badge/README-%ED%95%9C%EA%B5%AD%EC%96%B4-7c3aed)](README.ko.md)
+**English** · [한국어](README.ko.md)
 
-A small, installable catalog of Codex skills for silent idea capture, image generation, EPUB translation, animation assets, UI blueprints, subagent creation, podcast scripts, world simulation, and Gomoku.
+A workbench for thinking, making, and a little play with Codex.
 
-Each skill is self-contained with a `SKILL.md` trigger contract plus any local scripts, references, assets, and agent metadata it needs.
+![A workbench with a book, character poses, a screen sketch, and a Gomoku board](docs/assets/workbench.png)
 
-Languages: English | [한국어](README.ko.md)
+Pick the skills you need. Each folder bundles its instructions and supporting files.
 
-![Codex skills catalog](docs/assets/codex-skills-hero.png)
+[Organize & write](#write) · [Make & build](#make) · [Play & explore](#play)
 
-## Why Use This
+## Get started
 
-- Self-contained skills that can be copied into a Codex skills directory.
-- Copy-paste install prompts for each skill.
-- Practical workflows, not demos.
-- Small enough to audit before installing.
-
-## Skills
-
-| Skill | Best for | Output | Install |
-| --- | --- | --- | --- |
-| [`idea-scribe`](#idea-scribe) | Silently capturing a stream of ideas while maintaining the current organized view | Append-only `raw.txt` and rewritten `organized.html` | [Prompt](#idea-scribe) |
-| [`image-creator`](#image-creator) | Generating, editing, or removing backgrounds from project-local raster images | Saved raster file or true-alpha PNG plus the exact final prompt | [Prompt](#image-creator) |
-| [`epub-translator`](#epub-translator) | Translating EPUB books into natural new target-language editions | New translated `.epub`, flow-IR run folder, slim chunk translations, edition policy, image job ledger, and validation summary | [Prompt](#epub-translator) |
-| [`animation-creator`](#animation-creator) | Creating project-local character animation assets | Run folder with prompts, layout guides, frames, validation, contact sheets, and previews | [Prompt](#animation-creator) |
-| [`ui-blueprint`](#ui-blueprint) | Building or substantially redesigning frontend UI | Generated UI mockup, visual notes, and implemented UI | [Prompt](#ui-blueprint) |
-| [`subagent-creator`](#subagent-creator) | Creating or updating custom Codex subagents | One or more TOML agent definitions with the achieved validation level reported | [Prompt](#subagent-creator) |
-| [`podcast-writer`](#podcast-writer) | Turning sources into one-person podcast scripts | Plain `.txt` script plus strict content-quality evaluation | [Prompt](#podcast-writer) |
-| [`world-simulator`](#world-simulator) | Building and playing a persistent Codex-native world RPG | Browser Studio and Chronicle backed by an atomic SQLite world ledger | [Prompt](#world-simulator) |
-| [`gomoku`](#gomoku) | Playing Gomoku against Codex in a local GUI | Python board plus JSON state bridge for Codex moves | [Prompt](#gomoku) |
-
-## Quick Install
-
-Use the preinstalled `$skill-installer` system skill, then restart Codex so the installed skill is picked up.
+Ask Codex to install a skill. Replace `<skill-name>` with a name from the catalog below.
 
 ```text
 Use $skill-installer to install skills/<skill-name> from https://github.com/smturtle2/codex-skills.
 ```
 
-## Catalog
+Invoke an installed skill with `$skill-name`. If a new skill does not appear, restart Codex. [Official skill guide](https://learn.chatgpt.com/docs/build-skills)
 
-### `idea-scribe`
+The prompts below are usage examples. Check each output and tool requirement before choosing.
 
-Record the user's ongoing idea stream verbatim while maintaining a readable brief of only the ideas that remain active.
+<a id="write"></a>
 
-| Field | Details |
-| --- | --- |
-| Folder | `skills/idea-scribe` |
-| Use when | The user wants to think aloud without conversational interruption while Codex records and organizes the material. |
-| Produces | Exactly two files: append-only `raw.txt` and a self-contained, single-column `organized.html` current-state brief. |
-| Avoids | Clarifying dialogue, invented conclusions, change history in the organized view, spatial graphs, and additional user-facing artifacts. |
+## Organize & write
 
-Install:
+### <img src="skills/idea-scribe/assets/icon.svg" width="28" height="28" alt=""> idea-scribe
+
+**Think aloud. Keep the thread.**
+
+Capture ideas verbatim while keeping a readable brief of what still matters.
+
+```text
+Use $idea-scribe. I’ll think aloud about a neighborhood book club. Record and organize without interrupting.
+```
+
+**Output** — `raw.txt` preserves the original stream; `organized.html` holds the current brief.
+
+![An example Idea Scribe brief](docs/assets/idea-scribe-preview.png)
+
+*Rendered from the bundled HTML template with sample book-club content.*
+
+[Read the skill](skills/idea-scribe/SKILL.md)
+
+<details>
+<summary>Install prompt</summary>
 
 ```text
 Use $skill-installer to install skills/idea-scribe from https://github.com/smturtle2/codex-skills.
 ```
 
-### `image-creator`
+</details>
 
-Generate or edit raster images, optionally produce a true-alpha transparent PNG, and save the result into the current project.
+### <img src="skills/epub-translator/assets/icon.svg" width="28" height="28" alt=""> epub-translator
 
-![Image Creator workflow](docs/assets/image-creator-workflow.png)
+**A book that reads naturally in another language.**
 
-| Field | Details |
-| --- | --- |
-| Folder | `skills/image-creator` |
-| Use when | You need a generated or edited raster image, a local image reference, or explicit transparent-background output saved into the current project. |
-| Produces | An unchanged copy of the generated raster file or a natively generated transparent PNG with verified transparency, the exact final prompt, bound local input paths, and actual dimensions/format metadata. |
-| Avoids | Unbound image inputs, rollout or state-database payload lookup, silent opaque transparency fallbacks, and code-native SVG/HTML/CSS artwork. |
-
-Install:
+Translate an EPUB into a new edition with consistent terminology and continuity across chapters.
 
 ```text
-Use $skill-installer to install skills/image-creator from https://github.com/smturtle2/codex-skills.
+Use $epub-translator to translate book.epub into Korean, preserving names consistently throughout the book.
 ```
 
-### `epub-translator`
+**Output** — A translated `.epub`, working translation files, and a validation summary. Reading order, links, and image placement guide the rebuild.
 
-Translate EPUB books into natural new target-language editions. The helper extracts a normalized reading-flow IR, packs slim chunks, and deterministically builds a new EPUB — source wrappers and fixed offsets are flattened; only reading/anchor/link/image invariants are preserved.
+Also install `image-creator` when text inside raster images needs translation.
 
-![EPUB Translator workflow](docs/assets/epub-translator-workflow.png)
+[Read the skill](skills/epub-translator/SKILL.md)
 
-| Field | Details |
-| --- | --- |
-| Folder | `skills/epub-translator` |
-| Use when | You need to translate an EPUB into a natural new target-language EPUB, handle large books with chunk continuity, and process text inside embedded raster images. |
-| Produces | A new translated `.epub`, flow IR plus run folder, slim chunk JSON with a seam tail, edition policy, image job ledger, and build/validation summary. |
-| Avoids | Patching source XHTML, layout wrappers that create overflow, per-filename layout exceptions, and using image generation for images with no text to translate. |
-
-Install `$image-creator` as well when image text translation is needed:
+<details>
+<summary>Install prompt</summary>
 
 ```text
-Use $skill-installer to install skills/image-creator and skills/epub-translator from https://github.com/smturtle2/codex-skills.
+Use $skill-installer to install skills/epub-translator from https://github.com/smturtle2/codex-skills.
 ```
 
-### `animation-creator`
+</details>
 
-Create character animation assets from a source character image or a generated base character.
+### <img src="skills/podcast-writer/assets/icon.svg" width="28" height="28" alt=""> podcast-writer
 
-![Animation Creator workflow](docs/assets/animation-creator-workflow.png)
+**Sources into something worth listening to.**
 
-| Field | Details |
-| --- | --- |
-| Folder | `skills/animation-creator` |
-| Use when | You need project-local sprite strips, frame sequences, GIF/WebP/MP4 previews, or additional actions that preserve one character identity. |
-| Produces | A run folder with canonical base references, action prompts, layout guides, extracted frames, contact sheets, validation JSON, and previews. |
-| Avoids | Global packaging, local code-generated character art, and accepting clipped or slot-crossing animation frames. |
-
-Install:
+Turn documents, websites, and YouTube sources into a source-grounded monologue, revised through independent content review.
 
 ```text
-Use $skill-installer to install skills/animation-creator from https://github.com/smturtle2/codex-skills.
+Use $podcast-writer to turn these sources into a 10-minute solo episode for beginners. Save the script as plain text.
 ```
 
-### `ui-blueprint`
+**Output** — A `.txt` file containing only the spoken script, ready for a separate TTS or recording step.
 
-Create a generated UI mockup first, then implement frontend work against that visual blueprint.
+Requires subagent tools for content review. YouTube audio transcription fallback requires a compatible GPU; captions are used first.
 
-![UI Blueprint workflow](docs/assets/ui-blueprint-workflow.png)
+[Read the skill](skills/podcast-writer/SKILL.md)
 
-| Field | Details |
-| --- | --- |
-| Folder | `skills/ui-blueprint` |
-| Use when | You are building new UI, doing a substantial redesign, or working on a visually led screen. |
-| Produces | A generated mockup, extracted layout and visual decisions, and implementation guidance for the existing frontend stack. |
-| Avoids | Skipping the blueprint for visually important UI work, and applying the workflow to narrow bug fixes or small maintenance edits. |
-
-Install:
-
-```text
-Use $skill-installer to install skills/ui-blueprint from https://github.com/smturtle2/codex-skills.
-```
-
-### `subagent-creator`
-
-Create or update one or more Codex custom subagents from natural-language role briefs, matching the number the user explicitly requests.
-
-![Subagent Creator workflow](docs/assets/subagent-creator-workflow.png)
-
-| Field | Details |
-| --- | --- |
-| Folder | `skills/subagent-creator` |
-| Use when | You need to create or update one or more Codex custom subagents from natural-language briefs. |
-| Produces | The explicitly requested number of TOML agent definitions, each with a clear role, tool policy, constraints, and the achieved validation level reported. |
-| Default location | `$CODEX_HOME/agents`; falls back to `~/.codex/agents` when `CODEX_HOME` is unset. |
-| Outside scope | `[agents]` runtime settings and spawning or executing subagents. |
-| Avoids | Inventing MCP URLs or credentials and snapping to canned role examples unless required. |
-
-Install:
-
-```text
-Use $skill-installer to install skills/subagent-creator from https://github.com/smturtle2/codex-skills.
-```
-
-Docs:
-
-- https://developers.openai.com/codex/subagents
-- https://developers.openai.com/codex/concepts/subagents
-
-### `podcast-writer`
-
-Turn PDFs, text files, websites, and YouTube transcripts into a one-person podcast script saved as plain text.
-
-![Podcast Writer workflow](docs/assets/podcast-writer-workflow.png)
-
-| Field | Details |
-| --- | --- |
-| Folder | `skills/podcast-writer` |
-| Use when | You need Codex to collect source material, use YouTube captions or GPU-only Whisper transcription when needed, write a one-person podcast monologue, and keep revising until strict content-quality evaluation passes. |
-| Produces | A saved `.txt` script, source handling notes, and a strict subagent evaluation with all rubric items passing. |
-| Avoids | Speaker labels, interview/dialogue format, source-free claims, final-script metadata, and using the evaluator for TTS or formatting checks. |
-
-Install:
+<details>
+<summary>Install prompt</summary>
 
 ```text
 Use $skill-installer to install skills/podcast-writer from https://github.com/smturtle2/codex-skills.
 ```
 
-### `world-simulator`
+</details>
 
-Build an original world in a browser Studio, then inhabit it as a persistent solo RPG. Codex authors the setting and directs each scene; the bundled runtime keeps the interface, history, and world state durable without deciding the fiction itself.
+<a id="make"></a>
 
-- **Studio:** Turns a rough concept into public lore, hidden pressures, characters, factions, places, relations, a player, and an opening situation without forcing a setup wizard.
-- **Play:** Accepts unrestricted natural-language actions. Every player input and resulting scene remains in one chronological reading flow, with dialogue and decisive details emphasized for scanning.
-- **Living world:** Creates people, places, cultures, institutions, objects, and history as they are encountered, connects them to established causes, and persists them instead of pausing for lore dumps.
-- **RPG interface:** Keeps player identity and current state in the left desktop rail, places character and world reference in the same rail, and preserves disclosure state while the chronicle updates.
-- **World ledger:** Commits each response, entity, relation, event, consequence, and private GM update atomically to `world.sqlite3`; Play exposes only player-visible truth and can resume the same session later.
+## Make & build
 
-| Field | Details |
-| --- | --- |
-| Folder | `skills/world-simulator` |
-| Use when | You want to co-author an original setting and then play a persistent solo RPG through unrestricted natural-language actions. |
-| Produces | A light browser Studio/Play UI, complete input-and-response chronicle, persistent player sheet, public worldbook, private GM state, entity graph, causal event history, and resumable `world.sqlite3`. |
-| Avoids | Chat-side story input, lorebook keyword injection, fixed RPG stat schemas, forced choice menus, and Python-generated narrative decisions. |
+### <img src="skills/image-creator/assets/icon.svg" width="28" height="28" alt=""> image-creator
 
-Install:
+**From a description to a project asset.**
+
+Generate or edit raster images and save the returned file directly into your project, including native transparent PNGs when requested.
+
+```text
+Use $image-creator to make a small orange fox mascot with a teal scarf on a transparent background. Save it to assets/fox.png.
+```
+
+**Output** — A saved image, the exact generation prompt, and verified format, dimensions, and transparency when requested.
+
+Requires the built-in image generation tool. The banner above was made with this workflow.
+
+[Read the skill](skills/image-creator/SKILL.md)
+
+<details>
+<summary>Install prompt</summary>
+
+```text
+Use $skill-installer to install skills/image-creator from https://github.com/smturtle2/codex-skills.
+```
+
+</details>
+
+### <img src="skills/animation-creator/assets/icon.svg" width="28" height="28" alt=""> animation-creator
+
+**One character. More ways to move.**
+
+Build an action from distinct motion beats, using a shared character reference across generated frames.
+
+```text
+Use $animation-creator to make this fox wave and settle back into its idle pose as a looping WebP.
+```
+
+**Output** — Animated WebP files plus the canonical reference, frame sheets, extracted frames, contact sheets, and validation records.
+
+Install `image-creator` too. Local helpers use `uv` and rembg for frame processing.
+
+[Read the skill](skills/animation-creator/SKILL.md)
+
+<details>
+<summary>Install prompt</summary>
+
+```text
+Use $skill-installer to install skills/image-creator and skills/animation-creator from https://github.com/smturtle2/codex-skills.
+```
+
+</details>
+
+### <img src="skills/ui-blueprint/assets/icon.svg" width="28" height="28" alt=""> ui-blueprint
+
+**See the screen before building it.**
+
+Generate a visual blueprint, read its design decisions, then implement the screen in the existing frontend stack.
+
+```text
+Use $ui-blueprint to redesign the reading dashboard in this app. Show current books, reading progress, and recent notes.
+```
+
+**Output** — A saved mockup under `ui-blueprints/`, an implemented screen, and desktop/mobile visual verification.
+
+Install `image-creator` too. Designed for new screens and substantial redesigns.
+
+[Read the skill](skills/ui-blueprint/SKILL.md)
+
+<details>
+<summary>Install prompt</summary>
+
+```text
+Use $skill-installer to install skills/image-creator and skills/ui-blueprint from https://github.com/smturtle2/codex-skills.
+```
+
+</details>
+
+### <img src="skills/subagent-creator/assets/icon.svg" width="28" height="28" alt=""> subagent-creator
+
+**Give a specialist a clear job.**
+
+Turn a role brief into custom Codex agent definitions with explicit responsibilities and boundaries.
+
+```text
+Use $subagent-creator to create one read-only reviewer that checks accessibility and reports findings with file references.
+```
+
+**Output** — Validated TOML definitions, saved to the personal agents directory by default. Project scope and preview-only output are available on request.
+
+Creates definitions; running the agents is a separate step.
+
+[Read the skill](skills/subagent-creator/SKILL.md)
+
+<details>
+<summary>Install prompt</summary>
+
+```text
+Use $skill-installer to install skills/subagent-creator from https://github.com/smturtle2/codex-skills.
+```
+
+</details>
+
+<a id="play"></a>
+
+## Play & explore
+
+### <img src="skills/world-simulator/assets/icon.svg" width="28" height="28" alt=""> world-simulator
+
+**Build a world. Live with the consequences.**
+
+Co-author a setting in the browser Studio, then play a persistent solo RPG through natural-language actions.
+
+```text
+Use $world-simulator to create a city where memories are traded. I want to play an apprentice archivist arriving on their first day.
+```
+
+**Output** — A browser Studio and Play interface, player sheet, worldbook, chronological story, and resumable `world.sqlite3` ledger.
+
+Requires a local browser and Python runtime. Codex directs the story; the runtime stores the world and its history.
+
+[Read the skill](skills/world-simulator/SKILL.md)
+
+<details>
+<summary>Install prompt</summary>
 
 ```text
 Use $skill-installer to install skills/world-simulator from https://github.com/smturtle2/codex-skills.
 ```
 
-### `gomoku`
+</details>
 
-Play Gomoku with a local Python GUI while Codex waits, reads Codex view JSON, and applies its own moves.
+### <img src="skills/gomoku/assets/icon.svg" width="28" height="28" alt=""> gomoku
 
-![Gomoku workflow](docs/assets/gomoku-workflow.png)
+**Take a break. Make your move.**
 
-| Field | Details |
-| --- | --- |
-| Folder | `skills/gomoku` |
-| Use when | You want to play Gomoku with a local Python GUI while Codex chooses and applies its own moves. |
-| Produces | A Pygame board, internally managed state, move validation, win detection, optional Renju restrictions, and Codex wait/apply commands. |
-| Avoids | A fixed AI engine and OpenAI API calls from the GUI. |
+Play on a local board while Codex reads the position and chooses its own moves.
 
-Install:
+```text
+Use $gomoku to start a game. I’ll play black on a 15×15 board.
+```
+
+**Output** — An interactive Pygame board with legal-move checks, win detection, and optional Renju restrictions.
+
+Requires a desktop GUI environment and Python with Pygame. Codex supplies the opponent’s moves.
+
+[Read the skill](skills/gomoku/SKILL.md)
+
+<details>
+<summary>Install prompt</summary>
 
 ```text
 Use $skill-installer to install skills/gomoku from https://github.com/smturtle2/codex-skills.
 ```
 
-## Repository Layout
+</details>
 
-- `skills/`: skill folders ready to copy into a Codex skills directory.
-- `skills/*/SKILL.md`: the instruction body Codex reads when a skill is triggered.
-- `skills/*/scripts/`: helper scripts bundled with a skill.
-- `skills/*/references/`: optional supporting references used by a skill.
-- `skills/*/assets/`: skill icon assets and reusable bundled files.
-- `skills/*/agents/`: optional agent/provider metadata for a skill.
-- `docs/assets/`: README images and repository-level documentation assets.
+## Inside the repository
+
+- [`skills/`](skills/) — per-skill instructions, scripts, references, runtime assets, and icons.
+- [`docs/assets/`](docs/assets/) — README banner and example screenshot.
 
 ## Contributing
 
-New skills should include a `SKILL.md`, a clear trigger description, and any required scripts or references inside the skill folder.
-
-Quality bar:
-
-- Clear trigger rules.
-- Minimal bundled context.
-- No hidden credentials.
-- Local, auditable scripts.
-- Skill icon assets and agent metadata references when a skill is listed in the catalog.
-- README entry and install prompt.
-
-## Notes
-
-- Root docs describe the catalog.
-- Skill behavior lives in each skill's `SKILL.md`.
-- Restart Codex after installing or updating a skill.
+Bundle a clear trigger in `SKILL.md` with the files the skill needs. Keep instructions concise and helper scripts locally auditable. Include an icon and agent metadata, and update both language versions of this README.

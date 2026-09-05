@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Epub Translator</title>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
+  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 19c-7-5-13-5-20-3v31c7-2 13-2 20 3 7-5 13-5 20-3V16c-7-2-13-2-20 3Z"/><path d="M32 19v31M18 25l8 2M18 33l8 2M38 27l8-2M38 35l8-2"/><path d="M38 14v9l4-3 4 2v-9" fill="#C56D3A"/>
+  </g>
+</svg>

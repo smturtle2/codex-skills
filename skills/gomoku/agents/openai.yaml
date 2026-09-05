@@ -1,6 +1,6 @@
 interface:
   display_name: "Gomoku"
   short_description: "Play Gomoku with Codex in Python"
-  icon_small: "./assets/gomoku-small.svg"
-  icon_large: "./assets/gomoku.png"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
   default_prompt: "Use $gomoku to open the board and play a game against me."

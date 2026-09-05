@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Animation Creator</title>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
+  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 23V14h28M21 29V21h28"/><rect x="14" y="29" width="36" height="23" rx="3"/><path d="m29 35 10 6-10 6z" fill="#C56D3A"/>
+  </g>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Idea Scribe</title>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
+  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 14h18l8 8v28H20z"/><path d="M38 14v10h8M27 31h12M27 38h9"/><path d="m29 45 15-15 4 4-15 15-6 2z" fill="#C56D3A"/>
+  </g>
+</svg>

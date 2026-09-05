@@ -1,6 +1,6 @@
 interface:
   display_name: "Image Creator"
   short_description: "Generate, edit, and save raster images"
-  icon_small: "./assets/image-creator-small.svg"
-  icon_large: "./assets/image-creator.png"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
   default_prompt: "Use $image-creator to generate or edit a raster image and save it in my project."

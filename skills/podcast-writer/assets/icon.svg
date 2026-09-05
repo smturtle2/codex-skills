@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Podcast Writer</title>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
+  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="25" y="12" width="14" height="28" rx="7" fill="#C56D3A"/><path d="M18 31v3a14 14 0 0 0 28 0v-3M32 48v6M23 54h18M30 19h4M30 25h4"/>
+  </g>
+</svg>
