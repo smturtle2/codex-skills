@@ -1,6 +1,6 @@
 # World Compiler
 
-Use this guide for Studio turns and the `begin` transition.
+Use this guide for Studio turns and the `begin` transition. Retain it in context while in that mode.
 
 ## Choose a Direction Worth Playing
 
@@ -29,6 +29,8 @@ Store all canonical setting data in English:
 - relation predicates and facts;
 - event summaries and data;
 - the session narration profile.
+
+For browser-label initialization or changes, consult [presentation-ui.md](presentation-ui.md).
 
 Store the user's language and script separately under `presentation`. Localize names, aliases, kind and predicate labels, fact labels and values, the narration profile, the world title, and browser chrome. The localized layer expresses canon; it does not replace or reinterpret it.
 

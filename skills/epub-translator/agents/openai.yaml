@@ -3,4 +3,4 @@ interface:
   short_description: "Natural EPUB translation workflow"
   icon_small: "./assets/epub-translator-small.svg"
   icon_large: "./assets/epub-translator.svg"
-  default_prompt: "Use $epub-translator to translate this EPUB into natural published prose in my language via the flow-IR build pipeline — ingest the reading flow, translate slim chunks in order as the main translator with a rolling summary and seam-continuity, handle image text through main-agent visual triage with required one-image-per-subagent $image-creator execution, set edition policy, and build a brand-new target-edition EPUB."
+  default_prompt: "Use $epub-translator to translate this EPUB into natural prose in my language and save a new EPUB."

@@ -1,54 +1,30 @@
-# QA Rubric
+# Animation Acceptance and Repair
 
-Do not accept an animation action until automatic checks and visual review pass.
+Read before accepting an action. Use [animation-output-contract.md](animation-output-contract.md) for exact geometry and processing requirements; do not infer them from appearance alone.
 
-## Geometry
+## Required Evidence
 
-- The action has exactly the requested frame count.
-- Each frame contains a non-empty foreground pose.
-- No important pixels touch the frame edge.
-- Contact sheets show whole poses inside cells, not cropped tiles from a larger image.
-- The final animation output exists in the requested format.
-- Final frames preserve the generated sheet's actual per-cell size after rembg normalization and component extraction.
+- Validation reports the planned frame count, non-empty foreground, unclipped edges, expected output files, and component extraction.
+- Processing metadata confirms per-slot border stripping, rembg normalization, residue cleanup, actual source dimensions, and any backend fallback.
+- Raw-sheet review confirms compliance with the registration and background contract.
+- Recorded sheets, frames, and final output have no guide marks, matte residue, opaque blocks, or border pixels.
 
-## Character Consistency
+## Visual Quality
 
-- Same character identity as the canonical base.
-- Same face, proportions, silhouette, markings, palette, outfit, and prop design.
-- No frame introduces an unintended character, object, logo, or symbol.
-- Pose changes serve the action instead of redesigning the character.
+- Character face, proportions, silhouette, markings, palette, outfit, and props match the preserved canonical base.
+- Every planned beat changes the pose meaningfully; no frozen duplicates, accidental objects, missing transitions, or redundant micro-steps.
+- Adjacent poses maintain camera distance, scale, facing, balance, contact, and body registration.
+- The requested action is recognizable and reads continuously without strobing or abrupt timing gaps.
+- A loop has a compatible bridge from last to first frame; a non-loop has a clear beginning and end.
 
-## Animation Quality
+Review the contact sheet and playback where available. If playback cannot be inspected, report that limitation and distinguish frame review from motion verification.
 
-- The frame action list was built sequentially, audited, and revised before generation.
-- The action has neither missing transition beats nor redundant duplicate beats.
-- Each planned beat states a visible change from the previous beat while preserving scale, facing, body-center path, contact, balance, and weight transfer.
-- The requested action is recognizable.
-- Adjacent frames keep consistent camera distance, character scale, facing direction, rendering density, and body registration.
-- Pose spacing feels smooth during playback, with no accidental strobing, frozen duplicates, abrupt timing gaps, or missing in-between beats.
-- Looping actions have compatible first and last frames.
-- Non-looping actions have a clear start and end pose.
+## Repair the Smallest Failure
 
-## Extraction Fitness
+1. Wrong raw poses or sheet: request a new generation for that action using the exact built prompt and required inputs.
+2. rembg failure: repair the runtime, or regenerate only when the raw matte is the identified cause.
+3. Extraction failure on a visually correct normalized sheet: adjust extraction settings rather than regenerate the character.
+4. Repeated failure caused by the motion plan: revise that plan, then regenerate its action.
+5. Recreate the canonical base only when the base itself is wrong.
 
-- The canonical base preserves the source or generated identity reference without rembg damage.
-- Raw generated action sheets use one flat vivid sky-blue removable matte background `#00B7FF`.
-- No foreground character pixel, prop, marking, outline, highlight, shadow, or motion effect uses the reserved matte color `#00B7FF`.
-- Raw action sheets preserve the outer black cell borders as registration marks.
-- Recorded action sheets are true alpha PNGs produced by cutting the raw sheet into planned slots from the actual generated size, stripping outer black cell borders before rembg, running rembg per stripped slot, cleaning matte-color residue, and reassembling the sheet.
-- Raw action sheets do not contain scene backgrounds, floor lines, shadows, glows, gradients, textures, or fake checkerboard transparency.
-- Raw action sheets do not copy inner safe boxes, centerlines, guide marks, labels, frame numbers, or ghost characters.
-- Recorded sheets, extracted frames, and final animations do not retain outer borders or guide lines.
-- Component extraction is required in the default finalize path.
-- Slot extraction is a manual diagnostic mode only. If the default finalize path used slot extraction, treat the action as failed.
-- No matte-background residue or opaque background block remains in final frames.
-
-## Repair Policy
-
-Repair the smallest failing scope:
-
-1. If the raw action sheet is wrong, regenerate that action grid from the exact built prompt and input images.
-2. If rembg fails, fix the rembg runtime or regenerate with a cleaner flat matte raw image.
-3. Adjust extraction settings only when the rembg-normalized action sheet is visually correct and the failure is clearly extraction-specific.
-4. Revise the frame action plan only when repeated generations fail for the same motion-planning reason.
-5. Recreate the base character only when the canonical base itself is wrong.
+Repair requests are owned by this workflow after reviewing saved artifacts. Do not ask `$image-creator` to run an automatic critique/retry loop. If an identified blocker cannot be resolved, report the unfinished action instead of accepting failed checks.

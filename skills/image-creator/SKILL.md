@@ -1,97 +1,54 @@
 ---
 name: image-creator
-description: Generate or edit raster images with the built-in image generation tool, use local file paths for every edit or reference input, preserve authoritative prompts or rewrite ordinary requests without changing meaning or exact rendered text, request native transparent PNGs when needed, and save the tool-returned file to the requested destination or current project. Use for generated raster assets, image edits, local image references, and transparent-background output; do not use for prompt-only or vector/code-native output.
+description: Generate or edit raster images with the built-in image tool and save them locally, including transparent PNGs. Use for bitmap assets and image edits, not prompt-only requests or vector/code-native artwork.
 ---
 
 # Image Creator
 
-Generate one raster asset at a time, bind every image input by absolute local path, and save the tool-returned source file with the bundled helper.
+Complete one generation-and-save cycle per requested asset or variant. Use the built-in `image_gen` tool without API or CLI fallbacks.
 
-## Core Contract
+## Prepare the Request
 
-- Use the built-in `image_gen` path. Do not switch to an API or CLI fallback.
-- Separate creative instructions from input paths, destination, overwrite permission, and other execution details.
-- Preserve the requested subject, action, composition, style, exclusions, and constraints. Do not invent creative details, quality language, camera settings, negative prompts, or aspect-ratio hints.
-- Preserve rendered text exactly, including spelling, capitalization, punctuation, language, and line breaks.
-- Generate once per requested asset or variant. Retry only when the user asks or the tool returns no generated source file.
-- Never overwrite an existing file unless the user explicitly requested replacement.
-- Do not visually inspect, critique, or regenerate the generated result inside this skill. The helper may read image metadata and verify requested transparency without changing pixels. This restriction ends after the saved file is handed back; subsequent workflows may inspect it under their own rules.
+- Separate creative instructions from input paths, destination, and overwrite permission.
+- For ordinary requests, write concise English preserving the subject, action, composition, style, exclusions, and exact rendered text. Leave unspecified details open; do not add quality claims, camera settings, negative prompts, or aspect-ratio hints.
+- Pass text explicitly designated as an authoritative or final prompt unchanged. If it conflicts with the requested background or mixes in execution details, request a corrected final prompt.
+- Show the final prompt before generation for information, without adding an approval step. Use the destination defaults below when none was supplied.
 
-## Final Prompt
+## Inputs and Generation
 
-For an ordinary request, rewrite the creative instructions into concise English suitable for image generation. Keep underspecified details underspecified. Remove execution details from the prompt.
+Resolve edit targets and reference images to absolute local paths, relative to the project root when necessary. If an input has no local path, ask for the missing path. Identify each input by filename and its user-given role in ordinary prompts.
 
-If supplied text is marked as an authoritative or final prompt, pass it through exactly; do not translate, rewrite, reorder, shorten, or append to it. If an authoritative prompt mixes execution details into the prompt or conflicts with the requested background, request a corrected final prompt instead of modifying it.
+Inspect local inputs when required by the current tool instructions; do not turn input inspection into permission to invent creative details or text overrides.
 
-For an ordinary request with image inputs, state each input's user-given role without describing or transcribing its contents:
+- New image: pass `prompt`.
+- Edit or reference image: also pass every input in `referenced_image_paths`, in the order of its prompt role.
+- Use only arguments exposed by the current tool. Tool instructions govern invocation and result delivery.
+- If the tool fails or provides no generated source file, report the actual failure and stop. Do not retry automatically.
 
-```text
-[Generation instructions.]
+Do not critique or regenerate the output within this skill. A calling workflow may inspect the saved result and request a separate repair attempt.
 
-Input images:
-- [file name]: [user-given role].
-```
+## Transparent Output
 
-Before generation, show the exact final prompt for information only. Do not wait for approval unless a required path, destination, or transparency decision is unresolved.
+Apply this branch only to an explicit transparency or alpha request; a `.png` filename alone is insufficient.
 
-## Image Inputs and Tool Call
+1. Use a PNG destination. Resolve an explicitly requested incompatible file format before generation.
+2. Request a real transparent background with an alpha channel directly in an ordinary prompt. Preserve authoritative prompts unchanged and resolve conflicts. Do not introduce a matte or unrequested restrictions on visual effects.
+3. Save with `--require-transparency`. The helper checks PNG format plus non-opaque and visible pixels; it does not judge whether the background is visually correct.
+4. On verification failure, report the error without local background removal, re-encoding, an opaque substitute, or automatic regeneration.
 
-Require an absolute local path for every edit target and reference image. Resolve relative paths against the project root. If an attachment or previously generated image has no local path, ask the user to provide one before generation.
+## Save
 
-Do not call `view_image` to prepare, verify, load, or attach an input for this workflow. Passing the absolute paths in `referenced_image_paths` is sufficient. Use `view_image` only for a separate user-requested image-inspection task outside this generation workflow.
+Set `SKILL_DIR` to the absolute directory containing this file. Use only the generated source path returned by the tool; do not search logs, state databases, temporary directories, or image caches.
 
-Call `image_gen` with exactly the applicable shape:
-
-- New image: `{prompt}`
-- Any edit or reference input: `{prompt, referenced_image_paths: [absolute paths...]}`
-
-Include every input path in `referenced_image_paths`, in the same order as its role in the prompt. If the tool fails or returns no generated source path, stop and report the actual result.
-
-## Transparent PNG Branch
-
-Enter this branch only when the user explicitly requests transparency, alpha, or a transparent background. A `.png` filename alone does not request transparency.
-
-1. Resolve the destination before generation. Keep PNG as this skill's transparent-output format. If the user supplied a non-PNG file destination, resolve the format with the user before generation.
-2. Request an actual transparent background with an alpha channel directly in the generation prompt. Do not introduce a colored matte, color exclusions, or blanket bans on shadows and glows. Preserve the user's visual requirements. Pass authoritative final prompts unchanged; resolve conflicts instead of silently rewriting them.
-3. Use only arguments exposed by the current built-in tool. API options such as `background`, `output_format`, and `size` must not be added to a tool call that does not expose them. Express transparency in the prompt when no dedicated parameter exists.
-4. Pass the returned source file to the helper with `--require-transparency`. It verifies PNG format and the presence of both non-opaque and visible pixels, then saves an exact copy. This checks file transparency, not the visual correctness of the background.
-5. If verification fails, report the helper error. Do not remove the background locally, re-encode the file, publish an opaque fallback, or regenerate automatically.
-
-GPT Image 2 supports native transparency in preview according to the [official image generation guide](https://developers.openai.com/api/docs/guides/image-generation#customize-image-output), checked 2026-09-06. Actual returned-file verification determines whether the output meets this skill's contract.
-
-## Save the Tool Output
-
-Set `SKILL_DIR` to the absolute directory containing this `SKILL.md`. Treat the generated source path returned by `image_gen` as the only save source; do not search rollout logs, state databases, temporary directories, or generated-image caches.
-
-Choose an explicit destination file after generation:
-
-- Use the requested file path when given.
-- For a requested directory, create a descriptive filename using the generated source suffix, or `.png` for transparent output.
-- With no destination, create a descriptive non-overwriting filename in the current project root.
-
-Run:
+Use the requested destination file. For a directory or no destination, choose a descriptive, non-overwriting filename using the returned suffix (PNG for transparency), under that directory or the current project root.
 
 ```bash
 uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/save_generated_image.py" \
-  --source <generated-source-path> \
-  --destination <destination-file> \
-  --json
+  --source <returned-source-path> --destination <destination-file> --json
 ```
 
-Add `--overwrite` only with explicit replacement permission. For transparent output, add `--require-transparency`. When a path relative to a handoff root is requested, add `--relative-to <root>` and use the returned `relative_path`; keep external history or metadata updates outside this skill.
+Add `--require-transparency` for transparent output, `--overwrite` only with explicit replacement permission, and `--relative-to <root>` when a relative handoff path is requested. The helper copies the source byte for byte. On failure, report its error without claiming the file was saved.
 
-The helper preserves the generated source byte for byte and returns `saved_path`, `relative_path`, `suffix`, `format`, `width`, `height`, `transparency_requested`, `transparency_verified`, and `overwritten`. Dimensions and format describe the returned file, not a guaranteed generation size. `transparency_verified` is `true` after a successful requested check, or `null` when no transparency check was requested. The former `--transparent` / `--matte` options and `transparent` metadata field are removed; use the new contract above. On helper failure, report the error and do not claim that the asset was saved.
+## Handoff
 
-For multiple assets, complete the generation-and-save cycle for one asset before starting the next.
-
-## Response
-
-Report:
-
-- `saved_path`
-- the exact final prompt sent to `image_gen`
-- the absolute input paths and their roles, if any
-- whether transparency was requested and verified
-- the actual image dimensions and format
-- whether an existing file was overwritten
-- `relative_path` when requested
+Return the saved file link, exact final prompt, input paths and roles, actual dimensions and format, transparency request/check status, and overwrite status. Include the helper's `relative_path` when requested. Dimensions describe the returned file, not a guaranteed generation size.

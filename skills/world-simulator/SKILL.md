@@ -1,96 +1,56 @@
 ---
 name: world-simulator
-description: Run a persistent Codex-managed single-player world RPG with a browser Studio, free-form play, an inspectable world ledger, and complete durable turn history. Use when the user wants an interactive world simulator, original worldbuilding followed by play, a narrative sandbox, a solo RPG, or a persistent fictional world whose characters, factions, locations, tensions, relations, consequences, and hidden GM state continue across turns.
+description: Build and play a persistent single-player world RPG in a browser, with free-form actions, evolving characters, and durable world history. Use for interactive worldbuilding and continuing narrative play.
 ---
 
 # World Simulator
 
-Build a substantial world with the user, then perform it as a continuing narrative RPG. Codex owns interpretation, invention, staging, narration, characters, and state changes. Python only stores, retrieves, validates, commits, and displays records; never turn it into a story engine.
+Codex authors the world, narration, characters, and consequences. Python only stores, retrieves, validates, commits, and displays them; do not turn it into a story engine.
 
-## Run the Session
+Set `SKILL_DIR` to this skill's absolute directory. Run from the session project; storage defaults to `world-runs/`. For an existing world, keep its original storage root and pass `--root <root>` consistently if the working directory differs.
 
-From this skill directory, start a new Studio session:
-
-```bash
-python scripts/world_simulator.py start
-```
-
-Keep the server alive. It creates `world-runs/<stable-id>/world.sqlite3`, writes the active-session marker, and opens the browser UI. Give the printed local URL to the user if the browser does not open.
-
-Resume a known session without creating another:
+## Start or Resume
 
 ```bash
-python scripts/world_simulator.py start --session <stable-id>
+uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" start
 ```
 
-After the UI opens, world revisions and play input belong in the browser so the chronicle remains complete.
+Add `--session <stable-id>` to resume rather than create another world. Keep the server process alive and give the printed local URL if the browser does not open. Once open, world revisions and play input belong in the browser so the chronicle remains complete.
 
-## Keep the Controller Attached
+## Process Turns
 
-Treat an active world session as ongoing work, not as a background service that is complete once the server and an input waiter exist. A waiting process cannot wake Codex or author the next turn by itself.
-
-- Do not send a final response while the session is active. Use commentary for brief operational updates and remain in the tool loop.
-- Keep exactly one `next` waiter for the active session. When execution yields a continuation or session handle instead of turn JSON, retain that handle and poll it until input arrives. Do not launch another waiter merely because a poll returned no output.
-- When browser input arrives, process and commit it, remove the temporary bundle, and immediately return to `next` without yielding the conversation back as complete.
-- Treat chat messages received during the run as control or development messages. Address them, then resume the same waiter unless the user explicitly ends the world session.
-- After an interruption, resume the known waiter handle when possible. If it cannot be resumed, inspect the exact world-simulator processes, stop only the stale `next` waiter, and create one replacement. Keep the Studio server alive.
-- Never report “waiting” in a final response. Only an explicit request to end the session authorizes stopping the waiter and server and then sending the final handoff.
-
-## Process Every Turn
-
-Repeat until the user ends the session:
-
-1. Wait for and claim the next browser input while remaining attached to the command:
+1. Wait for and claim browser input:
 
    ```bash
-   python scripts/world_simulator.py next
+   uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" next
    ```
 
-2. Read `references/turn-contract.md` and the guide for the current turn:
-   - `references/world-compiler.md` for `studio` and `begin`
-   - `references/scene-director.md` for `play`
-3. Use the focus records and complete world index to interpret the turn. Inspect any record whose full truth matters:
-
-   ```bash
-   python scripts/world_simulator.py inspect "<id, name, or text>"
-   ```
-
-4. Author one `TurnBundle`: the visible response plus every resulting change.
+2. Load [references/turn-contract.md](references/turn-contract.md) when its data contract is absent from context. Use [references/world-compiler.md](references/world-compiler.md) for `studio`/`begin` or [references/scene-director.md](references/scene-director.md) for `play`; reread on mode changes or context loss, not mechanically every turn.
+3. Use focus records and the complete index. Retrieve missing facts that affect the turn with `inspect "<id, name, or text>"` through the same CLI.
+4. Author one TurnBundle containing the visible response and all resulting state changes.
 5. Commit it atomically:
 
    ```bash
-   python scripts/world_simulator.py commit <turn-bundle.json>
+   uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" commit <turn-bundle.json>
    ```
 
-6. Remove the temporary bundle and immediately return to the single `next` waiter. The story response belongs in the browser, not chat.
+6. Remove the temporary bundle after success and return immediately to `next`. On commit failure, correct the bundle and retry the same claimed turn.
 
-If commit fails, correct the same bundle and retry the same turn.
+## Stay Attached
 
-## Direct Studio
+Keep exactly one `next` waiter. Retain and poll yielded process/session handles; a background process alone cannot wake Codex to author the next turn.
 
-Turn incomplete or highly specific ideas into a broad setting that can sustain play. Use the World Compiler's creative selection pass before authoring canon; a coherent first idea is not automatically the most compelling direction. Establish enough of the chosen world up front for later developments to have causes and alternatives.
+Use commentary for operational updates while the session is active, without a final “waiting” handoff. Address chat messages as control/development input, then resume the same waiter unless the user ends the session.
 
-The world remains editable. Revise established records and add newly encountered detail as play changes or expands the setting.
+After interruption, resume the known handle; if unusable, stop only the identified stale waiter and replace it while preserving the server. On explicit session end, stop the waiter and server before the final handoff. If the server fails, report the failure and retained session location instead of claiming continued play.
 
-For `begin`, apply any final adjustment, switch the session to Play, and perform the opening situation in the same bundle.
+## World Invariants
 
-## Direct Play
+- Keep canonical data in English and raw user input unchanged. Write visible responses and `presentation` in the user's language.
+- Patch stable IDs instead of cloning records. Use relations for durable connections and events for causally useful history.
+- Keep secrets in `gm` or GM-only records. `inspect` may expose secrets and is not player-facing output.
+- Preserve player agency: never invent unsubmitted choices, dialogue, beliefs, or emotions.
+- Do not add command vocabularies, choice menus, hidden dice, timers, or deterministic narrative rules.
+- Store optional visuals under the session's `assets/` with localized captions and alt text.
 
-Treat input as free action, speech, intent, or inquiry. Do not generate the next passage by merely continuing the last passage. Understand the attempt, consult the world, compare plausible developments, choose and stage one that is both earned by the situation and worth playing, let narrator and characters perform it, then persist the consequences.
-
-Keep the hidden director's judgment, the narrator's prose persona, and each character's roleplay distinct. Never expose GM-only truth.
-
-## Keep the Ledger Authoritative
-
-- Store canonical world data in English. Preserve raw user input and write visible responses and `presentation` data in the user's language and script.
-- Use stable lowercase IDs. Patch existing records instead of cloning them under new names.
-- Keep secrets in `gm` or `visibility: "gm"`; keep player-visible truth in `public`.
-- Use relations for durable connections and entity fields for an entity's own current state.
-- Record only events that will remain causally useful.
-- Preserve player agency. Show consequences without inventing unsubmitted player choices, dialogue, beliefs, or emotions.
-- Do not create command vocabularies, choice menus, hidden dice, timers, or deterministic narrative rules.
-- Keep optional visuals inside the session `assets/` directory and localize their alt text and captions.
-
-`status` reports storage metadata. `inspect` is a GM diagnostic and may contain secrets.
-
-When the user ends the session, stop the persistent server. There is no in-world stop command.
+Use `status` for storage metadata. Story responses belong in the browser; the final session handoff should identify the retained world and any unresolved operational issue.

@@ -1,6 +1,6 @@
 # Scene Director
 
-Use this guide for every Play turn.
+Use this guide for Play turns. Reread only when it is missing from context or the session changes back to Play.
 
 ## Direct Before You Write
 

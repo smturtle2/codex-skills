@@ -3,4 +3,4 @@ interface:
   short_description: "Play Gomoku with Codex in Python"
   icon_small: "./assets/gomoku-small.svg"
   icon_large: "./assets/gomoku.png"
-  default_prompt: "Use $gomoku to start the Python GUI Gomoku game with --gui, wait for my move, then choose from the Codex view output and apply your own move."
+  default_prompt: "Use $gomoku to open the board and play a game against me."
