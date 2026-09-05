@@ -15,7 +15,9 @@ Keep each skill independently installable and the catalog easy to browse.
 uv run scripts/update_catalog.py
 ```
 
-Guides, screenshots, and custom icons are optional. A skill without a guide still appears, using its `SKILL.md` description and a link to the instructions. When a Korean guide is missing, its catalog entry uses the original description until a translation is added.
+Guides, screenshots, and custom icons are optional. A skill without a guide still appears with its `SKILL.md` description, a copyable install prompt, and a link to the instructions. When a Korean guide is missing, its catalog entry uses the original description until a translation is added.
+
+The generator creates a consistent SVG header for each skill. It uses `assets/icon.svg` from the skill folder when available, or a shared module symbol otherwise. Colors are derived from the skill name, so adding or removing another skill does not change them.
 
 ## Update or remove a skill
 
@@ -25,7 +27,9 @@ To remove a skill, delete its folder, corresponding guides, and assets used only
 
 ## Catalog maintenance
 
-The generator updates only the region between `<!-- skills:start -->` and `<!-- skills:end -->` in each README. Edit the introduction and other sections normally; update the source descriptions or guides instead of editing generated entries.
+The generator updates only the region between `<!-- skills:start -->` and `<!-- skills:end -->` in each README, plus its own SVG headers in `docs/assets/catalog/`. It removes obsolete headers bearing its generated-file marker and leaves unmanaged assets alone. Edit the introduction and other sections normally; update the source descriptions or guides instead of editing generated entries.
+
+The first `text` code block containing an install prompt in the English guide supplies the README install command for both languages, including companion skills. Without one, the generator supplies a single-skill install prompt.
 
 To check whether the committed lists match their sources without writing files:
 
@@ -33,6 +37,6 @@ To check whether the committed lists match their sources without writing files:
 uv run scripts/update_catalog.py --check
 ```
 
-This checks catalog freshness only. Review changed links and relevant skill behavior separately, and state what you verified in your contribution.
+This checks catalog and generated-header freshness only. Review changed links and relevant skill behavior separately, and state what you verified in your contribution.
 
 Use Conventional Commits, such as `docs: add a usage guide` or `feat: add a skill`. Keep unrelated changes out of the contribution.

@@ -1,82 +1,184 @@
-# <img src="docs/assets/catalog-mark.svg" width="32" height="32" alt=""> codex-skills
+<p align="center">
+  <img src="docs/assets/catalog-banner.svg" width="1200" alt="codex-skills — A growing collection for Codex.">
+</p>
 
-필요한 작업에 맞춰 골라 쓰는 Codex 스킬 컬렉션.
-
-[설치](#install) · [스킬 목록](#skills) · [기여하기](CONTRIBUTING.ko.md) · [English](README.md)
+<p align="center">필요한 작업에 맞춰 골라 쓰는 Codex 스킬 컬렉션.</p>
+<p align="center"><a href="#skills">스킬 둘러보기</a> · <a href="CONTRIBUTING.ko.md">기여하기</a> · <a href="README.md">English</a></p>
 
 <a id="install"></a>
-
-## 설치
-
-목록에서 스킬 이름을 골라 Codex에 요청하세요.
-
-```text
-Use $skill-installer to install skills/<skill-name> from https://github.com/smturtle2/codex-skills.
-```
-
-설치 후 `$스킬이름`과 함께 원하는 작업을 요청합니다. 각 사용 가이드에는 복사할 수 있는 설치 프롬프트, 사용 예시, 필요한 도구가 있습니다. 설치한 스킬이 보이지 않으면 Codex를 다시 시작하세요.
-
 <a id="skills"></a>
 
-## 스킬 목록
+## 스킬
 
-이름순으로 정렬했습니다. 사용 가이드는 사용법을, 지침은 Codex가 작업하는 방식을 설명합니다.
+각 스킬 아래의 설치 명령을 복사해 Codex에 붙여 넣으세요. 설치 후 `$스킬이름`과 함께 작업을 요청하면 됩니다.
 
 <!-- skills:start -->
 
-### animation-creator
+<p align="center">
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#world-simulator">world&#8209;simulator</a>
+</p>
+
+---
+
+<a id="animation-creator"></a>
+
+<img src="docs/assets/catalog/animation-creator.svg" width="960" alt="animation-creator">
 
 동작을 의미 있는 자세 변화로 나누고, 같은 캐릭터 기준 이미지를 사용해 프레임을 생성합니다.
 
-[사용 가이드](docs/skills/animation-creator.ko.md) · [지침](skills/animation-creator/SKILL.md) · [설치](docs/skills/animation-creator.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+image-creator, animation-creator
+```
 
-### epub-translator
+[사용 가이드](docs/skills/animation-creator.ko.md) · [지침](skills/animation-creator/SKILL.md)
+
+---
+
+<a id="epub-translator"></a>
+
+<img src="docs/assets/catalog/epub-translator.svg" width="960" alt="epub-translator">
 
 EPUB을 번역해 용어와 장 사이의 맥락이 이어지는 새 판본을 만듭니다.
 
-[사용 가이드](docs/skills/epub-translator.ko.md) · [지침](skills/epub-translator/SKILL.md) · [설치](docs/skills/epub-translator.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+epub-translator
+```
 
-### gomoku
+[사용 가이드](docs/skills/epub-translator.ko.md) · [지침](skills/epub-translator/SKILL.md)
+
+---
+
+<a id="gomoku"></a>
+
+<img src="docs/assets/catalog/gomoku.svg" width="960" alt="gomoku">
 
 로컬 보드에서 돌을 두면 Codex가 판세를 읽고 다음 수를 선택합니다.
 
-[사용 가이드](docs/skills/gomoku.ko.md) · [지침](skills/gomoku/SKILL.md) · [설치](docs/skills/gomoku.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+gomoku
+```
 
-### idea-scribe
+[사용 가이드](docs/skills/gomoku.ko.md) · [지침](skills/gomoku/SKILL.md)
+
+---
+
+<a id="idea-scribe"></a>
+
+<img src="docs/assets/catalog/idea-scribe.svg" width="960" alt="idea-scribe">
 
 떠오르는 생각을 원문 그대로 기록하고, 현재 유효한 내용만 읽기 좋은 문서로 정리합니다.
 
-[사용 가이드](docs/skills/idea-scribe.ko.md) · [지침](skills/idea-scribe/SKILL.md) · [설치](docs/skills/idea-scribe.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+idea-scribe
+```
 
-### image-creator
+[사용 가이드](docs/skills/idea-scribe.ko.md) · [지침](skills/idea-scribe/SKILL.md)
+
+---
+
+<a id="image-creator"></a>
+
+<img src="docs/assets/catalog/image-creator.svg" width="960" alt="image-creator">
 
 래스터 이미지를 생성·편집해 프로젝트에 저장합니다. 요청하면 처음부터 투명 배경 PNG로 생성합니다.
 
-[사용 가이드](docs/skills/image-creator.ko.md) · [지침](skills/image-creator/SKILL.md) · [설치](docs/skills/image-creator.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+image-creator
+```
 
-### podcast-writer
+[사용 가이드](docs/skills/image-creator.ko.md) · [지침](skills/image-creator/SKILL.md)
+
+---
+
+<a id="podcast-writer"></a>
+
+<img src="docs/assets/catalog/podcast-writer.svg" width="960" alt="podcast-writer">
 
 문서·웹사이트·YouTube 자료를 하나의 독백형 대본으로 엮고, 독립적인 내용 검토를 거쳐 다듬습니다.
 
-[사용 가이드](docs/skills/podcast-writer.ko.md) · [지침](skills/podcast-writer/SKILL.md) · [설치](docs/skills/podcast-writer.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+podcast-writer
+```
 
-### subagent-creator
+[사용 가이드](docs/skills/podcast-writer.ko.md) · [지침](skills/podcast-writer/SKILL.md)
+
+---
+
+<a id="subagent-creator"></a>
+
+<img src="docs/assets/catalog/subagent-creator.svg" width="960" alt="subagent-creator">
 
 역할 설명을 책임 범위와 제약이 명확한 Codex 커스텀 에이전트 정의로 바꿉니다.
 
-[사용 가이드](docs/skills/subagent-creator.ko.md) · [지침](skills/subagent-creator/SKILL.md) · [설치](docs/skills/subagent-creator.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+subagent-creator
+```
 
-### ui-blueprint
+[사용 가이드](docs/skills/subagent-creator.ko.md) · [지침](skills/subagent-creator/SKILL.md)
+
+---
+
+<a id="ui-blueprint"></a>
+
+<img src="docs/assets/catalog/ui-blueprint.svg" width="960" alt="ui-blueprint">
 
 시각적 시안을 생성하고 디자인 결정을 정리한 뒤, 기존 프런트엔드 스택으로 화면을 구현합니다.
 
-[사용 가이드](docs/skills/ui-blueprint.ko.md) · [지침](skills/ui-blueprint/SKILL.md) · [설치](docs/skills/ui-blueprint.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+image-creator, ui-blueprint
+```
 
-### world-simulator
+[사용 가이드](docs/skills/ui-blueprint.ko.md) · [지침](skills/ui-blueprint/SKILL.md)
+
+---
+
+<a id="world-simulator"></a>
+
+<img src="docs/assets/catalog/world-simulator.svg" width="960" alt="world-simulator">
 
 브라우저 Studio에서 세계를 함께 만들고, 자연어 행동으로 이어지는 지속형 1인 RPG를 플레이합니다.
 
-[사용 가이드](docs/skills/world-simulator.ko.md) · [지침](skills/world-simulator/SKILL.md) · [설치](docs/skills/world-simulator.ko.md#install)
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+world-simulator
+```
+
+[사용 가이드](docs/skills/world-simulator.ko.md) · [지침](skills/world-simulator/SKILL.md)
 
 <!-- skills:end -->
 

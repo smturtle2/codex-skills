@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">codex-skills</title>
+  <desc id="desc">A colorful collection of modular tools, with room for the next one.</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#C9C9CD"/></pattern>
+    <clipPath id="frame"><rect width="1200" height="360" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="360" fill="#F6F5F1"/>
+    <rect x="650" width="550" height="360" fill="url(#grid)"/>
+    <path d="M0 357h1200" stroke="#E0DED7" stroke-width="6"/>
+    <g transform="translate(54 48)">
+      <rect width="32" height="32" rx="8" fill="#282B36"/>
+      <path d="M10 10h5v5h-5zm8 0h5v5h-5zm-8 8h5v5h-5zm8 0h5v5h-5z" fill="#F6F5F1"/>
+      <text x="46" y="22" font-family="Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="3" fill="#62646E">PICK. INSTALL. CREATE.</text>
+    </g>
+    <text x="50" y="197" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="800" letter-spacing="-5" fill="#242735">codex-skills<tspan fill="#C36C34">.</tspan></text>
+    <text x="55" y="245" font-family="Arial, sans-serif" font-size="22" fill="#62646E">A growing collection for Codex.</text>
+    <path d="M55 292h65" stroke="#C36C34" stroke-width="5" stroke-linecap="round"/>
+    <path d="M137 292h20m13 0h8" stroke="#C9C9CD" stroke-width="5" stroke-linecap="round"/>
+    <g transform="translate(745 58) rotate(-9 75 80)">
+      <rect x="5" y="10" width="142" height="150" rx="24" fill="#D8D1EB"/>
+      <rect width="142" height="150" rx="24" fill="#E4DCF8" stroke="#B8A6DE" stroke-width="2"/>
+      <path d="m51 56-21 19 21 19m39-38 21 19-21 19M79 46 64 105" fill="none" stroke="#7556CC" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g transform="translate(924 37) rotate(11 75 80)">
+      <rect x="5" y="10" width="142" height="150" rx="24" fill="#E2CBB6"/>
+      <rect width="142" height="150" rx="24" fill="#FCE1C9" stroke="#DFB891" stroke-width="2"/>
+      <path d="M45 53h52v52H45z" fill="none" stroke="#B96B35" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M59 39h52v52" fill="none" stroke="#B96B35" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g transform="translate(822 207) rotate(5 70 55)">
+      <rect x="5" y="8" width="155" height="112" rx="22" fill="#C0D8CC"/>
+      <rect width="155" height="112" rx="22" fill="#D7EDE1" stroke="#97C3AD" stroke-width="2"/>
+      <path d="m64 35 35 21-35 21z" fill="#238368"/>
+    </g>
+    <g transform="translate(1013 212) rotate(-6 56 56)">
+      <rect width="112" height="112" rx="22" fill="#F6F5F1" stroke="#A9A7AF" stroke-width="2" stroke-dasharray="7 7"/>
+      <path d="M38 56h36m-18-18v36" stroke="#8A8793" stroke-width="4" stroke-linecap="round"/>
+    </g>
+    <g fill="#C36C34"><circle cx="1129" cy="103" r="5"/><circle cx="722" cy="264" r="4"/></g>
+  </g>
+</svg>
