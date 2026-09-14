@@ -18,7 +18,7 @@ from dialog_state import encode, finish_state, read_state, run_lock, save_state
 from dialog_keyboard import Keyboard
 from dialog_spec import format_response
 from dialog_view import View
-from dialog_delivery import deliver
+from dialog_delivery import deliver, confirm_delivery
 
 
 STYLE = """
@@ -39,6 +39,7 @@ class Dialog:
         self.app, self.run_dir, self.state = app, directory, state
         self.view_dir = Path(state["base"])
         self._submitting = False
+        self._delivery_cancel = threading.Event()
         self.request_id = state["request_id"]
         self.Gtk, self.Adw, self.GLib, self.Gdk, self.Gio = Gtk, Adw, GLib, Gdk, Gio
         self.window = Adw.ApplicationWindow(application=app, title=state["title"])
@@ -68,12 +69,21 @@ class Dialog:
         self.sending_indicator.set_visible(False)
         self._sending_source = 0
         self.actions = Gtk.Box(spacing=10, halign=Gtk.Align.END)
+        self.delivery_actions = Gtk.Box(spacing=10, halign=Gtk.Align.END)
+        self.delivery_actions.set_visible(False)
+        self.retry_confirmation = Gtk.Button(label="Check again")
+        self.retry_confirmation.connect("clicked", lambda *_: self.start_delivery(confirm_only=True))
+        self.delivery_actions.append(self.retry_confirmation)
+        close_button = Gtk.Button(label="Close")
+        close_button.connect("clicked", lambda *_: self.close())
+        self.delivery_actions.append(close_button)
         self.footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         for side in ("bottom", "start", "end"):
             getattr(self.footer, f"set_margin_{side}")(18)
         self.footer.append(self.status_label)
         self.footer.append(self.sending_indicator)
         self.footer.append(self.actions)
+        self.footer.append(self.delivery_actions)
         self.footer.set_visible(False)
         self.toolbar.add_bottom_bar(self.footer)
         self._bindings = {}
@@ -163,7 +173,8 @@ class Dialog:
             self._sending_source = GLib.timeout_add(50, animate)
 
     def checkpoint(self):
-        if self._finished:
+        if self._finished or self.state["status"] == "submitted":
+            self._checkpoint_source = 0
             return GLib.SOURCE_REMOVE
         values = self.collect()
         if values != self.state.get("draft"):
@@ -172,7 +183,7 @@ class Dialog:
         return GLib.SOURCE_CONTINUE
 
     def submit(self, values=None, *, action="submit", include_values=True):
-        if self._finished or self._submitting:
+        if self._finished or self._submitting or self.state["status"] == "submitted":
             return
         collected = (self.collect() if values is None else values) if include_values else {}
         if include_values and self._validator:
@@ -187,19 +198,33 @@ class Dialog:
         if not self.state.get("origin"):
             self.close()
             return
-        self._submitting = True
         self.content.set_sensitive(False)
         self.actions.set_sensitive(False)
+        self.actions.set_visible(False)
+        self.delivery_actions.set_visible(True)
+        self.start_delivery()
+
+    def start_delivery(self, *, confirm_only=False):
+        if self._finished or self._submitting:
+            return
+        self._submitting = True
+        self._delivery_cancel.clear()
+        self.retry_confirmation.set_sensitive(False)
         self.set_sending(True)
         def send():
             try:
-                deliver(self.run_dir, self.state)
+                operation = confirm_delivery if confirm_only else deliver
+                operation(self.run_dir, self.state, self._delivery_cancel)
             except Exception as error:
-                self.state["delivery"] = {"status": "unknown", "error": str(error)}
+                self.state["delivery"]["observation"] = {"status": "unconfirmed", "error": str(error)}
+                save_state(self.run_dir, self.state)
             GLib.idle_add(self.delivery_finished)
         threading.Thread(target=send, daemon=False).start()
 
     def delivery_finished(self):
+        if self._finished:
+            return GLib.SOURCE_REMOVE
+        self._submitting = False
         delivery = self.state["delivery"]
         if delivery.get("observation", {}).get("status") == "observed":
             self.finish_delivery()
@@ -210,7 +235,8 @@ class Dialog:
                              "Your answer is saved. You can close this window.", error=True)
             else:
                 self.message("Delivery was not confirmed. Your answer is saved. " + delivery.get("error", ""), error=True)
-            self._submitting = False
+            self.retry_confirmation.set_sensitive(
+                delivery["status"] in {"accepted", "unknown"} and "boundary_item_id" in delivery)
         return GLib.SOURCE_REMOVE
 
     def finish_delivery(self):
@@ -224,6 +250,7 @@ class Dialog:
         self._finish("deferred", None)
 
     def close(self):
+        self._delivery_cancel.set()
         self._finished = True
         self.set_sending(False)
         if self._checkpoint_source:
@@ -240,7 +267,10 @@ class Dialog:
         self.close()
 
     def _close(self, window):
-        self.dismiss()
+        if self.state["status"] == "submitted":
+            self.close()
+        else:
+            self.dismiss()
         return True
 
     def refit(self, width=None):

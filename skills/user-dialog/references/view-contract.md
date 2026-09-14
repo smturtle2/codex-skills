@@ -90,7 +90,10 @@ Choices use option labels; attachments use file links; empty/inactive fields and
 Commands use `uv run --script "$SKILL_DIR/scripts/user_dialog.py" …`.
 The launcher needs Python 3.11+; the native renderer needs PyGObject, GTK 4.16+, and libadwaita 1.6+.
 On Debian/Ubuntu these are `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1`; uv does not install native libraries.
-Normal delivery requires the originating Codex desktop connection; Windows delivery is unsupported.
+Normal delivery requires the originating local Codex desktop connection and a Codex CLI supporting
+`thread/items/list`. `USER_DIALOG_CODEX` selects the CLI (default: `codex` on PATH).
+The runtime starts a temporary read-only app-server to confirm the response, then stops it.
+Remote-task and Windows delivery are unsupported.
 
 | Command | Purpose |
 | --- | --- |
@@ -101,8 +104,12 @@ Normal delivery requires the originating Codex desktop connection; Windows deliv
 | `doctor --delivery` | Check native libraries and task connection without sending. |
 | `status <run-dir>` / `resume <run-dir>` | Inspect status / reopen the saved draft; submitted runs stay closed. |
 | `deliver <run-dir>` | Retry a confirmed pre-send failure from the original task. |
+| `confirm <run-dir>` | Recheck a submitted response without sending it again. |
 
 `show`, `resume`, and `doctor` accept `--python <path>`; `USER_DIALOG_PYTHON` also selects the renderer interpreter.
 Keep the run and referenced assets available. On failure, inspect status and `renderer.log`.
 Submission and delivery are separate: a saved answer may have unconfirmed delivery.
 The runtime prevents retries of `sending`, `unknown`, or accepted deliveries; do not resend those answers manually.
+Automatic closing waits for a matching new response item after the saved pre-send history position.
+During delivery, Close remains available. If confirmation fails, Check again repeats only the lookup.
+Older runs without a saved history position cannot use automatic confirmation.

@@ -16,7 +16,7 @@ import uuid
 
 from dialog_state import encode, read_state, run_lock, save_state
 from dialog_spec import compile_request, read_json, parse_json, TYPES
-from dialog_delivery import capture_origin, require_owner, deliver
+from dialog_delivery import capture_origin, require_owner, deliver, confirm_delivery
 
 
 PROBE = """
@@ -91,6 +91,8 @@ def load_request(source):
 def summary(directory, state):
     result = {"request_id": state["request_id"], "status": state["status"],
               "run_dir": str(directory), "delivery": state.get("delivery", {}).get("status")}
+    if state.get("delivery", {}).get("observation"):
+        result["observation"] = state["delivery"]["observation"]
     if state.get("delivery", {}).get("error"):
         result["error"] = state["delivery"]["error"]
     if state.get("response", {}).get("error"):
@@ -121,12 +123,13 @@ def run_dialog(args):
             state = read_state(directory)
             if state.get("origin"):
                 require_owner(state["origin"])
-            if args.command == "deliver":
+            if args.command in {"deliver", "confirm"}:
                 if not state.get("origin"):
                     raise ValueError("Preview runs cannot be delivered")
-                deliver(directory, state)
+                operation = confirm_delivery if args.command == "confirm" else deliver
+                operation(directory, state)
                 print(encode(summary(directory, state)))
-                return 0 if state["delivery"]["status"] == "accepted" else 1
+                return 0 if state["delivery"].get("observation", {}).get("status") == "observed" else 1
             if state["status"] == "submitted":
                 print(encode(summary(directory, state)))
                 return 0
@@ -179,6 +182,8 @@ def main():
     commands.add_parser("elements", help="List composable basic element types")
     delivery = commands.add_parser("deliver", help="Retry a confirmed pre-send failure from its originating task")
     delivery.add_argument("run_dir")
+    confirmation = commands.add_parser("confirm", help="Recheck a submitted response without resending")
+    confirmation.add_argument("run_dir")
     args = parser.parse_args()
     try:
         if args.command == "elements":
