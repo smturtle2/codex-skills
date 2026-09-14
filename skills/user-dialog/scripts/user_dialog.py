@@ -102,6 +102,8 @@ def summary(directory, state):
 
 def run_dialog(args):
     if args.command == "show":
+        if args.render_image and not args.preview:
+            raise ValueError("--render-image requires --preview")
         spec = load_request(args.request)
         origin = None if args.preview else capture_origin()
         runtime = find_python(args.python)
@@ -119,6 +121,8 @@ def run_dialog(args):
                      "spec": spec, "base": str(Path.cwd()), "origin": origin,
                      "title": spec["title"], "subtitle": spec.get("subtitle", ""),
                      "draft": {}, "response": {}, "delivery": {"status": "preview" if args.preview else "pending"}}
+            if args.render_image:
+                state["render_image"] = str(Path(args.render_image).expanduser().resolve())
         else:
             state = read_state(directory)
             if state.get("origin"):
@@ -170,6 +174,7 @@ def main():
     show = commands.add_parser("show", help="Open a composed JSON view")
     show.add_argument("request", help="JSON file or - for stdin")
     show.add_argument("--preview", action="store_true", help="Render without Codex delivery; save message.md")
+    show.add_argument("--render-image", help="With --preview, export the rendered widget to PNG and close")
     show.add_argument("--run-dir")
     show.add_argument("--python")
     resume = commands.add_parser("resume", help="Reopen a saved draft or return its submitted result")

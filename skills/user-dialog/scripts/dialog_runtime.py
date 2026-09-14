@@ -18,6 +18,7 @@ from dialog_state import encode, finish_state, read_state, run_lock, save_state
 from dialog_keyboard import Keyboard
 from dialog_spec import format_response
 from dialog_view import View
+from dialog_style import DialogStyle
 from dialog_delivery import deliver, confirm_delivery
 
 
@@ -31,6 +32,14 @@ STYLE = """
 .user-dialog .dialog-error { color: var(--error-color); }
 .user-dialog .dialog-group { padding: 16px; }
 .user-dialog .dialog-editor { border-radius: 10px; border: 1px solid alpha(currentColor, 0.12); padding: 10px; }
+.user-dialog .dialog-document, .user-dialog .dialog-document text { background: transparent; }
+.user-dialog .dialog-document-card { background: var(--view-bg-color); border: 1px solid alpha(currentColor, 0.08); border-radius: 14px; }
+.user-dialog .dialog-code-block { background: CODE_BACKGROUND; border-radius: 10px; }
+.user-dialog .dialog-code-header { padding: 4px 10px; }
+.user-dialog .dialog-document-header { padding: 8px 14px; }
+.user-dialog .dialog-document-name { font-size: 0.9em; font-weight: 500; color: alpha(currentColor, 0.6); }
+.user-dialog button.dialog-document-name { padding: 0; min-height: 0; }
+.user-dialog button.dialog-document-name label { text-decoration: none; }
 """
 
 
@@ -42,6 +51,7 @@ class Dialog:
         self._delivery_cancel = threading.Event()
         self.request_id = state["request_id"]
         self.Gtk, self.Adw, self.GLib, self.Gdk, self.Gio = Gtk, Adw, GLib, Gdk, Gio
+        self.style = DialogStyle(STYLE)
         self.window = Adw.ApplicationWindow(application=app, title=state["title"])
         self.window.add_css_class("user-dialog")
         self.window.connect("close-request", self._close)
@@ -49,7 +59,9 @@ class Dialog:
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(title=state["title"], subtitle=state["subtitle"]))
         self.toolbar.add_top_bar(header)
-        self.window.set_content(self.toolbar)
+        self.toast_overlay = Adw.ToastOverlay()
+        self.toast_overlay.set_child(self.toolbar)
+        self.window.set_content(self.toast_overlay)
         self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         for side in ("top", "bottom", "start", "end"):
             getattr(self.content, f"set_margin_{side}")(26)
@@ -62,28 +74,16 @@ class Dialog:
         self.toolbar.set_content(self.scroller)
         self.status_label = Gtk.Label(wrap=True, xalign=0)
         self.status_label.set_visible(False)
-        self.sending_indicator = Gtk.Box(spacing=5, halign=Gtk.Align.START)
-        self.sending_dots = [Gtk.Label(label="•") for _ in range(3)]
-        for dot in self.sending_dots:
-            self.sending_indicator.append(dot)
-        self.sending_indicator.set_visible(False)
         self._sending_source = 0
+        self._submit_button = None
+        self._submit_overlay = None
+        self._retry_available = False
         self.actions = Gtk.Box(spacing=10, halign=Gtk.Align.END)
-        self.delivery_actions = Gtk.Box(spacing=10, halign=Gtk.Align.END)
-        self.delivery_actions.set_visible(False)
-        self.retry_confirmation = Gtk.Button(label="Check again")
-        self.retry_confirmation.connect("clicked", lambda *_: self.start_delivery(confirm_only=True))
-        self.delivery_actions.append(self.retry_confirmation)
-        close_button = Gtk.Button(label="Close")
-        close_button.connect("clicked", lambda *_: self.close())
-        self.delivery_actions.append(close_button)
         self.footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         for side in ("bottom", "start", "end"):
             getattr(self.footer, f"set_margin_{side}")(18)
         self.footer.append(self.status_label)
-        self.footer.append(self.sending_indicator)
         self.footer.append(self.actions)
-        self.footer.append(self.delivery_actions)
         self.footer.set_visible(False)
         self.toolbar.add_bottom_bar(self.footer)
         self._bindings = {}
@@ -137,7 +137,7 @@ class Dialog:
         button = Gtk.Button(label=label)
         if primary:
             button.add_css_class("suggested-action")
-        button.connect("clicked", lambda *_: callback() if callback else self.submit(action=action_id))
+        button.connect("clicked", lambda button: callback(button) if callback else self.submit(action=action_id, button=button))
         self.actions.append(button)
         self.footer.set_visible(True)
         if default is True or (default is None and primary):
@@ -151,17 +151,44 @@ class Dialog:
             self.status_label.remove_css_class("dialog-error")
         self.status_label.set_text(value or "")
         self.status_label.set_visible(bool(value))
-        self.footer.set_visible(bool(value) or self.sending_indicator.get_visible() or self.actions.get_first_child() is not None)
-        if self._built:
+        self.footer.set_visible(bool(value) or self.actions.get_first_child() is not None)
+        if self._built and self.state["status"] != "submitted":
             self.refit()
+
+    def prepare_sending(self, button):
+        self._submit_button = button
+        if button is None:
+            return
+        classes = button.get_css_classes()
+        original = button.get_child()
+        button.set_child(None)
+        overlay = Gtk.Overlay()
+        overlay.set_child(original)
+        original.set_opacity(0)
+        self.sending_indicator = Gtk.Box(spacing=4, halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        self.sending_dots = [Gtk.Label(label="•") for _ in range(3)]
+        for dot in self.sending_dots:
+            self.sending_indicator.append(dot)
+        overlay.add_overlay(self.sending_indicator)
+        self.retry_icon = Gtk.Image.new_from_icon_name("view-refresh-symbolic")
+        self.retry_icon.set_halign(Gtk.Align.CENTER)
+        self.retry_icon.set_valign(Gtk.Align.CENTER)
+        self.retry_icon.set_visible(False)
+        overlay.add_overlay(self.retry_icon)
+        button.set_child(overlay)
+        button.set_css_classes(classes)
+        self._submit_overlay = overlay
 
     def set_sending(self, active):
         if self._sending_source:
             GLib.source_remove(self._sending_source)
             self._sending_source = 0
+        if self._submit_overlay is None:
+            return
         self.sending_indicator.set_visible(active)
+        self.retry_icon.set_visible(not active and self._retry_available)
         if active:
-            self.message(None)
+            self._submit_button.set_tooltip_text(None)
             started = GLib.get_monotonic_time()
             def animate():
                 elapsed = (GLib.get_monotonic_time() - started) / 1_000_000
@@ -182,7 +209,7 @@ class Dialog:
             save_state(self.run_dir, self.state)
         return GLib.SOURCE_CONTINUE
 
-    def submit(self, values=None, *, action="submit", include_values=True):
+    def submit(self, values=None, *, action="submit", include_values=True, button=None):
         if self._finished or self._submitting or self.state["status"] == "submitted":
             return
         collected = (self.collect() if values is None else values) if include_values else {}
@@ -198,10 +225,8 @@ class Dialog:
         if not self.state.get("origin"):
             self.close()
             return
-        self.content.set_sensitive(False)
-        self.actions.set_sensitive(False)
-        self.actions.set_visible(False)
-        self.delivery_actions.set_visible(True)
+        self.view.freeze_inputs()
+        self.prepare_sending(button)
         self.start_delivery()
 
     def start_delivery(self, *, confirm_only=False):
@@ -209,7 +234,9 @@ class Dialog:
             return
         self._submitting = True
         self._delivery_cancel.clear()
-        self.retry_confirmation.set_sensitive(False)
+        self._retry_available = False
+        if self._submit_button:
+            self._submit_button.set_sensitive(False)
         self.set_sending(True)
         def send():
             try:
@@ -229,14 +256,18 @@ class Dialog:
         if delivery.get("observation", {}).get("status") == "observed":
             self.finish_delivery()
         else:
+            self._retry_available = (delivery["status"] in {"accepted", "unknown"}
+                                     and "boundary_item_id" in delivery)
             self.set_sending(False)
-            if delivery["status"] == "accepted":
-                self.message("Sent, but the response could not be confirmed in task history. "
-                             "Your answer is saved. You can close this window.", error=True)
-            else:
-                self.message("Delivery was not confirmed. Your answer is saved. " + delivery.get("error", ""), error=True)
-            self.retry_confirmation.set_sensitive(
-                delivery["status"] in {"accepted", "unknown"} and "boundary_item_id" in delivery)
+            if self._submit_button:
+                self._submit_button.set_sensitive(self._retry_available)
+                self._submit_button.set_tooltip_text(
+                    "Response not confirmed. Click to check again without resending."
+                    if self._retry_available else "Delivery failed. Your answer is saved.")
+                if not self._retry_available:
+                    self._submit_overlay.get_child().set_opacity(1)
+            toast = Adw.Toast.new("Response not confirmed. Your answer is saved.")
+            self.toast_overlay.add_toast(toast)
         return GLib.SOURCE_REMOVE
 
     def finish_delivery(self):
@@ -255,11 +286,12 @@ class Dialog:
         self.set_sending(False)
         if self._checkpoint_source:
             GLib.source_remove(self._checkpoint_source)
+        self.style.close()
         self.window.destroy()
         self.app.quit()
 
     def _finish(self, status, values, action=None):
-        if self._finished or self._submitting:
+        if self._finished:
             return
         if self.state["status"] != "submitted":
             self.checkpoint()
@@ -274,6 +306,8 @@ class Dialog:
         return True
 
     def refit(self, width=None):
+        if self._finished or self.state["status"] == "submitted":
+            return GLib.SOURCE_REMOVE
         self._keyboard.prepare(self.content)
         if width is not None:
             if not isinstance(width, int) or width < 1:
@@ -307,6 +341,26 @@ class Dialog:
         save_state(self.run_dir, self.state)
         GLib.idle_add(self.refit)
         GLib.idle_add(self._keyboard.opened)
+        if self.state.get("render_image") and not self.state.get("origin"):
+            GLib.timeout_add(300, self.render_image)
+
+    def render_image(self):
+        """Export this renderer's own widget tree, without reading the desktop."""
+        if self._finished:
+            return GLib.SOURCE_REMOVE
+        paintable = Gtk.WidgetPaintable.new(self.window)
+        snapshot = Gtk.Snapshot()
+        paintable.snapshot(snapshot, self.window.get_width(), self.window.get_height())
+        node = snapshot.to_node()
+        if node is None:
+            raise RuntimeError("Widget has no rendered content")
+        texture = self.window.get_renderer().render_texture(node, None)
+        path = Path(self.state["render_image"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not texture.save_to_png(str(path)):
+            raise RuntimeError(f"Cannot save rendered widget: {path}")
+        self.dismiss()
+        return GLib.SOURCE_REMOVE
 
 
 def main():
@@ -334,10 +388,6 @@ def main():
         if dialog:
             dialog.window.present()
             return
-        provider = Gtk.CssProvider()
-        provider.load_from_data(STYLE.encode())
-        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
-                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         dialog = Dialog(application, directory, state)
         dialog.open()
 

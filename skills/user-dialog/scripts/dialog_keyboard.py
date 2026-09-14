@@ -100,7 +100,48 @@ class Keyboard:
         if page:
             self.prepare(page)
             if self.ui._built:
-                GLib.idle_add(self._focus, page)
+                GLib.idle_add(self._focus_controls, page)
+
+    def _focus_controls(self, root=None):
+        """Automatic focus targets controls; selectable content remains opt-in."""
+        if self.ui._finished:
+            return GLib.SOURCE_REMOVE
+        previous = self.ui.window.get_focus()
+        if isinstance(previous, Gtk.Label):
+            previous.select_region(0, 0)
+        elif isinstance(previous, Gtk.TextView) and not previous.get_editable():
+            buffer = previous.get_buffer()
+            buffer.place_cursor(buffer.get_start_iter())
+        self.ui.window.set_focus(None)
+
+        def controls(widget):
+            if not widget.get_visible() or not widget.is_sensitive():
+                return
+            if isinstance(widget, Gtk.Stack):
+                page = widget.get_visible_child()
+                if page:
+                    yield from controls(page)
+                return
+            if isinstance(widget, (Gtk.Entry, Adw.EntryRow, Gtk.DropDown, Gtk.CheckButton, Gtk.Switch)):
+                yield widget
+                return
+            if isinstance(widget, Gtk.TextView):
+                if widget.get_editable():
+                    yield widget
+                return
+            child = widget.get_first_child()
+            while child:
+                yield from controls(child)
+                child = child.get_next_sibling()
+
+        for control in controls(root or self.ui.content):
+            if control.grab_focus():
+                return GLib.SOURCE_REMOVE
+        if self.default and self.default.get_mapped() and self.default.is_sensitive():
+            self.default.grab_focus()
+        else:
+            self.ui.actions.child_focus(Gtk.DirectionType.TAB_FORWARD)
+        return GLib.SOURCE_REMOVE
 
     def focus(self, widget=None):
         if widget is not None and not isinstance(widget, Gtk.Widget):
@@ -116,15 +157,8 @@ class Keyboard:
         if widget and widget.get_root() == self.ui.window and widget.is_visible() and widget.is_sensitive():
             if widget.grab_focus():
                 return GLib.SOURCE_REMOVE
-            self.ui.window.set_focus(None)
-            if widget.child_focus(Gtk.DirectionType.TAB_FORWARD):
-                return GLib.SOURCE_REMOVE
-        # child_focus advances relative to the current focus; clear it when
-        # choosing the first control, rather than accidentally skipping it.
-        self.ui.window.set_focus(None)
-        if not self.ui.content.child_focus(Gtk.DirectionType.TAB_FORWARD):
-            self.ui.actions.child_focus(Gtk.DirectionType.TAB_FORWARD)
-        return GLib.SOURCE_REMOVE
+            return self._focus_controls(widget)
+        return self._focus_controls()
 
     def opened(self):
         self._sync_default()

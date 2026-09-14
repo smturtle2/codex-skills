@@ -2,8 +2,26 @@
 
 from pathlib import Path
 
-from dialog_content import file_content, label, markdown
+from dialog_content import code_block, file_content, label, markdown, markdown_document
 from dialog_spec import FieldError, initial_value, matches, validate_values, walk
+
+
+def continuous_text(children):
+    """Coalesce adjacent static prose without changing independent node rules."""
+    pending = []
+    for node in children:
+        prose = (node['type'] == 'text'
+                 and not set(node) - {'type', 'text', 'children'}
+                 and '```' not in node.get('text', ''))
+        if prose:
+            pending.append(node.get('text', ''))
+            continue
+        if pending:
+            yield {'type': 'text', 'text': '\n\n'.join(pending)}
+            pending.clear()
+        yield node
+    if pending:
+        yield {'type': 'text', 'text': '\n\n'.join(pending)}
 
 
 class View:
@@ -14,6 +32,7 @@ class View:
         self.restoring = False
         self.text_bindings = []
         self.option_panels = []
+        self.choice_controls = []
         for node in walk(spec['body']):
             if node['type'] in {'input', 'choice'}:
                 self.values[node['id']] = initial_value(node)
@@ -71,10 +90,14 @@ class View:
             return str(error)
         return None
 
-    def action(self, action, button_label=None):
+    def action(self, action, button_label=None, button=None):
         kind = action['type']
+        if self.ui.state['status'] == 'submitted' and kind not in {'dismiss', 'defer', 'navigate'}:
+            if (kind == 'submit' and button is self.ui._submit_button and self.ui._retry_available):
+                self.ui.start_delivery(confirm_only=True)
+            return
         if kind == 'submit':
-            self.ui.submit(action=button_label, include_values=action.get('include_values', True))
+            self.ui.submit(action=button_label, include_values=action.get('include_values', True), button=button)
         elif kind == 'dismiss':
             self.ui.dismiss()
         elif kind == 'defer':
@@ -113,8 +136,12 @@ class View:
                 self.text_bindings.append((widget, node['ref']))
             else:
                 widget = markdown(ui, node.get('text', ''), Path(ui.state['base']))
+        elif kind == 'markdown':
+            widget = markdown_document(ui, node['text'], Path(ui.state['base']), node.get('label') or 'Markdown')
+        elif kind == 'code':
+            widget = code_block(ui, node['text'], node.get('language', ''), node.get('label'))
         elif kind == 'file':
-            widget = file_content(ui, node['path'])
+            widget = file_content(ui, node['path'], node.get('label'))
         elif kind == 'separator':
             widget = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL if node.get('orientation') == 'vertical' else Gtk.Orientation.HORIZONTAL)
         elif kind == 'table':
@@ -134,7 +161,10 @@ class View:
                 heading = label(ui, node['label'])
                 heading.add_css_class('heading')
                 widget.append(heading)
-            for index, child in enumerate(node.get('children', [])):
+            children = node.get('children', [])
+            if kind in {'column', 'group'}:
+                children = continuous_text(children)
+            for index, child in enumerate(children):
                 built = self.render(child)
                 if kind == 'grid':
                     columns = node.get('columns', 2)
@@ -148,7 +178,8 @@ class View:
                     getattr(widget, f'set_margin_{side}')(8)
         elif kind in {'tabs', 'pages'}:
             widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+            stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vhomogeneous=False)
+            stack.connect('notify::visible-child', lambda *_: ui.GLib.idle_add(ui.refit) if ui._built else None)
             if kind == 'tabs':
                 switcher = Gtk.StackSwitcher(stack=stack)
                 widget.append(switcher)
@@ -166,7 +197,7 @@ class View:
                 widget.append(navigation)
         elif kind == 'button':
             widget = Gtk.Button(label=node['label'])
-            widget.connect('clicked', lambda _: self.action(node['action'], node['label']))
+            widget.connect('clicked', lambda button: self.action(node['action'], node['label'], button))
         elif kind == 'input':
             widget = self.input(node)
         elif kind == 'choice':
@@ -246,6 +277,7 @@ class View:
         if node.get('presentation') == 'dropdown':
             options = node['options']
             control = Gtk.DropDown.new_from_strings([option['label'] for option in options])
+            self.choice_controls.append(control)
             control.set_selected(Gtk.INVALID_LIST_POSITION)
             def changed(widget, _):
                 index = widget.get_selected()
@@ -271,6 +303,7 @@ class View:
         for option in node['options']:
             section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             button = Gtk.CheckButton(label=option['label'])
+            self.choice_controls.append(button)
             if buttons and not node.get('multiple'):
                 button.set_group(buttons[0][0])
             buttons.append((button, option['value']))
@@ -311,8 +344,15 @@ class View:
         for item in self.spec['actions']:
             button = self.ui.action(item.get('id', item['label']), item['label'],
                                     primary=item.get('primary', False),
-                                    callback=lambda item=item: self.action(item['action'], item['label']))
+                                    callback=lambda button, item=item: self.action(item['action'], item['label'], button))
             self.rules.append((button, item))
         self.ui.set_validator(self.validate)
         self.refresh()
         return content
+
+    def freeze_inputs(self):
+        for widget, node in self.rules:
+            if node.get('type') == 'input' or node.get('action', {}).get('type') in {'submit', 'set', 'toggle'}:
+                widget.set_sensitive(False)
+        for widget in self.choice_controls:
+            widget.set_sensitive(False)

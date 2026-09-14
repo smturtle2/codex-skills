@@ -12,7 +12,7 @@ class FieldError(ValueError):
 
 
 LAYOUTS = {"column", "row", "grid", "group", "tabs", "pages"}
-TYPES = LAYOUTS | {"text", "file", "input", "choice", "button", "separator", "table"}
+TYPES = LAYOUTS | {"text", "markdown", "code", "file", "input", "choice", "button", "separator", "table"}
 
 
 def initial_value(node):
@@ -74,7 +74,7 @@ def compile_request(request, base):
         allowed = {"type", "id", "label", "visible_when", "enabled_when"}
         if node["type"] in LAYOUTS:
             allowed.add("children")
-        allowed |= {"text": {"text", "ref"}, "file": {"path"}, "input": {"format", "multiline", "required", "value", "min", "max", "placeholder", "error", "browse_label", "clear_label", "true_label", "false_label"},
+        allowed |= {"text": {"text", "ref"}, "markdown": {"text"}, "code": {"text", "language"}, "file": {"path"}, "input": {"format", "multiline", "required", "value", "min", "max", "placeholder", "error", "browse_label", "clear_label", "true_label", "false_label"},
                     "choice": {"options", "multiple", "required", "value", "error", "layout", "presentation"}, "separator": {"orientation"}, "table": {"columns", "rows"}, "button": {"action"}, "grid": {"columns"}, "pages": {"back_label", "next_label"}}.get(node["type"], set())
         if node["type"] in {"input", "choice"}:
             allowed.add("response_label")
@@ -104,6 +104,13 @@ def compile_request(request, base):
             raise ValueError("Labels must be strings")
         if kind == "text" and not isinstance(node.get("text", ""), str):
             raise ValueError("Text content must be a string")
+        if kind == "markdown" and not isinstance(node.get("text"), str):
+            raise ValueError("Markdown needs string text content")
+        if kind == "code":
+            if not isinstance(node.get("text"), str):
+                raise ValueError("Code needs string text content")
+            if "language" in node and not isinstance(node["language"], str):
+                raise ValueError("Code language must be a string")
         for key in ("multiple", "multiline", "required"):
             if key in node and not isinstance(node[key], bool):
                 raise ValueError(f"{key} must be boolean")

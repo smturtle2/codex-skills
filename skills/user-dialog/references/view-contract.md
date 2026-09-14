@@ -22,9 +22,11 @@ Layouts accept any nodes in `children`, including nested layouts; other elements
 | --- | --- |
 | `column`, `row`, `group` | `children`, optional `label`; group renders a card. |
 | `grid` | `children`, `columns` 1..12 (default 2). |
-| `tabs`, `pages` | `children`, each with `id` and `label`; pages requires its own `id`, with optional `back_label`, `next_label`. Give tabs an `id` when targeting navigation. |
-| `text` | Markdown `text`, or `ref` naming an input/choice for live value display. |
-| `file` | Existing file `path`; previews images and text/Markdown, with an external-open link. Other formats provide a link. |
+| `tabs`, `pages` | `children`, each with `id` and `label`; pages requires its own `id`, with optional `back_label`, `next_label`. Give tabs an `id` when targeting navigation. The visible child determines the stack's natural height. |
+| `text` | Formatted Markdown `text`, or `ref` naming an input/choice for live value display. |
+| `markdown` | Required string `text`; optional `label`. Renders a document card. |
+| `code` | Required string `text`; optional string `language` and `label`. Renders a standalone code surface and copies the exact text. |
+| `file` | Existing file `path`, optional `label`; previews images and text/Markdown, with an external-open link. Other formats provide a link. Markdown files render a document card. |
 | `input` | Required `id`, `label`; `format`: `text` (default), `number`, `date`, `file`, `boolean`. |
 | `choice` | Required `id`, `label`, `options`; selection and content rules below. |
 | `button` | Required `label`, `action`. |
@@ -43,8 +45,28 @@ Lists show every option's content; dropdowns show the selected option's content 
 Only selected options contribute nested input values to the response.
 List `layout` is `{"type":"column"}` (default), `{"type":"row"}`, or `{"type":"grid","columns":2}` (1..12 columns).
 
-Text/Markdown supports headings, bold, emphasis, code, lists, simple tables, links, and standalone local images;
-it is not full CommonMark. Markdown image paths resolve from the document's directory.
+Text and Markdown nodes support headings, bold, emphasis, code, lists, simple tables, links, and standalone local images;
+they are not full CommonMark. Image paths in `text` and `markdown` nodes resolve from the project base. Repeated blank
+separators collapse, and the trailing blank separator is removed; code-block whitespace remains exact. Inline backtick
+code content remains literal.
+Text remains selectable continuously while sending and stays formatted as an explanation, without document chrome,
+source-copy controls, or code-block copy buttons.
+Adjacent static `text` nodes in a `column` or `group` share a selection area across paragraphs.
+Nodes with IDs, bindings, conditions, or fenced code retain their own area, as do separate controls and layouts.
+
+Standalone `code` nodes preserve and copy their exact `text`, with an optional `language` hint. They use a gray,
+code-toned background and share the system monospace font with fenced code in documents. Document surfaces use a
+separate white/light-theme surface (or the theme-appropriate dark surface); fenced code inside documents remains
+visually distinct from surrounding document text. Theme changes update both code presentations.
+
+Markdown nodes render a document card in the popup's main scroll area; there is no separate inner document scroller.
+Titles use one line with ellipsis when needed; a tooltip exposes the full title/path.
+Its title is `label` when provided, otherwise `Markdown`. The title opens the source `.md` file when applicable;
+the UI does not add a duplicated file link below it. The title's source-copy control copies the exact original Markdown,
+and code-block buttons copy code without fences; each clicked copy control briefly shows a check icon in place of a toast.
+Files ending in `.md` or `.markdown` render the same document card, titled by `label` when provided or by the filename.
+Markdown file image paths resolve from the Markdown file's directory. File path convenience is unchanged.
+All content remains selectable while a response is sending.
 
 ## Conditions and actions
 
@@ -100,6 +122,7 @@ Remote-task and Windows delivery are unsupported.
 | `elements` / `--help` | List element types / CLI options. |
 | `validate <request.json\|->` | Check a request without opening a window. |
 | `show <request.json\|-> --preview` | Open without delivery; submission saves `message.md`. |
+| `show <request.json\|-> --preview --render-image <file.png>` | Export the renderer's own visible widget tree and close, without delivery. Useful for inspecting layout. |
 | `show <request.json\|-> --run-dir <path>` | Choose where the run is saved. |
 | `doctor --delivery` | Check native libraries and task connection without sending. |
 | `status <run-dir>` / `resume <run-dir>` | Inspect status / reopen the saved draft; submitted runs stay closed. |
@@ -111,5 +134,8 @@ Keep the run and referenced assets available. On failure, inspect status and `re
 Submission and delivery are separate: a saved answer may have unconfirmed delivery.
 The runtime prevents retries of `sending`, `unknown`, or accepted deliveries; do not resend those answers manually.
 Automatic closing waits for a matching new response item after the saved pre-send history position.
-During delivery, Close remains available. If confirmation fails, Check again repeats only the lookup.
+While sending, the clicked submit button shows a fixed-size sending indicator, and document selection/copy remains available.
+Automatic focus prefers inputs, then an action button; it does not select display text. Manual text selection remains available.
+The window titlebar close control remains available; the runtime adds no separate Close or Check again buttons.
+If confirmation fails, the same clicked submit button offers a confirmation-only retry that never resends the response.
 Older runs without a saved history position cannot use automatic confirmation.
