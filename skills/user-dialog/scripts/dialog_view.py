@@ -4,6 +4,7 @@ from pathlib import Path
 
 from dialog_content import code_block, file_content, label, markdown, markdown_document
 from dialog_spec import FieldError, initial_value, matches, validate_values, walk
+from dialog_transition import FadeStack, fade_switcher, select_page
 
 
 def continuous_text(children):
@@ -33,6 +34,7 @@ class View:
         self.text_bindings = []
         self.option_panels = []
         self.choice_controls = []
+        self.records = {}
         for node in walk(spec['body']):
             if node['type'] in {'input', 'choice'}:
                 self.values[node['id']] = initial_value(node)
@@ -41,6 +43,8 @@ class View:
                 self.values[key] = value
 
     def set(self, key, value):
+        if self is not self.ui.view:
+            return self.ui.view.set(key, value)
         self.values[key] = value
         if key in self.writers:
             self.restoring = True
@@ -51,6 +55,10 @@ class View:
         self.refresh()
 
     def changed(self, key, value):
+        if self.restoring or self.ui.view.restoring:
+            return
+        if self is not self.ui.view:
+            return self.ui.view.changed(key, value)
         if not self.restoring:
             self.values[key] = value
             self.refresh()
@@ -68,7 +76,7 @@ class View:
             children = self.nodes[key]['children']
             visible = [child for child in children if matches(child.get('visible_when'), self.values)]
             if visible and stack.get_visible_child_name() not in [child['id'] for child in visible]:
-                stack.set_visible_child_name(visible[0]['id'])
+                select_page(stack, visible[0]['id'])
         if self.ui._built:
             self.ui.checkpoint()
 
@@ -91,6 +99,8 @@ class View:
         return None
 
     def action(self, action, button_label=None, button=None):
+        if self is not self.ui.view:
+            return self.ui.view.action(action, button_label, button)
         kind = action['type']
         if self.ui.state['status'] == 'submitted' and kind not in {'dismiss', 'defer', 'navigate'}:
             if (kind == 'submit' and button is self.ui._submit_button and self.ui._retry_available):
@@ -123,10 +133,10 @@ class View:
                     return
                 destination = names[index]
             if destination in names:
-                stack.set_visible_child_name(destination)
+                select_page(stack, destination)
                 self.ui.focus(stack.get_visible_child())
 
-    def render(self, node):
+    def render(self, node, path=()):
         ui = self.ui
         Gtk = ui.Gtk
         kind = node['type']
@@ -161,11 +171,12 @@ class View:
                 heading = label(ui, node['label'])
                 heading.add_css_class('heading')
                 widget.append(heading)
+                widget.dialog_heading = heading
             children = node.get('children', [])
             if kind in {'column', 'group'}:
                 children = continuous_text(children)
             for index, child in enumerate(children):
-                built = self.render(child)
+                built = self.render(child, path + (child.get('id', f'@{index}'),))
                 if kind == 'grid':
                     columns = node.get('columns', 2)
                     widget.attach(built, index % columns, index // columns, 1, 1)
@@ -178,14 +189,24 @@ class View:
                     getattr(widget, f'set_margin_{side}')(8)
         elif kind in {'tabs', 'pages'}:
             widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vhomogeneous=False)
+            transition = node.get('transition', {'type': 'fade-through', 'duration': 320})
+            effects = {'none': Gtk.StackTransitionType.NONE,
+                       'crossfade': Gtk.StackTransitionType.CROSSFADE,
+                       'slide': Gtk.StackTransitionType.SLIDE_LEFT_RIGHT}
+            sequential = transition.get('type') == 'fade-through'
+            stack = (FadeStack(transition.get('duration', 320)) if sequential else
+                     Gtk.Stack(transition_type=effects[transition.get('type', 'none')],
+                               transition_duration=transition.get('duration', 120), vhomogeneous=False))
             stack.connect('notify::visible-child', lambda *_: ui.GLib.idle_add(ui.refit) if ui._built else None)
-            if kind == 'tabs':
+            if kind == 'tabs' and not sequential:
                 switcher = Gtk.StackSwitcher(stack=stack)
                 widget.append(switcher)
             for child in node['children']:
-                stack.add_titled(self.render(child), child['id'], child['label'])
+                stack.add_titled(self.render(child, path + (child['id'],)), child['id'], child['label'])
+            if kind == 'tabs' and sequential:
+                widget.append(fade_switcher(stack, node['children']))
             widget.append(stack)
+            widget.dialog_stack = stack
             if 'id' in node:
                 self.stacks[node['id']] = (stack, node['children'])
             if kind == 'pages':
@@ -201,13 +222,14 @@ class View:
         elif kind == 'input':
             widget = self.input(node)
         elif kind == 'choice':
-            widget = self.choice(node)
+            widget = self.choice(node, path)
         else:
             raise ValueError(f'Unsupported node: {kind}')
         widget.set_hexpand(True)
         if 'id' in node:
             self.widgets[node['id']] = widget
         self.rules.append((widget, node))
+        self.records[path] = (node, widget)
         return widget
 
     def input(self, node):
@@ -268,7 +290,7 @@ class View:
             box.append(entry)
         return box
 
-    def choice(self, node):
+    def choice(self, node, path=()):
         ui, Gtk = self.ui, self.ui.Gtk
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         heading = label(ui, node['label'] + (' *' if node.get('required') else ''))
@@ -290,8 +312,8 @@ class View:
             box.append(control)
             for option in options:
                 panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-                for child in option.get('content', []):
-                    panel.append(self.render(child))
+                for index, child in enumerate(option.get('content', [])):
+                    panel.append(self.render(child, path + ('option:' + option['value'], child.get('id', f'@{index}'))))
                 box.append(panel)
                 self.option_panels.append((panel, node['id'], option['value']))
             return box
@@ -316,8 +338,8 @@ class View:
                     self.changed(node['id'], value)
             button.connect('toggled', changed)
             section.append(button)
-            for child in option.get('content', []):
-                section.append(self.render(child))
+            for index, child in enumerate(option.get('content', [])):
+                section.append(self.render(child, path + ('option:' + option['value'], child.get('id', f'@{index}'))))
             section.set_hexpand(True)
             if layout['type'] == 'grid':
                 index = len(buttons) - 1
@@ -341,14 +363,17 @@ class View:
             finally:
                 self.restoring = False
             self.ui.bind(key, lambda key=key: self.values[key])
+        self.build_actions()
+        self.ui.set_validator(self.validate)
+        self.refresh()
+        return content
+
+    def build_actions(self):
         for item in self.spec['actions']:
             button = self.ui.action(item.get('id', item['label']), item['label'],
                                     primary=item.get('primary', False),
                                     callback=lambda button, item=item: self.action(item['action'], item['label'], button))
             self.rules.append((button, item))
-        self.ui.set_validator(self.validate)
-        self.refresh()
-        return content
 
     def freeze_inputs(self):
         for widget, node in self.rules:

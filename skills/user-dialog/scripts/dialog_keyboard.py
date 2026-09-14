@@ -95,14 +95,19 @@ class Keyboard:
             self.prepare(child)
             child = child.get_next_sibling()
 
+    def prune(self):
+        self._configured = {w for w in self._configured if w.get_root() == self.ui.window}
+        self._overrides = {w: value for w, value in self._overrides.items()
+                           if w.get_root() == self.ui.window}
+
     def _page_changed(self, stack, param):
         page = stack.get_visible_child()
         if page:
             self.prepare(page)
-            if self.ui._built:
+            if self.ui._built and not self.ui._updating:
                 GLib.idle_add(self._focus_controls, page)
 
-    def _focus_controls(self, root=None):
+    def _focus_controls(self, root=None, visible_only=True):
         """Automatic focus targets controls; selectable content remains opt-in."""
         if self.ui._finished:
             return GLib.SOURCE_REMOVE
@@ -135,6 +140,11 @@ class Keyboard:
                 child = child.get_next_sibling()
 
         for control in controls(root or self.ui.content):
+            # Initial/tab focus must not scroll past the explanation to an
+            # offscreen editor. The footer remains a usable default target.
+            visible, bounds = control.compute_bounds(self.ui.scroller)
+            if visible_only and visible and (bounds.get_y() < 0 or bounds.get_y() + bounds.get_height() > self.ui.scroller.get_height()):
+                continue
             if control.grab_focus():
                 return GLib.SOURCE_REMOVE
         if self.default and self.default.get_mapped() and self.default.is_sensitive():
@@ -157,7 +167,7 @@ class Keyboard:
         if widget and widget.get_root() == self.ui.window and widget.is_visible() and widget.is_sensitive():
             if widget.grab_focus():
                 return GLib.SOURCE_REMOVE
-            return self._focus_controls(widget)
+            return self._focus_controls(widget, visible_only=False)
         return self._focus_controls()
 
     def opened(self):

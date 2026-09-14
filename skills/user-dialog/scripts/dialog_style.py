@@ -40,6 +40,9 @@ class DialogStyle:
         view.queue_resize()
         view.queue_draw()
 
+    def prune(self, root):
+        self.targets[:] = [(view, tags) for view, tags in self.targets if view.get_root() == root]
+
     def close(self):
         for signal in self.signals:
             self.manager.disconnect(signal)

@@ -17,6 +17,7 @@ import uuid
 from dialog_state import encode, read_state, run_lock, save_state
 from dialog_spec import compile_request, read_json, parse_json, TYPES
 from dialog_delivery import capture_origin, require_owner, deliver, confirm_delivery
+from dialog_updates import send_update
 
 
 PROBE = """
@@ -80,17 +81,24 @@ def find_python(explicit=None):
                      "select one with --python or USER_DIALOG_PYTHON. " + encode(failures))
 
 
-def load_request(source):
+def read_request(source):
     if source == "-":
         request = parse_json(sys.stdin.read())
     else:
         request = read_json(Path(source).expanduser().resolve())
-    return compile_request(request, Path.cwd())
+    return request
+
+
+def load_request(source, base=None):
+    return compile_request(read_request(source), Path.cwd() if base is None else Path(base).expanduser().resolve())
 
 
 def summary(directory, state):
     result = {"request_id": state["request_id"], "status": state["status"],
-              "run_dir": str(directory), "delivery": state.get("delivery", {}).get("status")}
+              "run_dir": str(directory), "delivery": state.get("delivery", {}).get("status"),
+              "revision": state.get("revision", 0)}
+    if "update" in state:
+        result["update"] = state["update"]
     if state.get("delivery", {}).get("observation"):
         result["observation"] = state["delivery"]["observation"]
     if state.get("delivery", {}).get("error"):
@@ -101,6 +109,14 @@ def summary(directory, state):
 
 
 def run_dialog(args):
+    if args.command == "update":
+        directory = Path(args.run_dir).expanduser().resolve()
+        state = read_state(directory)
+        spec = read_request(args.request)
+        compile_request(spec, Path(state['base']))
+        result = send_update(directory, spec, expected_revision=args.revision, timeout=args.timeout)
+        print(encode(result))
+        return 0 if result.get("status") in {"queued", "applied"} else 1
     if args.command == "show":
         if args.render_image and not args.preview:
             raise ValueError("--render-image requires --preview")
@@ -120,7 +136,8 @@ def run_dialog(args):
             state = {"version": 2, "request_id": uuid.uuid4().hex, "status": "pending",
                      "spec": spec, "base": str(Path.cwd()), "origin": origin,
                      "title": spec["title"], "subtitle": spec.get("subtitle", ""),
-                     "draft": {}, "response": {}, "delivery": {"status": "preview" if args.preview else "pending"}}
+                     "draft": {}, "response": {}, "revision": 0,
+                     "delivery": {"status": "preview" if args.preview else "pending"}}
             if args.render_image:
                 state["render_image"] = str(Path(args.render_image).expanduser().resolve())
         else:
@@ -189,6 +206,11 @@ def main():
     delivery.add_argument("run_dir")
     confirmation = commands.add_parser("confirm", help="Recheck a submitted response without resending")
     confirmation.add_argument("run_dir")
+    update = commands.add_parser("update", help="Queue an update for an open dialog")
+    update.add_argument("run_dir")
+    update.add_argument("request", help="JSON file or - for stdin")
+    update.add_argument("--revision", type=int)
+    update.add_argument("--timeout", type=float, default=10)
     args = parser.parse_args()
     try:
         if args.command == "elements":

@@ -115,7 +115,8 @@ def code_block(ui, text, language="", title=None):
     header.append(caption)
     header.append(copy_button(ui, text, "Copy code"))
     block.append(header)
-    content = Gtk.TextView(editable=False, cursor_visible=False,
+    from dialog_text_view import ContentTextView
+    content = ContentTextView(editable=False, cursor_visible=False,
                            wrap_mode=Gtk.WrapMode.WORD_CHAR)
     content.add_css_class("dialog-document")
     content.add_css_class("monospace")

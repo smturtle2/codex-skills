@@ -3,6 +3,7 @@
 import threading
 import math
 import json
+import os
 from pathlib import Path
 import sys
 import traceback
@@ -19,6 +20,7 @@ from dialog_keyboard import Keyboard
 from dialog_spec import format_response
 from dialog_view import View
 from dialog_style import DialogStyle
+from dialog_layout import DialogLayout
 from dialog_delivery import deliver, confirm_delivery
 
 
@@ -48,6 +50,10 @@ class Dialog:
         self.app, self.run_dir, self.state = app, directory, state
         self.view_dir = Path(state["base"])
         self._submitting = False
+        self._updating = False
+        self.live = None
+        self._layout_source = 0
+        self._layout_last = None
         self._delivery_cancel = threading.Event()
         self.request_id = state["request_id"]
         self.Gtk, self.Adw, self.GLib, self.Gdk, self.Gio = Gtk, Adw, GLib, Gdk, Gio
@@ -57,7 +63,8 @@ class Dialog:
         self.window.connect("close-request", self._close)
         self.toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        header.set_title_widget(Adw.WindowTitle(title=state["title"], subtitle=state["subtitle"]))
+        self.window_title = Adw.WindowTitle(title=state["title"], subtitle=state["subtitle"])
+        header.set_title_widget(self.window_title)
         self.toolbar.add_top_bar(header)
         self.toast_overlay = Adw.ToastOverlay()
         self.toast_overlay.set_child(self.toolbar)
@@ -93,6 +100,7 @@ class Dialog:
         self._preferred_width = state["spec"].get("width", 600)
         self._checkpoint_source = 0
         self._keyboard = Keyboard(self)
+        self.layout = DialogLayout(self)
 
     def set_content(self, widget):
         if not isinstance(widget, Gtk.Widget):
@@ -200,6 +208,8 @@ class Dialog:
             self._sending_source = GLib.timeout_add(50, animate)
 
     def checkpoint(self):
+        if self._updating:
+            return GLib.SOURCE_CONTINUE
         if self._finished or self.state["status"] == "submitted":
             self._checkpoint_source = 0
             return GLib.SOURCE_REMOVE
@@ -218,6 +228,8 @@ class Dialog:
             if message is not None:
                 self.message(message, error=True)
                 return
+        if self.live:
+            self.live.close()
         self.state["message"] = format_response(self.state["spec"], collected, action, include_values=include_values)
         (self.run_dir / "message.md").write_text(self.state["message"], encoding="utf-8")
         self.checkpoint()
@@ -281,11 +293,16 @@ class Dialog:
         self._finish("deferred", None)
 
     def close(self):
+        if self.live:
+            self.live.close()
         self._delivery_cancel.set()
         self._finished = True
         self.set_sending(False)
         if self._checkpoint_source:
             GLib.source_remove(self._checkpoint_source)
+        if self._layout_source:
+            GLib.source_remove(self._layout_source)
+        self.layout.close()
         self.style.close()
         self.window.destroy()
         self.app.quit()
@@ -306,27 +323,7 @@ class Dialog:
         return True
 
     def refit(self, width=None):
-        if self._finished or self.state["status"] == "submitted":
-            return GLib.SOURCE_REMOVE
-        self._keyboard.prepare(self.content)
-        if width is not None:
-            if not isinstance(width, int) or width < 1:
-                raise ValueError("Width must be a positive integer")
-            self._preferred_width = width
-        minimum, _, _, _ = self.toolbar.measure(Gtk.Orientation.HORIZONTAL, -1)
-        actual_width = max(self._preferred_width, minimum)
-        minimum, natural, _, _ = self.toolbar.measure(Gtk.Orientation.VERTICAL, actual_width)
-        actual_height = max(minimum, natural) + 32
-        display = self.window.get_display()
-        surface = self.window.get_surface()
-        monitor = display.get_monitor_at_surface(surface) if surface else display.get_monitors().get_item(0)
-        if monitor:
-            bounds = monitor.get_geometry()
-            actual_width = min(actual_width, max(300, bounds.width - 64))
-            actual_height = min(actual_height, max(250, bounds.height - 80))
-            self.scroller.set_max_content_height(min(720, max(160, bounds.height - 220)))
-        self.window.set_default_size(actual_width, actual_height)
-        return GLib.SOURCE_REMOVE
+        return self.layout.fit(width)
 
     def open(self):
         self.view = View(self, self.state["spec"])
@@ -339,10 +336,40 @@ class Dialog:
         self.state["status"] = "open"
         from dialog_state import save_state
         save_state(self.run_dir, self.state)
+        from dialog_live import LiveUpdates
+        self.live = LiveUpdates(self)
+        if os.environ.get('USER_DIALOG_DEBUG_LAYOUT') == '1':
+            self._layout_source = GLib.timeout_add(50, self.trace_layout)
         GLib.idle_add(self.refit)
         GLib.idle_add(self._keyboard.opened)
         if self.state.get("render_image") and not self.state.get("origin"):
             GLib.timeout_add(300, self.render_image)
+
+    def prune_widgets(self):
+        """Drop detached view bookkeeping after a committed or rejected update."""
+        self.style.prune(self.window)
+        self._keyboard.prune()
+        self.layout.prune()
+
+    def trace_layout(self):
+        """Opt-in geometry diagnostics; never records content or answers."""
+        from dialog_reconcile import descendants
+        records = []
+        for path, (node, widget) in self.view.records.items():
+            records.append({'path': list(path), 'type': node['type'], 'size': [widget.get_width(), widget.get_height()],
+                            'mapped': widget.get_mapped(), 'opacity': widget.get_opacity(),
+                            'text_views': [[w.get_width(), w.get_height(), w.get_vadjustment().get_value(),
+                                            w.get_vadjustment().get_upper()]
+                                           for w in descendants(widget) if isinstance(w, Gtk.TextView)]})
+        result = {'window': [self.window.get_width(), self.window.get_height()],
+                  'scroll': [self.scroller.get_vadjustment().get_value(), self.scroller.get_vadjustment().get_upper()],
+                  'nodes': records}
+        encoded = encode(result)
+        if encoded != self._layout_last:
+            with (self.run_dir / 'layout.jsonl').open('a', encoding='utf-8') as stream:
+                stream.write(encoded + '\n')
+            self._layout_last = encoded
+        return GLib.SOURCE_CONTINUE
 
     def render_image(self):
         """Export this renderer's own widget tree, without reading the desktop."""

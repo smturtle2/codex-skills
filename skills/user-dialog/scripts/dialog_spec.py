@@ -74,6 +74,8 @@ def compile_request(request, base):
         allowed = {"type", "id", "label", "visible_when", "enabled_when"}
         if node["type"] in LAYOUTS:
             allowed.add("children")
+        if node["type"] in {"tabs", "pages"}:
+            allowed.add("transition")
         allowed |= {"text": {"text", "ref"}, "markdown": {"text"}, "code": {"text", "language"}, "file": {"path"}, "input": {"format", "multiline", "required", "value", "min", "max", "placeholder", "error", "browse_label", "clear_label", "true_label", "false_label"},
                     "choice": {"options", "multiple", "required", "value", "error", "layout", "presentation"}, "separator": {"orientation"}, "table": {"columns", "rows"}, "button": {"action"}, "grid": {"columns"}, "pages": {"back_label", "next_label"}}.get(node["type"], set())
         if node["type"] in {"input", "choice"}:
@@ -98,6 +100,14 @@ def compile_request(request, base):
     ids = {}
     for node in nodes:
         kind = node["type"]
+        if "transition" in node:
+            transition = node["transition"]
+            if (not isinstance(transition, dict)
+                    or set(transition) - {"type", "duration"}
+                    or transition.get("type", "none") not in {"none", "crossfade", "slide", "fade-through"}
+                    or type(transition.get("duration", 120)) is not int
+                    or not 0 <= transition.get("duration", 120) <= 1000):
+                raise ValueError("transition needs type none/crossfade/slide/fade-through and duration 0..1000 ms")
         if "response_label" in node and (not isinstance(node["response_label"], str) or not node["response_label"].strip()):
             raise ValueError("response_label must be a nonempty string")
         if "label" in node and not isinstance(node["label"], str):

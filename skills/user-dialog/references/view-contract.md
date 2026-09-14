@@ -34,6 +34,9 @@ Layouts accept any nodes in `children`, including nested layouts; other elements
 | `table` | Nonempty string list `columns`; optional `rows` of string lists matching column count. |
 
 Inputs support `value`, `required`, `response_label` (record label override), and `error`.
+Tabs/pages accept `transition: {"type": "none" | "crossfade" | "slide" | "fade-through", "duration": 120}`;
+duration is 0..1000 ms. The default is fade-through at 320 ms; explicit transition types are allowed, and an explicit fade-through without a duration is also 320 ms.
+Fade-through fades out before switching content, then fades in; the two pages never overlap.
 Text inputs support `multiline` and `placeholder`; number inputs accept `min`/`max`; dates use `YYYY-MM-DD`.
 File inputs accept `browse_label`/`clear_label`. Boolean inputs render a switch, default to `false`,
 and accept `true_label`/`false_label` for recorded values (defaults `On`/`Off`); they cannot be multiline.
@@ -84,6 +87,10 @@ Footer buttons require `label` and `action`; `primary: true` selects the keyboar
 | `toggle` | Multiple-choice `target` and option `value` to toggle. |
 | `navigate` | Tabs/pages `target`; `page` is a child ID, `next`, or `previous`. |
 
+## Live updates
+
+`update <run-dir> <request.json|-> [--revision N] [--timeout SECONDS]` applies JSON compiled against the original `show` base. It owns the exact originating thread, request ID, and revision; stable element IDs reuse unchanged widgets, compatible changed fields preserve values, and a focused or selected replaced subtree waits until focus leaves or selection clears. Removing or changing the type of an answered field, or removing a chosen option, is rejected. Assets at the same paths are reread for an update; they are not watched automatically. Updates are accepted while the dialog is open and stop at submission. A timeout returns `queued`; do not resubmit it. `status` reports `revision` and `update`, and each command writes `updates/<command_id>.result.json`. `applied` is acknowledged after paint; closing the window before confirmation reports `interrupted`.
+
 ## Response
 
 The runtime produces a bold `[💬 Popup response · TITLE]` header, labeled answers, and a bold `→ BUTTON_LABEL` final line.
@@ -126,6 +133,7 @@ Remote-task and Windows delivery are unsupported.
 | `show <request.json\|-> --run-dir <path>` | Choose where the run is saved. |
 | `doctor --delivery` | Check native libraries and task connection without sending. |
 | `status <run-dir>` / `resume <run-dir>` | Inspect status / reopen the saved draft; submitted runs stay closed. |
+| `update <run-dir> <request.json|->` | Queue one live update; optional `--revision N` checks the current revision and `--timeout` defaults to 10 seconds. |
 | `deliver <run-dir>` | Retry a confirmed pre-send failure from the original task. |
 | `confirm <run-dir>` | Recheck a submitted response without sending it again. |
 
@@ -136,6 +144,8 @@ The runtime prevents retries of `sending`, `unknown`, or accepted deliveries; do
 Automatic closing waits for a matching new response item after the saved pre-send history position.
 While sending, the clicked submit button shows a fixed-size sending indicator, and document selection/copy remains available.
 Automatic focus prefers inputs, then an action button; it does not select display text. Manual text selection remains available.
+Automatic focus skips offscreen inputs so opening a long popup preserves its start. Content-height changes reschedule window sizing after text layout validation.
+Set `USER_DIALOG_DEBUG_LAYOUT=1` to record geometry and opacity changes in `layout.jsonl`, without recording content or answers.
 The window titlebar close control remains available; the runtime adds no separate Close or Check again buttons.
 If confirmation fails, the same clicked submit button offers a confirmation-only retry that never resends the response.
 Older runs without a saved history position cannot use automatic confirmation.

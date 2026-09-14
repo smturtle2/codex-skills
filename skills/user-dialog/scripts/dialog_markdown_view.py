@@ -1,9 +1,10 @@
 """Code surfaces around a continuous, selectable Markdown text buffer."""
 
 from gi.repository import Gdk, Graphene, Gsk, Gtk
+from dialog_text_view import ContentTextView
 
 
-class MarkdownView(Gtk.TextView):
+class MarkdownView(ContentTextView):
     def __init__(self, background):
         super().__init__(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR)
         self.code_regions = []
@@ -22,7 +23,7 @@ class MarkdownView(Gtk.TextView):
         return top, bottom + height
 
     def do_size_allocate(self, width, height, baseline):
-        Gtk.TextView.do_size_allocate(self, width, height, baseline)
+        ContentTextView.do_size_allocate(self, width, height, baseline)
         for start, end, button in self.code_regions:
             if button is not None:
                 top, _ = self.bounds(start, end)

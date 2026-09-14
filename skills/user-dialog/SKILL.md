@@ -13,6 +13,10 @@ request-specific executable scripts. Set `SKILL_DIR` to this skill's absolute di
 uv run --script "$SKILL_DIR/scripts/user_dialog.py" show <request.json|->
 ```
 
+While a dialog is open, update it with `update <run-dir> <request.json|-> [--revision N]`
+using the same JSON format and stable element IDs. Paths resolve from the original
+working directory; use `status <run-dir>` to inspect pending updates.
+
 Read the [view contract](references/view-contract.md) for JSON syntax when needed,
 or its [runtime section](references/view-contract.md#runtime) for validation, preview, and recovery.
 
