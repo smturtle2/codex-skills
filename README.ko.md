@@ -168,7 +168,7 @@ image-creator, ui-blueprint
 
 <img src="docs/assets/catalog/user-dialog.svg" width="960" alt="user-dialog">
 
-선언형 JSON 요청으로 팝업을 만들고 응답을 원래 Codex 작업으로 전달합니다.
+기본 UI 요소를 JSON으로 조합해 팝업을 만들고 응답을 원래 Codex 작업으로 전달합니다.
 
 ```text
 Use $skill-installer.

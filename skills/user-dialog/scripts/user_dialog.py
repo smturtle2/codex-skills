@@ -15,7 +15,7 @@ import sys
 import uuid
 
 from dialog_state import encode, read_state, run_lock, save_state
-from dialog_spec import compile_request, read_json, parse_json, TEMPLATES
+from dialog_spec import compile_request, read_json, parse_json, TYPES
 from dialog_delivery import capture_origin, require_owner, deliver
 
 
@@ -76,7 +76,7 @@ def find_python(explicit=None):
             failures.append({"python": executable, "error": process.stderr.strip()})
         except (OSError, subprocess.TimeoutExpired, ValueError) as error:
             failures.append({"python": executable, "error": str(error)})
-    raise ValueError("No compatible GTK Python found. See references/runtime-setup.md; "
+    raise ValueError("No compatible GTK Python found. See references/view-contract.md#runtime; "
                      "select one with --python or USER_DIALOG_PYTHON. " + encode(failures))
 
 
@@ -176,13 +176,13 @@ def main():
     status.add_argument("run_dir")
     validation = commands.add_parser("validate", help="Compile a JSON request without opening it")
     validation.add_argument("request")
-    commands.add_parser("templates", help="List bundled reusable templates")
+    commands.add_parser("elements", help="List composable basic element types")
     delivery = commands.add_parser("deliver", help="Retry a confirmed pre-send failure from its originating task")
     delivery.add_argument("run_dir")
     args = parser.parse_args()
     try:
-        if args.command == "templates":
-            print(encode({"templates": [path.stem for path in sorted(TEMPLATES.glob("*.json"))]}))
+        if args.command == "elements":
+            print(encode({"elements": sorted(TYPES)}))
             return 0
         if args.command == "validate":
             spec = load_request(args.request)

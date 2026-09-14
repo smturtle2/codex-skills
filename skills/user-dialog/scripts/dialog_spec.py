@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import re
 
-TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 class FieldError(ValueError):
     def __init__(self, field, message):
         self.field = field
@@ -13,8 +12,11 @@ class FieldError(ValueError):
 
 
 LAYOUTS = {"column", "row", "grid", "group", "tabs", "pages"}
-TYPES = LAYOUTS | {"text", "file", "input", "choice", "button"}
-PARAM = re.compile(r"\$\{([a-zA-Z_][\w-]*)\}")
+TYPES = LAYOUTS | {"text", "file", "input", "choice", "button", "separator", "table"}
+
+
+def initial_value(node):
+    return deepcopy(node.get("value", False if node.get("format") == "boolean" else [] if node.get("multiple") else None))
 
 
 def parse_json(text):
@@ -35,23 +37,6 @@ def read_json(path):
     return parse_json(path.read_text(encoding="utf-8"))
 
 
-def substitute(value, params):
-    if isinstance(value, list):
-        return [substitute(item, params) for item in value]
-    if isinstance(value, dict):
-        return {key: substitute(item, params) for key, item in value.items()}
-    if not isinstance(value, str):
-        return value
-    def get(name):
-        if name not in params:
-            raise ValueError(f"Missing template parameter: {name}")
-        return deepcopy(params[name])
-    match = PARAM.fullmatch(value)
-    if match:
-        return get(match[1])
-    return PARAM.sub(lambda match: str(get(match[1])), value)
-
-
 def walk(node):
     yield node
     for child in node.get("children", []):
@@ -59,19 +44,6 @@ def walk(node):
     for option in node.get("options", []):
         for child in option.get("content", []):
             yield from walk(child)
-
-
-def namespace(node, prefix):
-    """Template-local IDs/references share an instance namespace."""
-    ids = {item["id"] for item in walk(node) if "id" in item}
-    def visit(value):
-        if isinstance(value, list):
-            return [visit(item) for item in value]
-        if not isinstance(value, dict):
-            return value
-        return {key: f"{prefix}.{item}" if key in {"id", "ref", "target", "page"} and isinstance(item, str) and item in ids
-                else visit(item) for key, item in value.items()}
-    return visit(node)
 
 
 def compile_request(request, base):
@@ -93,36 +65,24 @@ def compile_request(request, base):
             raise ValueError(f"message.{key} must be a readable string")
     base = Path(base).resolve()
 
-    def expand(node, stack=()):
+    def compile_node(node):
         if not isinstance(node, dict):
             raise ValueError("Every view node must be an object")
         node = deepcopy(node)
-        if node.get("type") == "use":
-            if set(node) - {"type", "id", "template", "params"}:
-                raise ValueError("Template use accepts type, id, template and params")
-            name = node.get("template", "")
-            path = (TEMPLATES / f"{name}.json") if re.fullmatch(r"[a-z0-9-]+", name) else base / name
-            path = path.resolve()
-            if path in stack or len(stack) >= 20:
-                raise ValueError(f"Recursive template: {path}")
-            template = read_json(path)
-            params = template.get("params", {}) | node.get("params", {})
-            result = expand(substitute(template["body"], params), (*stack, path))
-            if not isinstance(node.get("id"), str) or not node["id"]:
-                raise ValueError("Each template use needs an instance id")
-            return namespace(result, node["id"])
         if node.get("type") not in TYPES:
             raise ValueError(f"Unknown node type: {node.get('type')}")
-        allowed = {"type", "id", "label", "children", "visible_when", "enabled_when"}
-        allowed |= {"text": {"text", "ref"}, "file": {"path"}, "input": {"format", "multiline", "required", "value", "min", "max", "placeholder", "error", "browse_label", "clear_label"},
-                    "choice": {"options", "multiple", "required", "value", "error", "layout"}, "button": {"action"}, "grid": {"columns"}, "pages": {"back_label", "next_label"}}.get(node["type"], set())
+        allowed = {"type", "id", "label", "visible_when", "enabled_when"}
+        if node["type"] in LAYOUTS:
+            allowed.add("children")
+        allowed |= {"text": {"text", "ref"}, "file": {"path"}, "input": {"format", "multiline", "required", "value", "min", "max", "placeholder", "error", "browse_label", "clear_label", "true_label", "false_label"},
+                    "choice": {"options", "multiple", "required", "value", "error", "layout", "presentation"}, "separator": {"orientation"}, "table": {"columns", "rows"}, "button": {"action"}, "grid": {"columns"}, "pages": {"back_label", "next_label"}}.get(node["type"], set())
         if node["type"] in {"input", "choice"}:
             allowed.add("response_label")
         if set(node) - allowed:
             raise ValueError(f"Unknown {node['type']} properties: {sorted(set(node) - allowed)}")
-        node["children"] = [expand(child, stack) for child in node.get("children", [])]
+        node["children"] = [compile_node(child) for child in node.get("children", [])]
         if "options" in node:
-            node["options"] = [{**option, "content": [expand(child, stack) for child in option.get("content", [])]}
+            node["options"] = [{**option, "content": [compile_node(child) for child in option.get("content", [])]}
                                for option in node["options"]]
         if node["type"] == "file":
             path = (base / Path(node["path"]).expanduser()).resolve()
@@ -132,7 +92,7 @@ def compile_request(request, base):
         return node
 
     result = deepcopy(request)
-    result["body"] = expand(request["body"])
+    result["body"] = compile_node(request["body"])
     result.setdefault("actions", [{"label": "Send", "action": {"type": "submit"}, "primary": True}])
     nodes = list(walk(result["body"]))
     ids = {}
@@ -156,6 +116,10 @@ def compile_request(request, base):
         if kind in {"input", "choice", "button"} and not node.get("label"):
             raise ValueError(f"{kind} needs a readable label")
         if kind == "choice":
+            if node.get("presentation", "list") not in {"list", "dropdown"}:
+                raise ValueError("Choice presentation must be list or dropdown")
+            if node.get("presentation") == "dropdown" and node.get("multiple"):
+                raise ValueError("Dropdown choices are single selection")
             layout = node.get("layout", {"type": "column"})
             if not isinstance(layout, dict) or layout.get("type") not in {"column", "row", "grid"} or set(layout) - {"type", "columns"}:
                 raise ValueError("Choice layout uses column, row or grid")
@@ -167,12 +131,26 @@ def compile_request(request, base):
                 raise ValueError("Choice options need unique nonempty string values")
             if any(not isinstance(option.get("label"), str) or not option["label"] for option in options):
                 raise ValueError("Every option needs a readable label")
-        if kind == "input" and node.get("format", "text") not in {"text", "number", "date", "file"}:
-            raise ValueError("Input format must be text, number, date or file")
+        if kind == "input" and node.get("format", "text") not in {"text", "number", "date", "file", "boolean"}:
+            raise ValueError("Input format must be text, number, date, file or boolean")
         if kind in {"tabs", "pages"} and (not node["children"] or any(not child.get("id") or not child.get("label") for child in node["children"])):
             raise ValueError("Tab/page children need id and label")
         if kind == "grid" and (not isinstance(node.get("columns", 2), int) or not 1 <= node.get("columns", 2) <= 12):
             raise ValueError("Grid columns must be 1..12")
+        if kind == "separator" and node.get("orientation", "horizontal") not in {"horizontal", "vertical"}:
+            raise ValueError("Separator orientation must be horizontal or vertical")
+        if kind == "table":
+            columns, rows = node.get("columns"), node.get("rows", [])
+            if not isinstance(columns, list) or not columns or any(not isinstance(cell, str) for cell in columns):
+                raise ValueError("Table columns must be a nonempty list of strings")
+            if not isinstance(rows, list) or any(not isinstance(row, list) or len(row) != len(columns) or any(not isinstance(cell, str) for cell in row) for row in rows):
+                raise ValueError("Table rows must contain one string per column")
+        if kind == "input":
+            for key in ("true_label", "false_label"):
+                if key in node and (not isinstance(node[key], str) or not node[key].strip()):
+                    raise ValueError(f"{key} must be a nonempty string")
+            if node.get("format") == "boolean" and node.get("multiline"):
+                raise ValueError("Boolean inputs cannot be multiline")
     def condition(value):
         if not isinstance(value, dict):
             raise ValueError("Conditions must be objects")
@@ -216,7 +194,7 @@ def compile_request(request, base):
     for item in result["actions"]:
         if not isinstance(item.get("label"), str) or not item["label"].strip() or "action" not in item:
             raise ValueError("Footer actions need label and action")
-    defaults = {node["id"]: node.get("value", [] if node.get("multiple") else None) for node in nodes if node["type"] in {"input", "choice"}}
+    defaults = {node["id"]: initial_value(node) for node in nodes if node["type"] in {"input", "choice"}}
     validate_values(result, defaults, required=False)
     return result
 
@@ -274,6 +252,9 @@ def validate_values(spec, values, required=True):
             valid = [option["value"] for option in node["options"]]
             if not isinstance(selected, list) or any(item not in valid for item in selected) or len(set(selected)) != len(selected):
                 fail(f"{node['label']}: invalid selection")
+        elif node.get("format") == "boolean":
+            if not isinstance(value, bool):
+                fail(f"{node['label']}: expected boolean")
         elif node.get("format") == "number":
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 fail(f"{node['label']}: invalid number")
@@ -310,6 +291,8 @@ def format_response(spec, values, action_label=None, *, include_values=True):
         if node["type"] == "choice":
             selected = value if node.get("multiple") else [value]
             value = ", ".join(escape(option["label"]) for option in node["options"] if option["value"] in selected)
+        elif node.get("format") == "boolean":
+            value = escape(node.get("true_label", "On") if value else node.get("false_label", "Off"))
         elif node.get("format") == "file":
             path = Path(value).resolve()
             value = f"[{escape(path.name)}](<{path}>)"

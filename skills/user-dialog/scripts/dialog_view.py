@@ -1,10 +1,9 @@
 """Render compiled JSON nodes using one common state/action model."""
 
-from copy import deepcopy
 from pathlib import Path
 
 from dialog_content import file_content, label, markdown
-from dialog_spec import FieldError, matches, validate_values, walk
+from dialog_spec import FieldError, initial_value, matches, validate_values, walk
 
 
 class View:
@@ -14,9 +13,10 @@ class View:
         self.nodes = {node['id']: node for node in walk(spec['body']) if 'id' in node}
         self.restoring = False
         self.text_bindings = []
+        self.option_panels = []
         for node in walk(spec['body']):
             if node['type'] in {'input', 'choice'}:
-                self.values[node['id']] = deepcopy(node.get('value', [] if node.get('multiple') else None))
+                self.values[node['id']] = initial_value(node)
         for key, value in ui.state.get('draft', {}).items():
             if key in self.values:
                 self.values[key] = value
@@ -38,10 +38,13 @@ class View:
 
     def refresh(self):
         for widget, key in self.text_bindings:
-            widget.set_text(str(self.values.get(key) or ""))
+            value = self.values.get(key)
+            widget.set_text('' if value is None else str(value))
         for widget, node in self.rules:
             widget.set_visible(matches(node.get('visible_when'), self.values))
             widget.set_sensitive(matches(node.get('enabled_when'), self.values))
+        for panel, key, value in self.option_panels:
+            panel.set_visible(self.values.get(key) == value)
         for key, (stack, _) in self.stacks.items():
             children = self.nodes[key]['children']
             visible = [child for child in children if matches(child.get('visible_when'), self.values)]
@@ -112,6 +115,16 @@ class View:
                 widget = markdown(ui, node.get('text', ''), Path(ui.state['base']))
         elif kind == 'file':
             widget = file_content(ui, node['path'])
+        elif kind == 'separator':
+            widget = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL if node.get('orientation') == 'vertical' else Gtk.Orientation.HORIZONTAL)
+        elif kind == 'table':
+            widget = Gtk.Grid(column_spacing=18, row_spacing=8)
+            for row_index, row in enumerate([node['columns'], *node.get('rows', [])]):
+                for column_index, text in enumerate(row):
+                    cell = label(ui, text)
+                    if row_index == 0:
+                        cell.add_css_class('heading')
+                    widget.attach(cell, column_index, row_index, 1, 1)
         elif kind in {'column', 'row', 'group', 'grid'}:
             if kind == 'grid':
                 widget = Gtk.Grid(column_spacing=16, row_spacing=16)
@@ -174,7 +187,12 @@ class View:
         heading.add_css_class('heading')
         box.append(heading)
         form = node.get('format', 'text')
-        if form == 'file':
+        if form == 'boolean':
+            entry = Gtk.Switch(halign=Gtk.Align.START)
+            entry.connect('notify::active', lambda widget, _: self.changed(key, widget.get_active()))
+            self.writers[key] = lambda value: entry.set_active(bool(value))
+            box.append(entry)
+        elif form == 'file':
             selected = label(ui, '')
             box.append(selected)
             self.writers[key] = lambda value: selected.set_text(value or '')
@@ -225,6 +243,26 @@ class View:
         heading = label(ui, node['label'] + (' *' if node.get('required') else ''))
         heading.add_css_class('heading')
         box.append(heading)
+        if node.get('presentation') == 'dropdown':
+            options = node['options']
+            control = Gtk.DropDown.new_from_strings([option['label'] for option in options])
+            control.set_selected(Gtk.INVALID_LIST_POSITION)
+            def changed(widget, _):
+                index = widget.get_selected()
+                self.changed(node['id'], options[index]['value'] if index < len(options) else None)
+            control.connect('notify::selected', changed)
+            def write(value):
+                index = next((index for index, option in enumerate(options) if option['value'] == value), Gtk.INVALID_LIST_POSITION)
+                control.set_selected(index)
+            self.writers[node['id']] = write
+            box.append(control)
+            for option in options:
+                panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+                for child in option.get('content', []):
+                    panel.append(self.render(child))
+                box.append(panel)
+                self.option_panels.append((panel, node['id'], option['value']))
+            return box
         layout = node.get('layout', {'type': 'column'})
         option_area = Gtk.Grid(column_spacing=16, row_spacing=12) if layout['type'] == 'grid' else Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL if layout['type'] == 'row' else Gtk.Orientation.VERTICAL, spacing=12)
