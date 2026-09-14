@@ -58,7 +58,7 @@ def compile_request(request, base):
         raise ValueError("width must be an integer from 300 to 2000")
     if not isinstance(request.get("message", {}), dict):
         raise ValueError("message must be an object")
-    if set(request.get("message", {})) - {"title", "icon", "source_label", "action_label"}:
+    if set(request.get("message", {})) - {"title", "icon"}:
         raise ValueError("Unknown message presentation key")
     for key, value in request.get("message", {}).items():
         if not isinstance(value, str) or (key != "icon" and not value.strip()):
@@ -275,13 +275,13 @@ def escape(text):
     return re.sub(r"([\\`*_\[\]<>])", r"\\\1", str(text)).replace("\n", " ")
 
 
-def format_response(spec, values, action_label=None, *, include_values=True):
+def format_response(spec, values, button_label=None, *, include_values=True):
     """Markdown presentation follows the view; typed prose stays verbatim."""
     if include_values:
         validate_values(spec, values)
     style = spec.get("message", {})
     title = style.get("title", spec["title"])
-    source = " ".join(part for part in (style.get("icon", "💬"), style.get("source_label", "팝업 응답")) if part)
+    source = " ".join(part for part in (style.get("icon", "💬"), "Popup response") if part)
     lines = [f"**[{escape(source)} · {escape(title)}]**"]
     for node, _ in (active_fields(spec, values) if include_values else ()):
         value = values.get(node["id"])
@@ -297,6 +297,6 @@ def format_response(spec, values, action_label=None, *, include_values=True):
             path = Path(value).resolve()
             value = f"[{escape(path.name)}](<{path}>)"
         lines += ["", f"**{label}**  ", str(value)]
-    if action_label:
-        lines += ["", f"**{escape(style.get('action_label', '동작'))}** · {escape(action_label)}"]
+    if button_label:
+        lines += ["", f"**→ {escape(button_label)}**"]
     return "\n".join(lines) + "\n"

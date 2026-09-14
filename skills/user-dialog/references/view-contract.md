@@ -11,7 +11,7 @@ Pass a JSON object as a file or stdin (`-`). Asset paths are absolute or relativ
 | `body` | One node, usually a layout containing other nodes. |
 | `actions` | Footer buttons; default is Send/submit. |
 | `width` | Preferred width, 300..2000; default 600. |
-| `message` | Optional `title`, `icon` (default `💬`), `source_label` (default `팝업 응답`), `action_label` (default `동작`). |
+| `message` | Optional `title` override and `icon` (default `💬`). |
 
 ## Elements
 
@@ -64,8 +64,8 @@ Footer buttons require `label` and `action`; `primary: true` selects the keyboar
 
 ## Response
 
-The runtime produces a bold `[💬 팝업 응답 · TITLE]` header, labeled answers, and a final button/action line.
-`message` changes heading labels; `response_label` overrides a field label. Typed text and line breaks remain verbatim.
+The runtime produces a bold `[💬 Popup response · TITLE]` header, labeled answers, and a bold `→ BUTTON_LABEL` final line.
+The source text is fixed English; titles, field labels, and button text come from the popup, with optional `message.title` and `response_label` overrides. Typed text and line breaks remain verbatim.
 Choices use option labels; attachments use file links; empty/inactive fields and display-only content are omitted.
 
 ## Example
