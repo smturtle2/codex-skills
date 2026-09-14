@@ -1,58 +1,135 @@
 # View contract
 
-## Module
+## Request
 
-The launcher loads the supplied Python file and calls `build(ui)` once. Return a `Gtk.Widget` or call `ui.set_content(widget)`. The host creates one window, its header, compact spacing, blue accent, and an optional action bar. All visible content and labels belong to the authored view.
+The launcher reads one JSON object from a file or `-`. Relative files and
+custom templates resolve from the project working directory. Allowed top-level
+keys:
 
-Use `ui.Gtk`, `ui.Adw`, `ui.GLib`, `ui.Gdk`, and `ui.Gio` for the runtime's libraries. Any GTK/libadwaita composition is available; there is no form-type schema. GTK Builder definitions and companion modules can live alongside the view. `ui.view_dir` and `ui.run_dir` are absolute `Path` objects; resolve assets explicitly instead of changing the process working directory.
-
-The module and its callbacks run as local Python code with the current user's permissions. They are agent-authored code, not a sandbox for untrusted supplied scripts. Keep callbacks responsive; long blocking operations freeze GTK's event loop.
-
-## Host API
-
-| API | Contract |
+| Key | Meaning |
 | --- | --- |
-| `ui.set_content(widget)` | Replace the content while retaining the host window; refit after construction. |
-| `ui.bind(name, read, write=None)` | Register a unique value name and zero-argument getter. Optional setter receives the saved value on resume, after construction. |
-| `ui.collect()` | Read bound values into a JSON-serializable dictionary. |
-| `ui.action(id, label, primary=False, callback=None, default=None)` | Add an action-bar button and return it. Without a callback, activation submits bound values with that action ID. A callback takes no arguments. Primary buttons become the keyboard default unless `default=False`; `default=True` selects another button explicitly. |
-| `ui.focus(widget=None)` | Set initial focus during construction or focus a control/page after navigation. `None` chooses the first control in the content. |
-| `ui.set_default_action(button)` | Select the current keyboard action, or disable it with `None`. Accepts a `Gtk.Button` from the action bar or custom content. |
-| `ui.keyboard(widget, activates_default=None, accepts_tab=None)` | Override a single-line entry's Enter behavior or a text view's Tab behavior when the content requires it. |
-| `ui.set_validator(callback)` | Before submission, call it with the proposed values. Return `None` to accept or localized text to keep the window open and explain what needs attention. |
-| `ui.message(text)` | Display localized validation feedback; empty text clears it. |
-| `ui.submit(values=None, action="submit")` | Validate, save a response, close the window. `None` collects bindings; an explicit JSON value supplies the payload. |
-| `ui.dismiss()` | Save the bound draft and close without an answer. Also used by the window close control. |
-| `ui.defer()` | Save the bound draft and close with deferred status. |
-| `ui.checkpoint()` | Save current bound values; also runs automatically every half second. |
-| `ui.refit(width=None)` | Recalculate natural content size; optionally change the preferred logical width. |
+| `version` | Must be `1` (defaults to `1`). |
+| `title` | Required nonempty title. |
+| `subtitle` | Optional subtitle. |
+| `body` | Required declarative node. |
+| `actions` | Optional footer actions; defaults to primary Send/submit. |
+| `message` | Optional response styling: `icon` (default `💬`), `source_label` (default `팝업 응답`), `title`, and `action_label` (default `동작`). |
+| `width` | Optional preferred logical width, 300..2000 (default 600). |
 
-`ui.window` is the host `Adw.ApplicationWindow`; `ui.request_id` identifies this request. Custom controls may connect GTK signals directly to the bridge. Avoid changing host internals. A view with no action-bar buttons can provide all interaction in its content.
+Unknown keys and unsupported node properties fail validation.
 
-Getters must return JSON-compatible values, including during partial entry. Preserve missing values rather than coercing them into selections. Convert native objects at the view boundary. Writers should restore values without submitting a response. Connect view-specific validation and button sensitivity to its own signals.
+## Nodes and actions
 
-## Keyboard
+Types are `column`, `row`, `grid`, `group`, `tabs`, `pages`,
+`text`, `file`, `input`, `choice`, and `button`. Containers use
+`children`; grid `columns` is 1..12. Group labels render as cards. Tabs
+and pages require child `id` and `label`; pages also accept
+`back_label` and `next_label`.
 
-Opening focuses the content before the window chrome. Native Tab/Shift+Tab traversal follows the authored widget layout. Multiline text views use Tab for traversal by default, while Enter remains a newline. Single-line entries activate the current default action with Enter through GTK's native input handling.
+`text` accepts `text`, or `ref` naming an input for live text binding.
+`file` takes an existing absolute or project-relative `path`; images are previewed and
+local files have an external-open link. `button` requires `label` and
+`action`.
 
-Ctrl+Enter activates the same default action, including its callback and validation; macOS also accepts Command+Enter. Hidden or disabled defaults are not activated. Escape dismisses and preserves the draft after native controls and input methods have had a chance to handle it. These shortcuts do not globally capture ordinary Enter, Space, or arrow keys.
+`input` requires unique `id` and `label`; `format` is `text`,
+`number`, `date`, or `file` (default text). Supported properties include
+`response_label`, `multiline`, `required`, `value`, `placeholder`, `min`, `max`,
+`error`, `browse_label`, and `clear_label`. `choice` requires unique
+`id`, `label`, and nonempty options with unique nonempty string `value`
+and readable `label`; `response_label` may override the label in the response;
+`multiple` selects a list. Options may have
+`content` nodes. `layout` independently arranges options using `{"type":"column"}`,
+`{"type":"row"}`, or `{"type":"grid","columns":2}`. Inputs and choices support `visible_when` and
+`enabled_when`.
 
-GTK Stack navigation focuses the newly visible page. For other navigation containers or conditional UI, call `ui.focus()` on the intended destination and update `ui.set_default_action()` when its meaning changes. Call `ui.refit()` after inserting controls so the host can configure them. Set `default=False` for actions that should require deliberate button activation. A validator can focus the relevant input before returning its message.
+Conditions use `ref` with `equals`, `contains`, or `empty`, recursively
+combined by `all`, `any`, and `not`; a bare `ref` checks truthiness. Actions are `submit`, `dismiss`,
+`defer`, `set`, `toggle`, and `navigate`. Set targets inputs or choices;
+toggle targets multiple choices only; navigate targets tabs/pages and uses an
+explicit page id or `next`/`previous`. Footer actions require `label`
+and `action`; `primary` selects the keyboard default. A `submit` action may
+set `include_values` (default `true`). With `include_values: false`, the
+button action is submitted without field values and required-field validation
+is bypassed; use this for a submit-role decision such as Defer or Reject.
 
-Use `ui.keyboard()` for view-specific deviations. Native focus indicators, selection behavior and input-method handling remain intact. Custom compositions still need a logical widget order; the host does not guess an alternative traversal order from screen coordinates.
+## Templates
 
-## Layout
+Use `{"type":"use","template":"question","id":"pick","params":{...}}`.
+Bundled templates are in `templates/`; a custom path is project-relative.
+Templates are JSON objects with `params` and declarative `body`. Parameters
+use `${name}`: an exact placeholder preserves the substituted type
+(including arrays/objects), while an embedded placeholder stringifies it.
+Missing parameters fail compilation; `question` requires `options`, and `steps` requires `pages`. Each use needs an instance `id`; IDs
+and matching `ref`/`target`/`page` references are namespaced per instance.
 
-The host measures content, accounts for the header and action bar, and keeps the window resizable. It does not add a scrolling viewport. If minimum content dimensions exceed the display, opening fails with the required dimensions so the agent can adapt the view.
+## Markdown, response, and lifecycle
 
-For custom navigation, keep the values in existing widgets or bindings. Reserve inner margins for shadows inside containers that clip children during transitions. Use the full set of pages when calculating a stable window size and call `ui.refit()` after changing content requirements. Native control sizing and semantic style classes preserve the approved appearance across text sizes and display scaling.
+Markdown is a readable subset: headings, bold, emphasis, inline code,
+unordered lists, simple pipe tables, fenced code blocks, and standalone
+local images. It is not full CommonMark. Images preview; each file has a link to open externally. Markdown links support local files and HTTP(S)/mailto destinations.
 
-## Response and storage
+Submitted Markdown starts with one bold line in the form
+`**[ICON SOURCE_LABEL · TITLE]**`, using the `message` defaults and the
+existing `message.title` override; with defaults this is
+`**[💬 팝업 응답 · TITLE]**`. Each included answer uses a separate bold
+label line followed by a Markdown hard break and the answer verbatim; group
+headings are not emitted. `response_label` overrides an input or choice label
+in that record. Choice values use option labels; files use local links. Empty
+and inactive fields are excluded. A submitted action is always recorded with
+the `message.action_label` label (default `동작`); navigation, dismiss, and
+defer actions are silent. When `include_values` is false, only the submit
+button action is recorded.
 
-The launcher emits one final JSON object with `request_id`, `status`, `action`, `values`, and `run_dir`. An error also includes `error`. Status is `submitted`, `dismissed`, `deferred`, or `error`. Only `submitted` carries a submitted value; other outcomes have `values: null`.
+The run stores compiled spec, absolute asset paths, draft, response, message,
+origin, and delivery state. Escape dismisses while retaining draft; submitted
+state never reopens. Tab traversal follows authored order; Enter submits
+single-line input, remains newline in multiline input, and Ctrl+Enter (or
+Command+Enter where supported) activates the default action.
 
-`state.json` stores the absolute view path, title, draft, status, and final response. Reads through `status` are safe while the window is open. Atomic writes and process locks keep one renderer in control of a run. View output is sent to stderr so stdout remains a response channel.
+Origin capture uses `CODEX_THREAD_ID`, optional matching `CODEX_SESSION_ID`,
+and the desktop app-tools pipe. Pipe identity, host, and thread are frozen and
+verified against the stored task ID before sending. No active UI, recent task,
+or `--last` lookup is used. Delivery is internal tool input through the app
+bridge; the live roundtrip has been verified. Windows delivery is unsupported
+and fails closed. `sending` and `unknown` delivery states are never retried.
 
-The current Python view is reloaded on resume. Bound setters restore the saved draft; unbound widget state is not persisted. Submitted results are returned unchanged on subsequent resume calls. A dismissed, deferred, or failed run can reopen, keeping its request ID and draft. Use a new run for a new communication rather than overwriting a completed answer.
+## Complete request example
 
-Process interruption is reported as an error if no final response was saved; it is never fabricated as a user action. Automatic draft checkpoints limit loss but are not a guarantee that the last keystroke survives abrupt process termination.
+All visible labels belong to the request; localize them for the user. Run with
+`show request.json`; no Python view is generated. This example combines a
+reusable section with a separately bound live summary:
+
+```json
+{
+  "version": 1,
+  "title": "Document settings",
+  "body": {
+    "type": "column",
+    "children": [
+      {
+        "type": "use",
+        "id": "format",
+        "template": "question",
+        "params": {
+          "label": "Output format",
+          "options": [
+            {"value": "pdf", "label": "PDF", "content": [{"type": "text", "text": "Ready to share"}]},
+            {"value": "md", "label": "Markdown", "content": [{"type": "text", "text": "Editable source"}]}
+          ],
+          "free_text_label": "Additional details"
+        }
+      },
+      {"type": "text", "text": "Your additional details:"},
+      {"type": "text", "ref": "format.free_text"}
+    ]
+  },
+  "actions": [{"label": "Send", "primary": true, "action": {"type": "submit"}}]
+}
+```
+
+A custom template follows the same format as the bundled JSON files. An array
+parameter can replace `children` or option `content`, allowing whole subtrees
+as slots. Template file paths and asset paths resolve from the project, not
+from the template directory. Layout and content never specify delivery targets.
+Unknown capabilities fail compilation; extend the shared renderer when a new
+primitive is needed, rather than generating request-specific executable code.

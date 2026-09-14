@@ -1,0 +1,24 @@
+{
+  "params": {
+    "label": "Choose an option",
+    "free_text_label": "Additional details (optional)"
+  },
+  "body": {
+    "type": "column",
+    "children": [
+      {
+        "type": "choice",
+        "id": "answer",
+        "label": "${label}",
+        "options": "${options}"
+      },
+      {
+        "type": "input",
+        "id": "free_text",
+        "label": "${free_text_label}",
+        "multiline": true,
+        "required": false
+      }
+    ]
+  }
+}

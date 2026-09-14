@@ -14,7 +14,7 @@ def encode(value):
 
 def read_state(directory):
     value = json.loads((Path(directory) / "state.json").read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or value.get("version") != 1:
+    if not isinstance(value, dict) or value.get("version") != 2:
         raise ValueError("Unsupported dialog state")
     return value
 
@@ -51,7 +51,7 @@ def run_lock(directory, filename=".lock"):
                 import fcntl
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as error:
-            raise ValueError("This dialog is already open; retain its existing execution handle") from error
+            raise ValueError("This dialog is already open; use status instead of opening another renderer") from error
         try:
             yield
         finally:

@@ -168,7 +168,7 @@ image-creator, ui-blueprint
 
 <img src="docs/assets/catalog/user-dialog.svg" width="960" alt="user-dialog">
 
-Compose a purpose-built popup interface, communicate with the user, and receive their response.
+Create a popup from a declarative JSON request and receive the response in the originating Codex task.
 
 ```text
 Use $skill-installer.

@@ -1,6 +1,6 @@
 # user-dialog
 
-소통 목적에 맞는 팝업 인터페이스를 구성하고, 사용자의 반응을 받아 전달합니다.
+선언형 JSON 요청으로 팝업을 만들고 응답을 원래 Codex 작업으로 전달합니다.
 
 [전체 스킬](../../README.ko.md#skills) · [English](user-dialog.md)
 
@@ -10,16 +10,28 @@
 Use $skill-installer to install skills/user-dialog from https://github.com/smturtle2/codex-skills.
 ```
 
-uv와 GTK4·libadwaita·PyGObject를 사용할 수 있는 Python 환경이 필요합니다. 실행기가 uv의 Python과 별도로 적합한 인터프리터를 찾습니다. 네이티브 의존성과 인터프리터 지정 방법은 [실행 환경 안내](../../skills/user-dialog/references/runtime-setup.md)에 있습니다. 현재 Linux 실행을 확인했으며 Windows·macOS는 아직 검증하지 않았습니다.
+## 사용법
 
-## 인터페이스
+`SKILL_DIR`는 설치한 스킬의 절대 경로로 지정합니다.
 
-기본 외관은 블루·아담한 libadwaita입니다. 고정된 양식 목록 없이 Codex가 내용과 상호작용을 구성합니다. 관련 요청은 한 창에 모으고, 공통 실행기가 등록된 입력값을 유지하며 구조화된 응답을 반환합니다.
+```bash
+uv run --script "$SKILL_DIR/scripts/user_dialog.py" show <request.json|-> \
+  [--run-dir <path>] [--python <absolute-python>]
+```
 
-처음에는 내용의 첫 컨트롤에 포커스가 잡힙니다. Tab·Shift+Tab으로 이동하고, 한 줄 입력의 Enter는 기본 동작을 실행하며 여러 줄 입력에서는 줄바꿈을 유지합니다. Ctrl+Enter는 기본 동작을 실행하고, macOS에서는 Command+Enter도 지원합니다. Esc로 닫아도 입력값은 보존합니다. 화면에 맞게 포커스와 기본 동작을 조정할 수 있습니다.
+요청은 버전 1이며 `version`, `title`, `subtitle`, `body`, `actions`,
+`message`, `width` 키를 사용합니다. 본문은 선언형 트리이고 요청별
+Python을 로드하지 않습니다. 자세한 스키마는 [뷰 계약](../../skills/user-dialog/references/view-contract.md)을
+참조하세요.
 
-## 결과물
+`show`는 분리된 렌더러를 시작하고 실행 상태를 반환합니다. 일반 제출은
+앱 브리지를 통한 내부 도구 입력으로 Markdown을 원래 작업에 전달합니다.
+`--preview`를 명시하면 원본 연결과 전달을 끄고 `message.md`를 저장하며,
+실패 시 자동 미리보기 전환은 없습니다. `validate`, `templates`, `status`,
+`resume`, `deliver`로 검증·템플릿·실행 복구를 수행합니다.
 
-실행 폴더에 화면 파일의 위치, 등록된 입력값, 최종 응답을 보존합니다. 생성한 화면과 보조 파일은 설치된 스킬 밖에 둡니다. 다시 열면 등록된 값을 복원하고, 제출된 응답은 창을 열지 않고 다시 읽을 수 있습니다. 창을 닫는 것은 답변 제출과 구분됩니다.
-
-[에이전트 지침](../../skills/user-dialog/SKILL.md)
+실행기에는 uv와 Python 3.11 이상이 필요하고, 렌더러에는 PyGObject,
+GTK 4.16 이상, libadwaita 1.6 이상이 필요합니다. Linux 렌더링과 읽기 전용
+원본 캡처 및 앱 브리지 실시간 전달 왕복을 확인했습니다. Windows 전송은
+지원하지 않습니다. [실행 환경 안내](../../skills/user-dialog/references/runtime-setup.md)를
+참조하세요.

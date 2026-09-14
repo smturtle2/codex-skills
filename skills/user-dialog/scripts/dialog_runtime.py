@@ -1,6 +1,6 @@
-"""GTK host for an agent-authored build(ui) function."""
+"""GTK host for compiled declarative dialogs."""
 
-import importlib.util
+import threading
 import json
 from pathlib import Path
 import sys
@@ -15,6 +15,9 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from dialog_state import encode, finish_state, read_state, run_lock, save_state
 from dialog_keyboard import Keyboard
+from dialog_spec import format_response
+from dialog_view import View
+from dialog_delivery import deliver
 
 
 STYLE = """
@@ -25,13 +28,16 @@ STYLE = """
 }
 .user-dialog .title-1 { font-size: 21px; }
 .user-dialog .dialog-error { color: var(--error-color); }
+.user-dialog .dialog-group { padding: 16px; }
+.user-dialog .dialog-editor { border-radius: 10px; border: 1px solid alpha(currentColor, 0.12); padding: 10px; }
 """
 
 
 class Dialog:
     def __init__(self, app, directory, state):
         self.app, self.run_dir, self.state = app, directory, state
-        self.view_dir = Path(state["view"]).parent
+        self.view_dir = Path(state["base"])
+        self._submitting = False
         self.request_id = state["request_id"]
         self.Gtk, self.Adw, self.GLib, self.Gdk, self.Gio = Gtk, Adw, GLib, Gdk, Gio
         self.window = Adw.ApplicationWindow(application=app, title=state["title"])
@@ -46,7 +52,12 @@ class Dialog:
         for side in ("top", "bottom", "start", "end"):
             getattr(self.content, f"set_margin_{side}")(26)
         self.content.set_vexpand(True)
-        self.toolbar.set_content(self.content)
+        self.scroller = Gtk.ScrolledWindow()
+        self.scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.scroller.set_child(self.content)
+        self.scroller.set_propagate_natural_height(True)
+        self.scroller.set_max_content_height(720)
+        self.toolbar.set_content(self.scroller)
         self.error = Gtk.Label(wrap=True, xalign=0)
         self.error.add_css_class("dialog-error")
         self.error.set_visible(False)
@@ -62,7 +73,7 @@ class Dialog:
         self._validator = None
         self._finished = False
         self._built = False
-        self._preferred_width = 470
+        self._preferred_width = state["spec"].get("width", 600)
         self._checkpoint_source = 0
         self._keyboard = Keyboard(self)
 
@@ -132,19 +143,41 @@ class Dialog:
             save_state(self.run_dir, self.state)
         return GLib.SOURCE_CONTINUE
 
-    def submit(self, values=None, *, action="submit"):
-        if self._finished:
+    def submit(self, values=None, *, action="submit", include_values=True):
+        if self._finished or self._submitting:
             return
-        collected = self.collect() if values is None else values
-        encode(collected)
-        if self._validator:
+        collected = (self.collect() if values is None else values) if include_values else {}
+        if include_values and self._validator:
             message = self._validator(collected)
             if message is not None:
-                if not isinstance(message, str):
-                    raise TypeError("Validator must return a user-facing string or None")
                 self.message(message)
                 return
-        self._finish("submitted", collected, action)
+        self.state["message"] = format_response(self.state["spec"], collected, action, include_values=include_values)
+        (self.run_dir / "message.md").write_text(self.state["message"], encoding="utf-8")
+        self.checkpoint()
+        finish_state(self.run_dir, self.state, "submitted", collected, action)
+        if not self.state.get("origin"):
+            self.close()
+            return
+        self._submitting = True
+        self.content.set_sensitive(False)
+        self.actions.set_sensitive(False)
+        self.message("Sending…")
+        def send():
+            try:
+                deliver(self.run_dir, self.state)
+            except Exception as error:
+                self.state["delivery"] = {"status": "unknown", "error": str(error)}
+            GLib.idle_add(self.delivery_finished)
+        threading.Thread(target=send, daemon=False).start()
+
+    def delivery_finished(self):
+        if self.state["delivery"]["status"] == "accepted":
+            self.close()
+        else:
+            self.message("Delivery was not confirmed. Your answer is saved. " + self.state["delivery"].get("error", ""))
+            self._submitting = False
+        return GLib.SOURCE_REMOVE
 
     def dismiss(self):
         self._finish("dismissed", None)
@@ -152,16 +185,20 @@ class Dialog:
     def defer(self):
         self._finish("deferred", None)
 
-    def _finish(self, status, values, action=None):
-        if self._finished:
-            return
-        self.checkpoint()
-        finish_state(self.run_dir, self.state, status, values, action)
+    def close(self):
         self._finished = True
         if self._checkpoint_source:
             GLib.source_remove(self._checkpoint_source)
         self.window.destroy()
         self.app.quit()
+
+    def _finish(self, status, values, action=None):
+        if self._finished or self._submitting:
+            return
+        if self.state["status"] != "submitted":
+            self.checkpoint()
+            finish_state(self.run_dir, self.state, status, values, action)
+        self.close()
 
     def _close(self, window):
         self.dismiss()
@@ -182,36 +219,23 @@ class Dialog:
         monitor = display.get_monitor_at_surface(surface) if surface else display.get_monitors().get_item(0)
         if monitor:
             bounds = monitor.get_geometry()
-            if actual_width > bounds.width - 64 or actual_height > bounds.height - 80:
-                raise ValueError(f"View needs {actual_width}x{actual_height} logical pixels; "
-                                 "adapt its composition to fit the display before presenting it")
+            actual_width = min(actual_width, max(300, bounds.width - 64))
+            actual_height = min(actual_height, max(250, bounds.height - 80))
+            self.scroller.set_max_content_height(min(720, max(160, bounds.height - 220)))
         self.window.set_default_size(actual_width, actual_height)
         return GLib.SOURCE_REMOVE
 
     def open(self):
-        view = Path(self.state["view"])
-        sys.path.insert(0, str(view.parent))
-        spec = importlib.util.spec_from_file_location("user_dialog_view", view)
-        if spec is None or spec.loader is None:
-            raise ValueError(f"Cannot load view: {view}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        build = getattr(module, "build", None)
-        if not callable(build):
-            raise ValueError("View module must define build(ui)")
-        returned = build(self)
-        if returned is not None:
-            self.set_content(returned)
-        if not self.content.get_first_child():
-            raise ValueError("build(ui) must return a widget or call ui.set_content(widget)")
-        for name, (_, write) in self._bindings.items():
-            if write is not None and name in self.state["draft"]:
-                write(self.state["draft"][name])
+        self.view = View(self, self.state["spec"])
+        self.set_content(self.view.build())
         self._built = True
         self.checkpoint()
         self.refit()
         self._checkpoint_source = GLib.timeout_add(500, self.checkpoint)
         self.window.present()
+        self.state["status"] = "open"
+        from dialog_state import save_state
+        save_state(self.run_dir, self.state)
         GLib.idle_add(self.refit)
         GLib.idle_add(self._keyboard.opened)
 
@@ -226,7 +250,7 @@ def main():
         traceback.print_exception(exc_type, error, tb, file=sys.stderr)
         try:
             current = read_state(directory)
-            if current.get("response") is None:
+            if not current.get("response"):
                 finish_state(directory, current, "error", None, error=str(error))
         finally:
             if dialog:
@@ -248,6 +272,20 @@ def main():
         dialog = Dialog(application, directory, state)
         dialog.open()
 
+    import signal
+    def interrupted(signum, frame):
+        if dialog and dialog._submitting:
+            # Delivery may already have reached Codex. Preserve uncertain state.
+            return
+        current = read_state(directory)
+        if current["status"] != "submitted":
+            finish_state(directory, current, "error", None, error="Renderer interrupted; draft retained")
+        if dialog:
+            dialog.close()
+        else:
+            app.quit()
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     app.connect("activate", activate)
     app.run([sys.argv[0]])
     return 0

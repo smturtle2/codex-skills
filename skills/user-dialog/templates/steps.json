@@ -1,0 +1,8 @@
+{
+  "params": {},
+  "body": {
+    "type": "pages",
+    "id": "pages",
+    "children": "${pages}"
+  }
+}

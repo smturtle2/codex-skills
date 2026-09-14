@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Run a custom libadwaita view through uv and return its response as JSON."""
+"""Compose a dialog from JSON and send Markdown to its originating Codex task."""
 
 import argparse
 import json
@@ -14,7 +14,9 @@ import subprocess
 import sys
 import uuid
 
-from dialog_state import encode, finish_state, read_state, run_lock, save_state
+from dialog_state import encode, read_state, run_lock, save_state
+from dialog_spec import compile_request, read_json, parse_json, TEMPLATES
+from dialog_delivery import capture_origin, require_owner, deliver
 
 
 PROBE = """
@@ -78,55 +80,79 @@ def find_python(explicit=None):
                      "select one with --python or USER_DIALOG_PYTHON. " + encode(failures))
 
 
+def load_request(source):
+    if source == "-":
+        request = parse_json(sys.stdin.read())
+    else:
+        request = read_json(Path(source).expanduser().resolve())
+    return compile_request(request, Path.cwd())
+
+
+def summary(directory, state):
+    result = {"request_id": state["request_id"], "status": state["status"],
+              "run_dir": str(directory), "delivery": state.get("delivery", {}).get("status")}
+    if state.get("delivery", {}).get("error"):
+        result["error"] = state["delivery"]["error"]
+    if state.get("response", {}).get("error"):
+        result["error"] = state["response"]["error"]
+    return result
+
+
 def run_dialog(args):
     if args.command == "show":
-        view = Path(args.view).expanduser().resolve()
-        if not view.is_file():
-            raise ValueError(f"View does not exist: {view}")
+        spec = load_request(args.request)
+        origin = None if args.preview else capture_origin()
+        runtime = find_python(args.python)
         directory = Path(args.run_dir or Path.cwd() / "dialog-runs" / uuid.uuid4().hex).expanduser().resolve()
         directory.mkdir(parents=True, exist_ok=True)
     else:
         directory = Path(args.run_dir).expanduser().resolve()
     with run_lock(directory):
-        # An earlier launcher's abrupt exit must not allow a second window
-        # to take over a still-running renderer's state.
         with run_lock(directory, ".window-lock"):
             pass
         if args.command == "show":
             if (directory / "state.json").exists():
-                raise ValueError("Run directory already contains a dialog; use resume or a new directory")
-            runtime = find_python(args.python)
-            state = {"version": 1, "request_id": uuid.uuid4().hex, "status": "pending",
-                     "view": str(view), "title": args.title, "subtitle": args.subtitle,
-                     "draft": {}, "response": None}
+                raise ValueError("Run already exists; use resume or a new directory")
+            state = {"version": 2, "request_id": uuid.uuid4().hex, "status": "pending",
+                     "spec": spec, "base": str(Path.cwd()), "origin": origin,
+                     "title": spec["title"], "subtitle": spec.get("subtitle", ""),
+                     "draft": {}, "response": {}, "delivery": {"status": "preview" if args.preview else "pending"}}
         else:
             state = read_state(directory)
+            if state.get("origin"):
+                require_owner(state["origin"])
+            if args.command == "deliver":
+                if not state.get("origin"):
+                    raise ValueError("Preview runs cannot be delivered")
+                deliver(directory, state)
+                print(encode(summary(directory, state)))
+                return 0 if state["delivery"]["status"] == "accepted" else 1
             if state["status"] == "submitted":
-                print(encode(state["response"]))
+                print(encode(summary(directory, state)))
                 return 0
             runtime = find_python(args.python)
-            state.update(status="pending", response=None)
+            state.update(status="pending", response={})
         save_state(directory, state)
-        print(f"Dialog: {directory}", file=sys.stderr, flush=True)
         command = [runtime["python"], str(Path(__file__).with_name("dialog_runtime.py")), str(directory)]
-        process = subprocess.Popen(command, env=python_environment(runtime["python"]),
-                                   stdout=sys.stderr)
-        try:
-            process.wait()
-        except KeyboardInterrupt:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-        state = read_state(directory)
-        if state.get("response") is None:
-            finish_state(directory, state, "error", None,
-                         error=f"Dialog process stopped without a response (exit {process.returncode}); draft retained")
-        response = state["response"]
-        print(encode(response), flush=True)
-        return 1 if response["status"] == "error" else 0
+        with (directory / "renderer.log").open("a", encoding="utf-8") as log:
+            process = subprocess.Popen(command, env=python_environment(runtime["python"]),
+                                       stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                       start_new_session=True)
+        # Wait for readiness, not the user's answer. Renderer owns the run lock
+        # after startup; detached lifetime survives the originating tool call.
+        import time
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            current = read_state(directory)
+            if current["status"] != "pending" or process.poll() is not None:
+                break
+            time.sleep(0.05)
+        current = read_state(directory)
+        if current["status"] == "pending" and process.poll() is not None:
+            from dialog_state import finish_state
+            finish_state(directory, current, "error", None, error=f"Renderer exited during startup ({process.returncode}); see renderer.log")
+        print(encode(summary(directory, current)))
+        return 1 if current["status"] == "error" else 0
 
 
 def main():
@@ -137,10 +163,10 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     doctor = commands.add_parser("doctor", help="Locate Python with GTK and libadwaita")
     doctor.add_argument("--python")
-    show = commands.add_parser("show", help="Open an agent-authored view")
-    show.add_argument("view")
-    show.add_argument("--title", required=True)
-    show.add_argument("--subtitle", default="")
+    doctor.add_argument("--delivery", action="store_true", help="Read-only check of the originating desktop connection")
+    show = commands.add_parser("show", help="Open a composed JSON view")
+    show.add_argument("request", help="JSON file or - for stdin")
+    show.add_argument("--preview", action="store_true", help="Render without Codex delivery; save message.md")
     show.add_argument("--run-dir")
     show.add_argument("--python")
     resume = commands.add_parser("resume", help="Reopen a saved draft or return its submitted result")
@@ -148,16 +174,33 @@ def main():
     resume.add_argument("--python")
     status = commands.add_parser("status", help="Read state without opening a window")
     status.add_argument("run_dir")
+    validation = commands.add_parser("validate", help="Compile a JSON request without opening it")
+    validation.add_argument("request")
+    commands.add_parser("templates", help="List bundled reusable templates")
+    delivery = commands.add_parser("deliver", help="Retry a confirmed pre-send failure from its originating task")
+    delivery.add_argument("run_dir")
     args = parser.parse_args()
     try:
+        if args.command == "templates":
+            print(encode({"templates": [path.stem for path in sorted(TEMPLATES.glob("*.json"))]}))
+            return 0
+        if args.command == "validate":
+            spec = load_request(args.request)
+            print(encode({"status": "valid", "title": spec["title"]}))
+            return 0
         if args.command == "doctor":
-            print(encode({"status": "available", **find_python(args.python)}))
+            result = {"status": "available", **find_python(args.python)}
+            if args.delivery:
+                origin = capture_origin()
+                result["origin"] = {key: origin[key] for key in ("thread_id", "host_id", "title")}
+            print(encode(result))
             return 0
         if args.command == "status":
-            print(encode(read_state(Path(args.run_dir).expanduser().resolve())))
+            directory = Path(args.run_dir).expanduser().resolve()
+            print(encode(summary(directory, read_state(directory))))
             return 0
         return run_dialog(args)
-    except (OSError, ValueError, KeyError) as error:
+    except (OSError, ValueError, KeyError, TypeError) as error:
         print(encode({"status": "error", "error": str(error)}))
         return 1
 

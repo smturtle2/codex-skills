@@ -1,0 +1,22 @@
+{
+  "params": {
+    "content": [],
+    "free_text_label": "Comments (optional)"
+  },
+  "body": {
+    "type": "column",
+    "children": [
+      {
+        "type": "group",
+        "children": "${content}"
+      },
+      {
+        "type": "input",
+        "id": "comments",
+        "label": "${free_text_label}",
+        "multiline": true,
+        "required": false
+      }
+    ]
+  }
+}

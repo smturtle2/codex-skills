@@ -1,25 +1,35 @@
 # user-dialog
 
-Compose a purpose-built popup interface, communicate with the user, and receive their response.
+Create a popup from a declarative JSON request and receive the response in the
+originating Codex task.
 
 [All skills](../../README.md#skills) · [한국어](user-dialog.ko.md)
 
-## Install
+## Installation
 
 ```text
 Use $skill-installer to install skills/user-dialog from https://github.com/smturtle2/codex-skills.
 ```
 
-Requires uv and a Python environment with GTK4, libadwaita, and PyGObject. The launcher finds that interpreter separately from uv's Python. See [runtime setup](../../skills/user-dialog/references/runtime-setup.md) for native dependencies and explicit interpreter selection. Linux execution has been checked; Windows and macOS remain unverified.
+## Use
 
-## Interface
+```bash
+uv run --script "$SKILL_DIR/scripts/user_dialog.py" show <request.json|-> \
+  [--run-dir <path>] [--python <absolute-python>]
+```
 
-The default appearance is compact, blue libadwaita. Codex authors the content and interaction without a fixed catalog of forms. Related requests share one window, and the common host preserves registered values and returns a structured response.
+Requests use version 1 and the keys `version`, `title`, `subtitle`,
+`body`, `actions`, `message`, and `width`. The body is declarative and
+does not load request-specific Python. See the [view contract](../../skills/user-dialog/references/view-contract.md).
 
-Keyboard focus starts in the content. Tab and Shift+Tab move between controls; Enter activates the default action in single-line input and remains a newline in multiline input. Ctrl+Enter activates the default action (also Command+Enter on macOS). Escape closes while retaining the draft. Views can adjust focus and default actions to match their interaction.
+`show` starts the detached renderer and reports operational status. Normal
+submission delivers Markdown as internal tool input to the originating task
+through the app bridge. `--preview` explicitly omits origin and delivery and
+saves `message.md`; it is never an automatic fallback. Use `validate`,
+`templates`, `status`, `resume`, and `deliver` for compilation, presets, and
+run recovery.
 
-## Output
-
-The run directory retains the view reference, bound draft values, and final response. The generated view and any supporting files remain outside the installed skill. Reopening restores registered values; submitted results can be read without reopening. Closing a window does not submit an answer.
-
-[Agent instructions](../../skills/user-dialog/SKILL.md)
+The launcher needs uv/Python 3.11+. The renderer needs PyGObject, GTK 4.16+,
+and libadwaita 1.6+. Linux rendering, origin capture, and the live app-bridge
+delivery roundtrip are exercised. Windows delivery is unsupported. See
+[runtime setup](../../skills/user-dialog/references/runtime-setup.md).
