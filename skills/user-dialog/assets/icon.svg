@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+<title id="title">User Dialog</title>
+<rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
+<g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+<rect x="9" y="12" width="43" height="33" rx="4" fill="#F6EFE2"/>
+<path d="M13 12h35a4 4 0 0 1 4 4v4H9v-4a4 4 0 0 1 4-4Z" fill="#C56D3A"/>
+<path d="M15 16h1M20 16h1"/>
+<rect x="23" y="27" width="32" height="26" rx="4" fill="#FFF9EE"/>
+<path d="M29 34h18M29 39h11"/>
+<rect x="39" y="44" width="10" height="4" rx="2" fill="#C56D3A" stroke="none"/>
+</g></svg>
