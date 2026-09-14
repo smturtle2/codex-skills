@@ -1,6 +1,7 @@
 """GTK host for compiled declarative dialogs."""
 
 import threading
+import math
 import json
 from pathlib import Path
 import sys
@@ -58,14 +59,20 @@ class Dialog:
         self.scroller.set_propagate_natural_height(True)
         self.scroller.set_max_content_height(720)
         self.toolbar.set_content(self.scroller)
-        self.error = Gtk.Label(wrap=True, xalign=0)
-        self.error.add_css_class("dialog-error")
-        self.error.set_visible(False)
+        self.status_label = Gtk.Label(wrap=True, xalign=0)
+        self.status_label.set_visible(False)
+        self.sending_indicator = Gtk.Box(spacing=5, halign=Gtk.Align.START)
+        self.sending_dots = [Gtk.Label(label="•") for _ in range(3)]
+        for dot in self.sending_dots:
+            self.sending_indicator.append(dot)
+        self.sending_indicator.set_visible(False)
+        self._sending_source = 0
         self.actions = Gtk.Box(spacing=10, halign=Gtk.Align.END)
         self.footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         for side in ("bottom", "start", "end"):
             getattr(self.footer, f"set_margin_{side}")(18)
-        self.footer.append(self.error)
+        self.footer.append(self.status_label)
+        self.footer.append(self.sending_indicator)
         self.footer.append(self.actions)
         self.footer.set_visible(False)
         self.toolbar.add_bottom_bar(self.footer)
@@ -127,12 +134,33 @@ class Dialog:
             self.set_default_action(button)
         return button
 
-    def message(self, value):
-        self.error.set_text(value or "")
-        self.error.set_visible(bool(value))
-        self.footer.set_visible(bool(value) or self.actions.get_first_child() is not None)
+    def message(self, value, *, error=False):
+        if error:
+            self.status_label.add_css_class("dialog-error")
+        else:
+            self.status_label.remove_css_class("dialog-error")
+        self.status_label.set_text(value or "")
+        self.status_label.set_visible(bool(value))
+        self.footer.set_visible(bool(value) or self.sending_indicator.get_visible() or self.actions.get_first_child() is not None)
         if self._built:
             self.refit()
+
+    def set_sending(self, active):
+        if self._sending_source:
+            GLib.source_remove(self._sending_source)
+            self._sending_source = 0
+        self.sending_indicator.set_visible(active)
+        if active:
+            self.message(None)
+            started = GLib.get_monotonic_time()
+            def animate():
+                elapsed = (GLib.get_monotonic_time() - started) / 1_000_000
+                for index, dot in enumerate(self.sending_dots):
+                    wave = (1 + math.cos(math.tau * (elapsed / 1.2 - index / 3))) / 2
+                    dot.set_opacity(0.25 + 0.75 * wave)
+                return GLib.SOURCE_CONTINUE
+            animate()
+            self._sending_source = GLib.timeout_add(50, animate)
 
     def checkpoint(self):
         if self._finished:
@@ -150,7 +178,7 @@ class Dialog:
         if include_values and self._validator:
             message = self._validator(collected)
             if message is not None:
-                self.message(message)
+                self.message(message, error=True)
                 return
         self.state["message"] = format_response(self.state["spec"], collected, action, include_values=include_values)
         (self.run_dir / "message.md").write_text(self.state["message"], encoding="utf-8")
@@ -162,7 +190,7 @@ class Dialog:
         self._submitting = True
         self.content.set_sensitive(False)
         self.actions.set_sensitive(False)
-        self.message("Sending…")
+        self.set_sending(True)
         def send():
             try:
                 deliver(self.run_dir, self.state)
@@ -172,11 +200,21 @@ class Dialog:
         threading.Thread(target=send, daemon=False).start()
 
     def delivery_finished(self):
-        if self.state["delivery"]["status"] == "accepted":
-            self.close()
+        delivery = self.state["delivery"]
+        if delivery.get("observation", {}).get("status") == "observed":
+            self.finish_delivery()
         else:
-            self.message("Delivery was not confirmed. Your answer is saved. " + self.state["delivery"].get("error", ""))
+            self.set_sending(False)
+            if delivery["status"] == "accepted":
+                self.message("Sent, but the response could not be confirmed in task history. "
+                             "Your answer is saved. You can close this window.", error=True)
+            else:
+                self.message("Delivery was not confirmed. Your answer is saved. " + delivery.get("error", ""), error=True)
             self._submitting = False
+        return GLib.SOURCE_REMOVE
+
+    def finish_delivery(self):
+        self.close()
         return GLib.SOURCE_REMOVE
 
     def dismiss(self):
@@ -187,6 +225,7 @@ class Dialog:
 
     def close(self):
         self._finished = True
+        self.set_sending(False)
         if self._checkpoint_source:
             GLib.source_remove(self._checkpoint_source)
         self.window.destroy()

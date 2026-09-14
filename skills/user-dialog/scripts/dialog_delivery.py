@@ -11,7 +11,9 @@ from pathlib import Path
 import socket
 import stat
 import struct
+import time
 import uuid
+import xml.etree.ElementTree as ET
 
 from dialog_state import save_state
 
@@ -104,6 +106,53 @@ class Bridge:
             raise ValueError("Original Codex host does not match")
         return thread
 
+    def response_items(self):
+        result = self.call("read_thread", {
+            "threadId": self.origin["thread_id"], "hostId": self.origin["host_id"],
+            "turnLimit": 2, "includeOutputs": True, "maxOutputCharsPerItem": 20000,
+        })
+        thread = result.get("thread", {})
+        if (thread.get("id") != self.origin["thread_id"] or thread.get("kind") != "codex"
+                or thread.get("hostId") != self.origin["host_id"]):
+            raise ValueError("Response lookup returned a different Codex task")
+        return [item for turn in result.get("turns", []) for item in turn.get("items", [])
+                if item.get("type") == "functionCallOutput"
+                and item.get("namespace") == "codex_app"
+                and item.get("name") == "send_message_to_thread"]
+
+
+def matches_response(item, origin, message):
+    output = item.get("output", {})
+    if not isinstance(output, dict) or output.get("truncated"):
+        return False
+    try:
+        root = ET.fromstring(output.get("text", ""))
+    except ET.ParseError:
+        return False
+    return (root.tag == "codex_delegation"
+            and root.findtext("source_thread_id") == origin["thread_id"]
+            and root.findtext("input") == message)
+
+
+def observe_response(directory, state, bridge):
+    """Observe the canonical input used by chat rendering, never resend it."""
+    delivery = state["delivery"]
+    previous = set(delivery["previous_item_ids"])
+    deadline = time.monotonic() + 60
+    try:
+        while time.monotonic() < deadline:
+            for item in bridge.response_items():
+                if (item.get("id") and item["id"] not in previous
+                        and matches_response(item, state["origin"], state["message"])):
+                    delivery["observation"] = {"status": "observed", "item_id": item["id"]}
+                    save_state(directory, state)
+                    return
+            time.sleep(0.25)
+        raise TimeoutError("The response has not appeared in task history yet")
+    except Exception as error:
+        delivery["observation"] = {"status": "unconfirmed", "error": str(error)}
+        save_state(directory, state)
+
 
 def capture_origin():
     thread_id = os.environ.get("CODEX_THREAD_ID", "")
@@ -150,19 +199,23 @@ def deliver(directory, state):
         bridge = Bridge(state["origin"])
         bridge.discover()
         bridge.verify()
+        previous = [item["id"] for item in bridge.response_items() if item.get("id")]
     except Exception as error:
         state["delivery"] = {"status": "failed", "error": str(error)}
         save_state(directory, state)
         return
-    state["delivery"] = {"status": "sending"}
+    state["delivery"] = {"status": "sending", "previous_item_ids": previous}
     save_state(directory, state)
     try:
         receipt = bridge.call("send_message_to_thread", {
             "threadId": state["origin"]["thread_id"], "hostId": state["origin"]["host_id"],
             "prompt": state["message"],
         }, f"dialog-submit-{state['request_id']}")
-        state["delivery"] = {"status": "accepted", "receipt": receipt}
+        state["delivery"].update(status="accepted", receipt=receipt,
+                                 observation={"status": "waiting"})
     except Exception as error:
         # This may have reached the app even if its acknowledgement was lost.
         state["delivery"] = {"status": "unknown", "error": str(error)}
     save_state(directory, state)
+    if state["delivery"]["status"] == "accepted":
+        observe_response(directory, state, bridge)

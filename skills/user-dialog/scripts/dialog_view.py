@@ -67,7 +67,7 @@ class View:
                     child = parent
                 if widget:
                     self.ui.focus(widget)
-            self.ui.message(str(error))
+            self.ui.message(str(error), error=True)
             return str(error)
         return None
 
