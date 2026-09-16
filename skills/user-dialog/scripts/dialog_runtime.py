@@ -21,23 +21,26 @@ from dialog_spec import format_response
 from dialog_view import View
 from dialog_style import DialogStyle
 from dialog_layout import DialogLayout
+from dialog_presentation import Presentation
 from dialog_delivery import deliver, confirm_delivery
 
 
 STYLE = """
 .user-dialog {
+  font-family: "Pretendard";
+  font-size: 15px;
   --accent-bg-color: var(--accent-blue);
   --accent-color: oklab(from var(--accent-bg-color) var(--standalone-color-oklab));
   --accent-fg-color: white;
 }
-.user-dialog .title-1 { font-size: 21px; }
+.user-dialog .title-1 { font-size: 22px; }
+.user-dialog .monospace { font-family: "D2Coding"; font-size: 14px; }
 .user-dialog .dialog-error { color: var(--error-color); }
+.user-dialog .dialog-render-cover { background: var(--window-bg-color); }
 .user-dialog .dialog-group { padding: 16px; }
 .user-dialog .dialog-editor { border-radius: 10px; border: 1px solid alpha(currentColor, 0.12); padding: 10px; }
 .user-dialog .dialog-document, .user-dialog .dialog-document text { background: transparent; }
 .user-dialog .dialog-document-card { background: var(--view-bg-color); border: 1px solid alpha(currentColor, 0.08); border-radius: 14px; }
-.user-dialog .dialog-code-block { background: CODE_BACKGROUND; border-radius: 10px; }
-.user-dialog .dialog-code-header { padding: 4px 10px; }
 .user-dialog .dialog-document-header { padding: 8px 14px; }
 .user-dialog .dialog-document-name { font-size: 0.9em; font-weight: 500; color: alpha(currentColor, 0.6); }
 .user-dialog button.dialog-document-name { padding: 0; min-height: 0; }
@@ -52,6 +55,7 @@ class Dialog:
         self._submitting = False
         self._updating = False
         self.live = None
+        self.documents = set()
         self._layout_source = 0
         self._layout_last = None
         self._delivery_cancel = threading.Event()
@@ -78,7 +82,9 @@ class Dialog:
         self.scroller.set_child(self.content)
         self.scroller.set_propagate_natural_height(True)
         self.scroller.set_max_content_height(720)
-        self.toolbar.set_content(self.scroller)
+        self.body_overlay = Gtk.Overlay()
+        self.body_overlay.set_child(self.scroller)
+        self.toolbar.set_content(self.body_overlay)
         self.status_label = Gtk.Label(wrap=True, xalign=0)
         self.status_label.set_visible(False)
         self._sending_source = 0
@@ -101,6 +107,7 @@ class Dialog:
         self._checkpoint_source = 0
         self._keyboard = Keyboard(self)
         self.layout = DialogLayout(self)
+        self.presentation = Presentation(self)
 
     def set_content(self, widget):
         if not isinstance(widget, Gtk.Widget):
@@ -303,6 +310,9 @@ class Dialog:
         if self._layout_source:
             GLib.source_remove(self._layout_source)
         self.layout.close()
+        self.presentation.cancel()
+        for document in list(self.documents):
+            document.close_document()
         self.style.close()
         self.window.destroy()
         self.app.quit()
@@ -332,6 +342,7 @@ class Dialog:
         self.checkpoint()
         self.refit()
         self._checkpoint_source = GLib.timeout_add(500, self.checkpoint)
+        self.presentation.initial()
         self.window.present()
         self.state["status"] = "open"
         from dialog_state import save_state
@@ -347,6 +358,9 @@ class Dialog:
 
     def prune_widgets(self):
         """Drop detached view bookkeeping after a committed or rejected update."""
+        for document in list(self.documents):
+            if document.get_root() != self.window:
+                document.close_document()
         self.style.prune(self.window)
         self._keyboard.prune()
         self.layout.prune()
@@ -358,6 +372,8 @@ class Dialog:
         for path, (node, widget) in self.view.records.items():
             records.append({'path': list(path), 'type': node['type'], 'size': [widget.get_width(), widget.get_height()],
                             'mapped': widget.get_mapped(), 'opacity': widget.get_opacity(),
+                            'documents': [[w.web.get_width(), w.web.get_height(), w._height, w.dialog_ready]
+                                          for w in descendants(widget) if hasattr(w, 'dialog_ready')],
                             'text_views': [[w.get_width(), w.get_height(), w.get_vadjustment().get_value(),
                                             w.get_vadjustment().get_upper()]
                                            for w in descendants(widget) if isinstance(w, Gtk.TextView)]})
@@ -375,6 +391,11 @@ class Dialog:
         """Export this renderer's own widget tree, without reading the desktop."""
         if self._finished:
             return GLib.SOURCE_REMOVE
+        from dialog_layout import documents_ready
+        if not documents_ready(self.content):
+            return GLib.SOURCE_CONTINUE
+        if self.presentation.busy:
+            return GLib.SOURCE_CONTINUE
         paintable = Gtk.WidgetPaintable.new(self.window)
         snapshot = Gtk.Snapshot()
         paintable.snapshot(snapshot, self.window.get_width(), self.window.get_height())

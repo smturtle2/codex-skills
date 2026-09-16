@@ -1,13 +1,19 @@
 ---
 name: user-dialog
-description: Create a purpose-built popup interface to communicate with the user and return their response to the conversation.
+description: Compose popups with inputs, Markdown documents, and image or document file paths, then return the user's response to the conversation.
 ---
 
 # User Dialog
 
 Compose basic UI elements freely in JSON for the communication purpose, using
-file paths for documents and images. Run the provided script; do not create
-request-specific executable scripts. Set `SKILL_DIR` to this skill's absolute directory.
+inputs and file paths for documents and images. Run the provided script; do not
+create request-specific executable scripts. Set `SKILL_DIR` to this skill's
+absolute directory.
+
+Use `markdown` for body content, from brief explanations to full documents,
+and `file` for existing documents or images. Markdown is unframed by default;
+title, border, source-copy, and code-copy controls are independent display options.
+See the [view contract](references/view-contract.md) for supported syntax and options.
 
 Run from the session project root. Keep request JSON, state, and logs in
 `.codex-skills/user-dialog/<run-id>/` unless the user chooses another workspace.

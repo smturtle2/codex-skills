@@ -2,9 +2,12 @@
 
 from gi.repository import Adw, Gdk, Gtk, Pango
 
+from dialog_fonts import register_fonts
+
 
 class DialogStyle:
     def __init__(self, css):
+        register_fonts()
         self.css = css
         self.targets = []
         self.manager = Adw.StyleManager.get_default()
@@ -13,35 +16,27 @@ class DialogStyle:
         Gtk.StyleContext.add_provider_for_display(self.display, self.provider,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.signals = [self.manager.connect("notify::dark", self.refresh)]
-        if self.manager.find_property("monospace-font-name"):
-            self.signals.append(self.manager.connect("notify::monospace-font-name", self.refresh))
         self.refresh()
 
     def refresh(self, *args):
-        self.background = "#303030" if self.manager.get_dark() else "#f0f0f0"
-        if self.manager.find_property("monospace-font-name"):
-            self.font = Pango.FontDescription.from_string(self.manager.get_property("monospace-font-name"))
-        else:
-            probe = Gtk.TextView(monospace=True)
-            self.font = probe.get_pango_context().get_font_description().copy()
-        self.provider.load_from_data(self.css.replace("CODE_BACKGROUND", self.background).encode())
-        for view, tags in self.targets:
-            self.apply(view, tags)
+        self.font = Pango.FontDescription.from_string("D2Coding")
+        self.font.set_absolute_size(14 * Pango.SCALE)
+        self.provider.load_from_data(self.css.encode())
+        for view in self.targets:
+            self.apply(view)
 
-    def bind(self, view, *tags):
-        self.targets.append((view, tags))
-        self.apply(view, tags)
+    def bind(self, view):
+        self.targets.append(view)
+        self.apply(view)
 
-    def apply(self, view, tags):
-        for tag in tags:
-            tag.set_property("font-desc", self.font)
-        if hasattr(view, "code_color"):
-            view.code_color.parse(self.background)
+    def apply(self, view):
+        if hasattr(view, 'document_theme'):
+            view.document_theme(self.manager.get_dark())
         view.queue_resize()
         view.queue_draw()
 
     def prune(self, root):
-        self.targets[:] = [(view, tags) for view, tags in self.targets if view.get_root() == root]
+        self.targets[:] = [view for view in self.targets if view.get_root() == root]
 
     def close(self):
         for signal in self.signals:

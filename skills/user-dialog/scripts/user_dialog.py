@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["markdown-it-py>=4,<5", "mdit-py-plugins>=0.5,<0.7", "Pygments>=2.19,<3", "bleach[css]>=6.2,<7"]
 # ///
 """Compose a dialog from JSON and send Markdown to its originating Codex task."""
 
@@ -15,7 +15,7 @@ import sys
 import uuid
 
 from dialog_state import encode, read_state, run_lock, save_state
-from dialog_spec import compile_request, read_json, parse_json, TYPES
+from dialog_spec import compile_request, read_json, parse_json, TYPES, walk
 from dialog_delivery import capture_origin, require_owner, deliver, confirm_delivery
 from dialog_updates import send_update
 
@@ -32,7 +32,13 @@ if (Gtk.get_major_version(), Gtk.get_minor_version()) < (4, 16):
     raise RuntimeError('GTK 4.16 or newer is required')
 if (Adw.get_major_version(), Adw.get_minor_version()) < (1, 6):
     raise RuntimeError('libadwaita 1.6 or newer is required')
-print(json.dumps({'python': sys.executable, 'gtk': [Gtk.get_major_version(), Gtk.get_minor_version(), Gtk.get_micro_version()], 'adwaita': [Adw.get_major_version(), Adw.get_minor_version(), Adw.get_micro_version()]}))
+try:
+    gi.require_version('WebKit', '6.0')
+    from gi.repository import WebKit
+    webkit = [WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version()]
+except (ValueError, ImportError):
+    webkit = None
+print(json.dumps({'python': sys.executable, 'gtk': [Gtk.get_major_version(), Gtk.get_minor_version(), Gtk.get_micro_version()], 'adwaita': [Adw.get_major_version(), Adw.get_minor_version(), Adw.get_micro_version()], 'webkit': webkit}))
 """
 
 
@@ -54,6 +60,12 @@ def candidates(explicit):
 
 def python_environment(executable):
     environment = os.environ.copy()
+    # The launcher uses uv's isolated pure-Python packages; the renderer uses
+    # the system interpreter that owns GI. Share package roots, not GI binaries.
+    import bleach, markdown_it, mdit_py_plugins, pygments
+    roots = list(dict.fromkeys(str(Path(module.__file__).resolve().parent.parent)
+                              for module in (bleach, markdown_it, mdit_py_plugins, pygments)))
+    environment["PYTHONPATH"] = os.pathsep.join([*roots, environment.get("PYTHONPATH", "")]).rstrip(os.pathsep)
     if os.name == "nt":
         binary = str(Path(executable).absolute().parent)
         environment["PATH"] = binary + os.pathsep + environment.get("PATH", "")
@@ -62,7 +74,7 @@ def python_environment(executable):
     return environment
 
 
-def find_python(explicit=None):
+def find_python(explicit=None, documents=False):
     failures = []
     for candidate in candidates(explicit):
         executable = shutil.which(candidate) or candidate
@@ -73,7 +85,11 @@ def find_python(explicit=None):
                                      text=True, encoding="utf-8", timeout=20,
                                      env=python_environment(executable))
             if process.returncode == 0:
-                return json.loads(process.stdout)
+                runtime = json.loads(process.stdout)
+                if documents and not runtime['webkit']:
+                    failures.append({'python': executable, 'error': 'Markdown documents require WebKitGTK 6.0 (gir1.2-webkit-6.0)'})
+                    continue
+                return runtime
             failures.append({"python": executable, "error": process.stderr.strip()})
         except (OSError, subprocess.TimeoutExpired, ValueError) as error:
             failures.append({"python": executable, "error": str(error)})
@@ -91,6 +107,12 @@ def read_request(source):
 
 def load_request(source, base=None):
     return compile_request(read_request(source), Path.cwd() if base is None else Path(base).expanduser().resolve())
+
+
+def has_documents(spec):
+    return any(node['type'] in {'markdown', 'text', 'code'} or
+               (node['type'] == 'file' and Path(node['path']).suffix.lower() in {'.md', '.markdown'})
+               for node in walk(spec['body']))
 
 
 def summary(directory, state):
@@ -122,7 +144,7 @@ def run_dialog(args):
             raise ValueError("--render-image requires --preview")
         spec = load_request(args.request)
         origin = None if args.preview else capture_origin()
-        runtime = find_python(args.python)
+        runtime = find_python(args.python, has_documents(spec))
         directory = Path(args.run_dir or Path.cwd() / ".codex-skills" / "user-dialog" / uuid.uuid4().hex).expanduser().resolve()
         directory.mkdir(parents=True, exist_ok=True)
     else:
@@ -154,7 +176,7 @@ def run_dialog(args):
             if state["status"] == "submitted":
                 print(encode(summary(directory, state)))
                 return 0
-            runtime = find_python(args.python)
+            runtime = find_python(args.python, has_documents(state['spec']))
             state.update(status="pending", response={})
         save_state(directory, state)
         command = [runtime["python"], str(Path(__file__).with_name("dialog_runtime.py")), str(directory)]

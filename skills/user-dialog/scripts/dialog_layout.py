@@ -39,6 +39,8 @@ class DialogLayout:
             if not isinstance(width, int) or width < 1:
                 raise ValueError('Width must be a positive integer')
             ui._preferred_width = width
+        if getattr(ui, 'presentation', None) and ui.presentation.holding:
+            return GLib.SOURCE_REMOVE
         display, surface = ui.window.get_display(), ui.window.get_surface()
         monitor = display.get_monitor_at_surface(surface) if surface else display.get_monitors().get_item(0)
         bounds = monitor.get_geometry() if monitor else None
@@ -68,3 +70,10 @@ class DialogLayout:
         for adjustment, handler in self.signals.values():
             adjustment.disconnect(handler)
         self.signals.clear()
+
+
+def documents_ready(root):
+    """Only mapped document surfaces need to finish before acknowledging paint."""
+    from dialog_reconcile import descendants
+    return all(getattr(widget, 'dialog_ready', True) for widget in descendants(root)
+               if widget.get_mapped())

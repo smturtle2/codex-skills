@@ -1,0 +1,21 @@
+{
+  "generated": "2026-09-16",
+  "pretendard": {
+    "source": "https://github.com/orioncactus/pretendard/releases/tag/v1.3.9",
+    "license_source": "https://github.com/orioncactus/pretendard/blob/v1.3.9/LICENSE",
+    "license": "LICENSE-Pretendard.txt",
+    "files": {
+      "Pretendard-Regular.otf": "3ffbacde6ab8411f1d2db54bb9b1f0b3ee2a738932033722cf0388c06aed1c93",
+      "Pretendard-Bold.otf": "2e91915fab54df71cc9598ebf608b2bdb54c6fe3c066ac61dff0bc44fca71cc7"
+    }
+  },
+  "d2coding": {
+    "source": "https://github.com/naver/d2-coding-font/tree/9d6f0559691ebe670a23fbf7b72a8dc42362f1fb/fonts/ttf",
+    "license_source": "https://github.com/naver/d2-coding-font/blob/9d6f0559691ebe670a23fbf7b72a8dc42362f1fb/OFL.txt",
+    "license": "LICENSE-D2Coding.txt",
+    "files": {
+      "D2Coding-Regular.ttf": "fdd2b06844f9e936390d5c8e47355156954098d41debf1b191a9bfbf272836d0",
+      "D2Coding-Bold.ttf": "26012946558de568b30d896a14c7c0c7a2c4147236c6835e9a84b268e28d73ae"
+    }
+  }
+}

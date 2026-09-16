@@ -1,6 +1,6 @@
 # user-dialog
 
-Compose basic UI elements in JSON to create a popup and receive the response in the originating Codex task.
+Compose popups freely with inputs plus Markdown documents and image or document file paths, then receive the response in the originating Codex task.
 
 [All skills](../../README.md#skills) · [한국어](user-dialog.ko.md)
 
@@ -10,9 +10,18 @@ Compose basic UI elements in JSON to create a popup and receive the response in 
 Use $skill-installer to install skills/user-dialog from https://github.com/smturtle2/codex-skills.
 ```
 
+## Runtime requirements
+
+The launcher uses uv to manage its Python dependencies. Markdown and standalone code surfaces additionally require the native WebKitGTK 6.0
+runtime; on Debian/Ubuntu, install the `gir1.2-webkit-6.0` package alongside the GTK and libadwaita runtime packages.
+
 ## Use
 
 Ask naturally, for example: “Use $user-dialog to ask me which deployment target to choose, with buttons for staging and production.”
+
+For authored content, use a `markdown` node with literal `text` or a `ref` to an input/choice value. Markdown files use the same renderer through `file`; both accept independent `display` options for title, border, source-copy, and code-copy controls.
+
+Popup text and controls use bundled Pretendard, and code uses D2Coding. Standalone code and Markdown code blocks share syntax colors, spacing, and a header with the language on the left and copy button on the right. Markdown files retain their filename and document frame by default. Fonts load locally without changing the system theme or installing system fonts.
 
 ## Working files
 

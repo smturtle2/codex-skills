@@ -82,6 +82,8 @@ class Keyboard:
             widget.set_accepts_tab(options.get("accepts_tab", False))
 
     def prepare(self, root):
+        if hasattr(root, 'dialog_ready'):
+            return
         if root not in self._configured:
             self._configured.add(root)
             self._apply(root)
@@ -121,6 +123,8 @@ class Keyboard:
 
         def controls(widget):
             if not widget.get_visible() or not widget.is_sensitive():
+                return
+            if hasattr(widget, 'dialog_ready'):
                 return
             if isinstance(widget, Gtk.Stack):
                 page = widget.get_visible_child()

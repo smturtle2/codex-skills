@@ -134,6 +134,12 @@ class FadeStack(Gtk.Stack):
 
 
 def select_page(stack, name):
+    ui = getattr(stack, 'dialog_ui', None)
+    if ui and ui._built and not ui._updating:
+        if ui.presentation.busy or name == stack.get_visible_child_name():
+            return
+        ui.presentation.change(lambda: stack.set_visible_child_name(name))
+        return
     if isinstance(stack, FadeStack):
         stack.select(name)
     else:
@@ -177,12 +183,12 @@ def fade_switcher(stack, children):
             button.set_group(group)
         else:
             group = button
-        button.connect('clicked', lambda _, name=child['id']: stack.select(name))
+        button.connect('clicked', lambda _, name=child['id']: select_page(stack, name))
         switcher.append(button)
         buttons[child['id']] = button
 
     def sync(*args):
-        name = stack.target if stack.phase else stack.get_visible_child_name()
+        name = stack.target if getattr(stack, 'phase', None) else stack.get_visible_child_name()
         if name in buttons:
             buttons[name].set_active(True)
 

@@ -12,7 +12,7 @@ class FieldError(ValueError):
 
 
 LAYOUTS = {"column", "row", "grid", "group", "tabs", "pages"}
-TYPES = LAYOUTS | {"text", "markdown", "code", "file", "input", "choice", "button", "separator", "table"}
+TYPES = LAYOUTS | {"markdown", "code", "file", "input", "choice", "button", "separator", "table"}
 
 
 def initial_value(node):
@@ -69,6 +69,12 @@ def compile_request(request, base):
         if not isinstance(node, dict):
             raise ValueError("Every view node must be an object")
         node = deepcopy(node)
+        if node.get('type') == 'text':
+            node['type'] = 'markdown'
+            if 'ref' in node:
+                node.pop('text', None)
+            else:
+                node.setdefault('text', '')
         if node.get("type") not in TYPES:
             raise ValueError(f"Unknown node type: {node.get('type')}")
         allowed = {"type", "id", "label", "visible_when", "enabled_when"}
@@ -76,7 +82,7 @@ def compile_request(request, base):
             allowed.add("children")
         if node["type"] in {"tabs", "pages"}:
             allowed.add("transition")
-        allowed |= {"text": {"text", "ref"}, "markdown": {"text"}, "code": {"text", "language"}, "file": {"path"}, "input": {"format", "multiline", "required", "value", "min", "max", "placeholder", "error", "browse_label", "clear_label", "true_label", "false_label"},
+        allowed |= {"markdown": {"text", "ref", "display"}, "code": {"text", "language"}, "file": {"path", "display"}, "input": {"format", "multiline", "required", "value", "min", "max", "placeholder", "error", "browse_label", "clear_label", "true_label", "false_label"},
                     "choice": {"options", "multiple", "required", "value", "error", "layout", "presentation"}, "separator": {"orientation"}, "table": {"columns", "rows"}, "button": {"action"}, "grid": {"columns"}, "pages": {"back_label", "next_label"}}.get(node["type"], set())
         if node["type"] in {"input", "choice"}:
             allowed.add("response_label")
@@ -112,10 +118,16 @@ def compile_request(request, base):
             raise ValueError("response_label must be a nonempty string")
         if "label" in node and not isinstance(node["label"], str):
             raise ValueError("Labels must be strings")
-        if kind == "text" and not isinstance(node.get("text", ""), str):
-            raise ValueError("Text content must be a string")
-        if kind == "markdown" and not isinstance(node.get("text"), str):
-            raise ValueError("Markdown needs string text content")
+        if kind == "markdown":
+            if ('text' in node) == ('ref' in node):
+                raise ValueError('Markdown needs exactly one of text or ref')
+            if 'text' in node and not isinstance(node['text'], str):
+                raise ValueError('Markdown text must be a string')
+        if 'display' in node:
+            display = node['display']
+            if (not isinstance(display, dict) or set(display) - {'title', 'border', 'copy_source', 'copy_code'}
+                    or any(type(value) is not bool for value in display.values())):
+                raise ValueError('display accepts boolean title, border, copy_source, copy_code')
         if kind == "code":
             if not isinstance(node.get("text"), str):
                 raise ValueError("Code needs string text content")
@@ -198,8 +210,8 @@ def compile_request(request, base):
             if value["type"] == "navigate" and value.get("page") not in {"next", "previous", *[child["id"] for child in target["children"]]}:
                 raise ValueError("Unknown navigation destination")
     for node in nodes:
-        if node["type"] == "text" and "ref" in node and (node["ref"] not in ids or ids[node["ref"]]["type"] not in {"input", "choice"}):
-            raise ValueError(f"Unknown text binding: {node['ref']}")
+        if node["type"] == "markdown" and "ref" in node and (not isinstance(node['ref'], str) or node["ref"] not in ids or ids[node["ref"]]["type"] not in {"input", "choice"}):
+            raise ValueError(f"Unknown Markdown binding: {node['ref']}")
     for node in nodes + result["actions"]:
         for key in ("visible_when", "enabled_when"):
             if key in node:

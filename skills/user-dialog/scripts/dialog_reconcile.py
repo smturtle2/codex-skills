@@ -2,9 +2,8 @@
 
 import hashlib
 from pathlib import Path
-import re
 
-from dialog_view import View, continuous_text
+from dialog_view import View, continuous_markdown
 
 
 def descendants(widget):
@@ -27,10 +26,9 @@ def assets(spec, base):
             paths.append(path)
             if path.suffix.lower() in {'.md', '.markdown'}:
                 text, directory = path.read_text(encoding='utf-8'), path.parent
-        if node['type'] in {'text', 'markdown', 'file'}:
-            for name in re.findall(r'!\[[^\]]*\]\(([^)]+)\)', text):
-                if '://' not in name:
-                    paths.append((directory / name).resolve())
+        if node['type'] in {'markdown', 'text'} or (node['type'] == 'file' and path.suffix.lower() in {'.md', '.markdown'}):
+            from dialog_document import compile_document
+            paths.extend(compile_document(text, directory).resources)
         for path in paths:
             if path.is_file():
                 with path.open('rb') as source:
@@ -117,7 +115,7 @@ class ViewUpdate:
                 layout = [(c['id'], c['label']) for c in before['children']] == [(c['id'], c['label']) for c in node['children']]
             shell = lambda n: {k: v for k, v in n.items() if k != 'children'}
             if layout and shell(before) == shell(node):
-                children = list(continuous_text(node['children'])) if node['type'] in {'column', 'group'} else node['children']
+                children = list(continuous_markdown(node['children'])) if node['type'] in {'column', 'group'} else node['children']
                 planned = [(child, self.plan(child, path + (child.get('id', f'@{i}'),)))
                            for i, child in enumerate(children)]
                 parent = getattr(widget, 'dialog_stack', widget)
@@ -170,6 +168,8 @@ class ViewUpdate:
                     return True
                 if isinstance(widget, self.ui.Gtk.Label) and widget.get_selection_bounds()[0]:
                     return True
+                if getattr(widget, 'dialog_has_selection', False):
+                    return True
         return False
 
     def apply(self):
@@ -211,10 +211,15 @@ class ViewUpdate:
             ui.refit()
             ui.prune_widgets()
             def restore_scroll():
+                from dialog_layout import documents_ready
+                if ui._finished:
+                    return False
+                if not documents_ready(ui.content):
+                    return True
                 for adjustment, value in offsets:
                     adjustment.set_value(value)
                 return False
-            ui.GLib.idle_add(restore_scroll)
+            ui.GLib.timeout_add(50, restore_scroll)
         finally:
             new.restoring = False
             ui._updating = False

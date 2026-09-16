@@ -1,0 +1,30 @@
+html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+html[data-theme="light"] { background: #ffffff; color-scheme: light; }
+html[data-theme="dark"] { background: #0d1117; color-scheme: dark; }
+html[data-border="false"] { background: var(--host-background); }
+[data-theme] .markdown-body { box-sizing: border-box; padding: 4px 18px 18px; min-width: 0; background: transparent; font-family: "Pretendard", sans-serif; font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; display: flow-root; }
+[data-border="false"] .markdown-body { padding: 0; }
+[data-theme] .markdown-body > section + section { margin-top: 16px; }
+[data-theme] .markdown-body > section > :first-child { margin-top: 0 !important; }
+[data-theme] .markdown-body > section > :last-child { margin-bottom: 0 !important; }
+[data-theme] .markdown-body > :first-child { margin-top: 0 !important; }
+[data-theme] .markdown-body > :last-child { margin-bottom: 0 !important; }
+[data-theme] .markdown-body img { max-width: 100%; height: auto; }
+[data-theme] .markdown-body .code-surface { border-radius: 8px; overflow: hidden; margin: 0 0 16px; }
+[data-theme="light"] .markdown-body .code-surface { background: #f0f0f0; color: #24292f; }
+[data-theme="dark"] .markdown-body .code-surface { background: #303030; color: #e6e6e6; }
+[data-theme] .markdown-body .code-surface:last-child { margin-bottom: 0; }
+[data-theme] .markdown-body .code-header { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 4px 10px 0 14px; box-sizing: border-box; }
+[data-theme] .markdown-body .code-caption { opacity: .65; font: 12px "Pretendard", sans-serif; }
+[data-theme] .markdown-body .code-surface pre { background: transparent; border: 0; border-radius: 0; margin: 0; padding: 10px 14px 14px; overflow-x: auto; }
+[data-theme] .markdown-body pre code { white-space: pre; overflow-wrap: normal; }
+[data-theme] .markdown-body .copy-code { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
+[data-theme] .markdown-body .copy-code:hover { background: #80808025; }
+[data-theme] .markdown-body table { max-width: 100%; overflow-x: auto; }
+[data-theme] .markdown-body .math.block { overflow-x: auto; padding: 6px 0; }
+[data-theme] .markdown-body .task-list-item { list-style: none; }
+[data-theme] .markdown-body input[type=checkbox] { margin: 0 .5em 0 -1.3em; }
+[data-theme] .markdown-body .mermaid svg { max-width: 100%; height: auto; }
+
+[data-theme] .markdown-body code, [data-theme] .markdown-body pre, [data-theme] .markdown-body kbd, [data-theme] .markdown-body samp { font-family: "D2Coding", monospace; font-size: 14px; line-height: 1.5; }
+[data-theme] .markdown-body h1 { font-size: 22px; }

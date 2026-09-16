@@ -15,7 +15,7 @@ Pass a JSON object as a file or stdin (`-`). Run from the project root and keep 
 
 ## Elements
 
-Node `type` selects the element. IDs must be unique across the request. Labels are user-facing strings.
+Node `type` selects the element. IDs must be unique across the request. Labels are literal user-facing UI strings.
 Layouts accept any nodes in `children`, including nested layouts; other elements do not accept `children`.
 
 | Type | Properties |
@@ -23,10 +23,9 @@ Layouts accept any nodes in `children`, including nested layouts; other elements
 | `column`, `row`, `group` | `children`, optional `label`; group renders a card. |
 | `grid` | `children`, `columns` 1..12 (default 2). |
 | `tabs`, `pages` | `children`, each with `id` and `label`; pages requires its own `id`, with optional `back_label`, `next_label`. Give tabs an `id` when targeting navigation. The visible child determines the stack's natural height. |
-| `text` | Formatted Markdown `text`, or `ref` naming an input/choice for live value display. |
-| `markdown` | Required string `text`; optional `label`. Renders a document card. |
+| `markdown` | `text` or `ref` (an input/choice current value shown literally); optional `label` and `display`. Renders the full Markdown body. |
 | `code` | Required string `text`; optional string `language` and `label`. Renders a standalone code surface and copies the exact text. |
-| `file` | Existing file `path`, optional `label`; previews images and text/Markdown, with an external-open link. Other formats provide a link. Markdown files render a document card. |
+| `file` | Existing file `path`, optional `label` and `display`; previews images and text/Markdown, with an external-open link. Other formats provide a link. Markdown files render the same Markdown body. |
 | `input` | Required `id`, `label`; `format`: `text` (default), `number`, `date`, `file`, `boolean`. |
 | `choice` | Required `id`, `label`, `options`; selection and content rules below. |
 | `button` | Required `label`, `action`. |
@@ -48,28 +47,37 @@ Lists show every option's content; dropdowns show the selected option's content 
 Only selected options contribute nested input values to the response.
 List `layout` is `{"type":"column"}` (default), `{"type":"row"}`, or `{"type":"grid","columns":2}` (1..12 columns).
 
-Text and Markdown nodes support headings, bold, emphasis, code, lists, simple tables, links, and standalone local images;
-they are not full CommonMark. Image paths in `text` and `markdown` nodes resolve from the project base. Repeated blank
-separators collapse, and the trailing blank separator is removed; code-block whitespace remains exact. Inline backtick
-code content remains literal.
-Text remains selectable continuously while sending and stays formatted as an explanation, without document chrome,
-source-copy controls, or code-block copy buttons.
-Adjacent static `text` nodes in a `column` or `group` share a selection area across paragraphs.
-Nodes with IDs, bindings, conditions, or fenced code retain their own area, as do separate controls and layouts.
+Markdown bodies use CommonMark through markdown-it-py with tables, strikethrough, task lists, and footnotes. A `markdown`
+node accepts either literal `text` or `ref`; a ref displays the current input/choice value literally. Relative image paths
+resolve from the project base. `text` remains a compatibility alias normalized to `markdown`.
 
-Standalone `code` nodes preserve and copy their exact `text`, with an optional `language` hint. They use a gray,
-code-toned background and share the system monospace font with fenced code in documents. Document surfaces use a
+Standalone `code` nodes preserve and copy their exact `text`, with an optional `language` hint.
+They share the Markdown code renderer, including syntax highlighting, spacing, and the language/copy header. They use a gray,
+code-toned background and share the bundled D2Coding font with fenced code in documents. Document surfaces use a
 separate white/light-theme surface (or the theme-appropriate dark surface); fenced code inside documents remains
 visually distinct from surrounding document text. Theme changes update both code presentations.
 
-Markdown nodes render a document card in the popup's main scroll area; there is no separate inner document scroller.
-Titles use one line with ellipsis when needed; a tooltip exposes the full title/path.
-Its title is `label` when provided, otherwise `Markdown`. The title opens the source `.md` file when applicable;
-the UI does not add a duplicated file link below it. The title's source-copy control copies the exact original Markdown,
-and code-block buttons copy code without fences; each clicked copy control briefly shows a check icon in place of a toast.
-Files ending in `.md` or `.markdown` render the same document card, titled by `label` when provided or by the filename.
-Markdown file image paths resolve from the Markdown file's directory. File path convenience is unchanged.
+Markdown bodies render in the popup's main scroll area; there is no separate inner document scroller. They support relative
+assets, image dimensions and alignment, anchors, Pygments code highlighting, and GitHub Markdown CSS styling. Dollar-
+delimited math is rendered with the bundled KaTeX assets when present. Mermaid fenced diagrams are rendered when present.
+The document renderer uses WebKitGTK 6.0. Markdown parsing scopes remain separate when adjacent bodies share one surface.
+
+`display` is an object of booleans and independently controls `title`, `border`, `copy_source`, and `copy_code`. All four default to `false` for
+`markdown`, producing a bare full Markdown body. For `.md` and `.markdown` `file` nodes, all four default to `true` to
+preserve the convenient filename/source-copy document view. Explicit properties override these defaults independently.
+`label` only supplies the title text; it does not make the title visible. Titles use one line with ellipsis when needed,
+with a tooltip exposing the full title/path. When shown, the title is `label` for authored Markdown and the `label` or
+filename for Markdown files. Source-copy copies the exact original Markdown, and code-block controls copy code without
+fences; each clicked copy control briefly shows a check icon in place of a toast.
+Markdown file image paths resolve from the Markdown file's directory. File path convenience is unchanged, including image
+preview and external-open links for other file types.
+Adjacent unkeyed static bare Markdown bodies in a `column` or `group` coalesce into one continuous selectable surface,
+without merging their Markdown parsing scopes. Bodies with IDs, bindings, conditions, or display chrome retain their own
+surface, as do separate controls and layouts.
 All content remains selectable while a response is sending.
+
+Popup controls and Markdown prose use bundled Pretendard; standalone and Markdown code use D2Coding.
+Fonts load locally for the popup without system installation. Theme colors remain independent of typography.
 
 ## Conditions and actions
 
@@ -105,8 +113,8 @@ Choices use option labels; attachments use file links; empty/inactive fields and
   "body": {"type": "column", "children": [
     {"type": "choice", "id": "format", "label": "Output format", "presentation": "dropdown",
      "options": [
-       {"value": "pdf", "label": "PDF", "content": [{"type": "text", "text": "Ready to share"}]},
-       {"value": "md", "label": "Markdown", "content": [{"type": "text", "text": "Editable source"}]}
+       {"value": "pdf", "label": "PDF", "content": [{"type": "markdown", "text": "Ready to share"}]},
+       {"value": "md", "label": "Markdown", "content": [{"type": "markdown", "text": "Editable source"}]}
      ]},
     {"type": "input", "id": "notes", "label": "Additional details", "multiline": true}
   ]},
@@ -117,8 +125,11 @@ Choices use option labels; attachments use file links; empty/inactive fields and
 ## Runtime
 
 Commands use `uv run --script "$SKILL_DIR/scripts/user_dialog.py" …`.
-The launcher needs Python 3.11+; the native renderer needs PyGObject, GTK 4.16+, and libadwaita 1.6+.
-On Debian/Ubuntu these are `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1`; uv does not install native libraries.
+The launcher needs Python 3.11+; uv supplies the Python dependencies. The native renderer needs PyGObject,
+GTK 4.16+, and libadwaita 1.6+. Markdown bodies and standalone code additionally need WebKitGTK 6.0. On Debian/Ubuntu these are
+`python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1`, and `gir1.2-webkit-6.0`; uv does not install native libraries.
+Document styles and math/diagram engines are bundled locally, with versions and licenses under `assets/document/vendor`.
+Hidden document tabs load on first display; ordinary documents do not load the math or diagram engines.
 Normal delivery requires the originating local Codex desktop connection and a Codex CLI supporting
 `thread/items/list`. `USER_DIALOG_CODEX` selects the CLI (default: `codex` on PATH).
 The runtime starts a temporary read-only app-server to confirm the response, then stops it.

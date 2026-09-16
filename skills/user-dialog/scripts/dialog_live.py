@@ -3,7 +3,6 @@
 from dialog_reconcile import ViewUpdate, assets
 from dialog_spec import compile_request
 from dialog_state import save_state
-from dialog_transition import FadeGroup, FadeTransition
 from dialog_updates import read_pending, write_result
 
 
@@ -30,7 +29,7 @@ class LiveUpdates:
         ui = self.ui
         if self.closed:
             return False
-        if self.transition is not None or self.frame_handler is not None:
+        if self.transition is not None or self.frame_handler is not None or ui.presentation.busy:
             return True
         try:
             if self.pending is None:
@@ -58,12 +57,8 @@ class LiveUpdates:
                     ui.state['update'] = marker
                     save_state(ui.run_dir, ui.state)
                 return True
-            changed = [widget for _, widget in plan.new.records.values() if widget not in plan.retained]
-            targets = list(dict.fromkeys([*plan.removed, *changed]))
-            # Avoid multiplying opacity when changed widgets contain one another.
-            targets = [w for w in targets if not any(w != other and w.is_ancestor(other) for other in targets)]
-            self.transition = FadeTransition(FadeGroup(ui.window, targets), 320)
-            self.transition.run(self.apply, self.finished)
+            self.transition = ui.presentation
+            ui.presentation.change(self.apply, self.finished)
         except (ValueError, OSError, TypeError, KeyError) as error:
             if self.pending:
                 self.result(self.pending[0], 'rejected', str(error))
@@ -106,6 +101,10 @@ class LiveUpdates:
         self.ui.window.queue_draw()
 
     def painted(self, *args):
+        from dialog_layout import documents_ready
+        if not documents_ready(self.ui.content):
+            self.ui.window.queue_draw()
+            return
         if self.frame_handler:
             clock, handler = self.frame_handler
             self.frame_handler = None

@@ -2,27 +2,32 @@
 
 from pathlib import Path
 
-from dialog_content import code_block, file_content, label, markdown, markdown_document
+from dialog_content import code_block, file_content, label, markdown_document
 from dialog_spec import FieldError, initial_value, matches, validate_values, walk
 from dialog_transition import FadeStack, fade_switcher, select_page
 
 
-def continuous_text(children):
-    """Coalesce adjacent static prose without changing independent node rules."""
+def continuous_markdown(children):
+    """Share one surface for adjacent bare bodies, keeping parsing scopes separate."""
     pending = []
+    def joined():
+        if len(pending) == 1:
+            return pending[0]
+        parts = [node.get('text', '') for node in pending]
+        return {'type': 'markdown', 'text': '\n\n'.join(parts), '_segments': parts}
     for node in children:
-        prose = (node['type'] == 'text'
-                 and not set(node) - {'type', 'text', 'children'}
-                 and '```' not in node.get('text', ''))
-        if prose:
-            pending.append(node.get('text', ''))
+        bare = (node['type'] in {'markdown', 'text'}
+                and not set(node) - {'type', 'text', 'children', 'display'}
+                and not any(node.get('display', {}).values()))
+        if bare:
+            pending.append(node)
             continue
         if pending:
-            yield {'type': 'text', 'text': '\n\n'.join(pending)}
+            yield joined()
             pending.clear()
         yield node
     if pending:
-        yield {'type': 'text', 'text': '\n\n'.join(pending)}
+        yield joined()
 
 
 class View:
@@ -66,7 +71,7 @@ class View:
     def refresh(self):
         for widget, key in self.text_bindings:
             value = self.values.get(key)
-            widget.set_text('' if value is None else str(value))
+            widget.set_text('' if value is None else str(value), literal=True)
         for widget, node in self.rules:
             widget.set_visible(matches(node.get('visible_when'), self.values))
             widget.set_sensitive(matches(node.get('enabled_when'), self.values))
@@ -140,18 +145,16 @@ class View:
         ui = self.ui
         Gtk = ui.Gtk
         kind = node['type']
-        if kind == 'text':
+        if kind in {'markdown', 'text'}:
+            widget = markdown_document(ui, node.get('text', ''), Path(ui.state['base']),
+                                       node.get('label') or 'Markdown', display=node.get('display'),
+                                       segments=node.get('_segments'))
             if 'ref' in node:
-                widget = label(ui, '')
                 self.text_bindings.append((widget, node['ref']))
-            else:
-                widget = markdown(ui, node.get('text', ''), Path(ui.state['base']))
-        elif kind == 'markdown':
-            widget = markdown_document(ui, node['text'], Path(ui.state['base']), node.get('label') or 'Markdown')
         elif kind == 'code':
             widget = code_block(ui, node['text'], node.get('language', ''), node.get('label'))
         elif kind == 'file':
-            widget = file_content(ui, node['path'], node.get('label'))
+            widget = file_content(ui, node['path'], node.get('label'), node.get('display'))
         elif kind == 'separator':
             widget = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL if node.get('orientation') == 'vertical' else Gtk.Orientation.HORIZONTAL)
         elif kind == 'table':
@@ -174,7 +177,7 @@ class View:
                 widget.dialog_heading = heading
             children = node.get('children', [])
             if kind in {'column', 'group'}:
-                children = continuous_text(children)
+                children = continuous_markdown(children)
             for index, child in enumerate(children):
                 built = self.render(child, path + (child.get('id', f'@{index}'),))
                 if kind == 'grid':
@@ -197,13 +200,11 @@ class View:
             stack = (FadeStack(transition.get('duration', 320)) if sequential else
                      Gtk.Stack(transition_type=effects[transition.get('type', 'none')],
                                transition_duration=transition.get('duration', 120), vhomogeneous=False))
+            stack.dialog_ui = ui
             stack.connect('notify::visible-child', lambda *_: ui.GLib.idle_add(ui.refit) if ui._built else None)
-            if kind == 'tabs' and not sequential:
-                switcher = Gtk.StackSwitcher(stack=stack)
-                widget.append(switcher)
             for child in node['children']:
                 stack.add_titled(self.render(child, path + (child['id'],)), child['id'], child['label'])
-            if kind == 'tabs' and sequential:
+            if kind == 'tabs':
                 widget.append(fade_switcher(stack, node['children']))
             widget.append(stack)
             widget.dialog_stack = stack
