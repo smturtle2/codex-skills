@@ -23,7 +23,7 @@ from .store import (
 
 
 def _add_locator(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--root", type=pathlib.Path, default=DEFAULT_ROOT, help="Session root (default: world-runs)")
+    parser.add_argument("--root", type=pathlib.Path, default=DEFAULT_ROOT, help=f"Session root (default: {DEFAULT_ROOT.as_posix()})")
     parser.add_argument("--session", help="Session ID; defaults to the active session")
 
 
@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     start = commands.add_parser("start", help="Create or resume a world and run its browser UI")
-    start.add_argument("--root", type=pathlib.Path, default=DEFAULT_ROOT)
+    start.add_argument("--root", type=pathlib.Path, default=DEFAULT_ROOT, help=f"Session root (default: {DEFAULT_ROOT.as_posix()})")
     start.add_argument("--session", help="Existing session ID to resume")
     start.add_argument("--host", default="127.0.0.1")
     start.add_argument("--port", type=int, default=8765)

@@ -22,6 +22,10 @@ Provide a character image with the request below. You can also describe a new ch
 Use $animation-creator to make this fox wave and settle back into its idle pose as a looping WebP.
 ```
 
+## Working files
+
+When a run needs working or resumable files, use the project-root-relative `.codex-skills/animation-creator/<run-id>/` workspace. An explicitly requested work location wins; resume an existing older location in place. Keep resumable data, remove only expendable intermediates created by this run, and put final deliverables at the destinations requested by the user.
+
 ## Output
 
 Animated WebP files plus the canonical reference, frame sheets, extracted frames, contact sheets, and validation records.

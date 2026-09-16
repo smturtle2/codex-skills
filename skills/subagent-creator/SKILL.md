@@ -7,6 +7,10 @@ description: Create, update, or preview Codex custom-agent TOML definitions from
 
 Produce the requested number and partition of role definitions. Do not merge requested variants, invent extra roles, run the agents, or modify global `[agents]`, skills, plugins, or unrelated configuration.
 
+If drafts or other working files are needed, use the project-root-relative `.codex-skills/subagent-creator/<run-id>/` unless the user chooses another workspace. Use a unique ID for new work and reuse its path when continuing. Keep final definitions at the target scope below; do not create a workspace for direct writes or stdin previews. Preserve unfinished work and remove only expendable files from your run.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
+
 ## Choose the Target
 
 - `create`: write new definitions without overwriting existing ones.

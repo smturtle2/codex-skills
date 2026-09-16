@@ -7,6 +7,10 @@ description: Generate or edit raster images with the built-in image tool and sav
 
 Complete one generation-and-save cycle per requested asset or variant. Use the built-in `image_gen` tool without API or CLI fallbacks.
 
+Save images at the requested destination, including a calling skill's run folder for intermediate assets. If separate working files are needed, use the project-root-relative `.codex-skills/image-creator/<run-id>/` unless another workspace was requested; choose a unique ID for new work and reuse its path when continuing. Do not create an empty workspace for a direct generation-and-save cycle. Preserve files needed for recovery and remove only expendable files from this run.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
+
 ## Prepare the Request
 
 - Separate creative instructions from input paths, destination, and overwrite permission.

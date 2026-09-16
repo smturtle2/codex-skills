@@ -7,6 +7,10 @@ description: Turn supplied documents, websites, or YouTube sources into a one-pe
 
 Create a source-grounded monologue in the user's requested language, angle, audience, length, and tone.
 
+Keep collection, transcription, evidence, draft, and review files under the project-root-relative `.codex-skills/podcast-writer/<run-id>/` unless the user chooses another workspace. Use a unique ID for a new episode and reuse its existing folder when continuing, including older locations. Pass paths within that run to helpers and evaluators. Keep the final script at its requested output destination.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
+
 ## Workflow
 
 1. Identify the supplied sources and requested output. Default the final file to `scripts/<descriptive-name>.txt` under the session project, never the skill's own scripts directory.

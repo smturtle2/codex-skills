@@ -18,6 +18,10 @@ Use $skill-installer to install skills/idea-scribe from https://github.com/smtur
 Use $idea-scribe. I’ll think aloud about a neighborhood book club. Record and organize without interrupting.
 ```
 
+## Working files
+
+If a session needs separate working state, use the project-root-relative `.codex-skills/idea-scribe/<run-id>/` workspace. An explicitly requested destination for `raw.txt` or `organized.html` wins; resume older existing locations in place, retain resumable data, and remove only expendable intermediates created by this run.
+
 ## Output
 
 `raw.txt` preserves the original stream; `organized.html` holds the current brief.

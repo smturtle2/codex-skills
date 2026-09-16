@@ -6,6 +6,8 @@ Use when authoring a TurnBundle and its contract is not already in context. Load
 
 Use `uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" <command>`, with `SKILL_DIR` set to this skill's absolute directory. Commands accept `--root <storage-root>` and `--session <id>`; keep the same locator throughout a session.
 
+The default storage root is `.codex-skills/world-simulator/` relative to the session project root. The session ID names the run folder beneath it. Write working bundles there and keep existing storage locations when resuming.
+
 - `next`: claim browser input and return `session`, `turn`, focus records, the complete active `world_index`, and `inspect_hint`.
 - `inspect [query]`: retrieve GM-visible records and history without a result cap.
 - `commit <bundle.json>`: validate and atomically persist the claimed turn.

@@ -23,7 +23,7 @@ MIN_BOARD_SIZE = 5
 MAX_BOARD_SIZE = 25
 MIN_WINDOW_WIDTH = 560
 MIN_WINDOW_HEIGHT = 620
-DEFAULT_STATE_PATH = pathlib.Path(".codex-gomoku/state.json")
+DEFAULT_STATE_PATH = pathlib.Path(".codex-skills/gomoku/default/state.json")
 
 
 class GomokuError(ValueError):
@@ -971,6 +971,7 @@ def hint_text(state: dict[str, Any]) -> str:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Play Gomoku with Codex through a Pygame GUI and managed game state.")
+    parser.add_argument("--run-dir", type=pathlib.Path, help="Game workspace; stores state.json here. Use a distinct folder per session. Overrides GOMOKU_STATE_PATH; without either, uses .codex-skills/gomoku/default.")
     parser.add_argument("--size", type=int, default=15)
     parser.add_argument("--human", choices=("black", "white"), default="black", help="Human player color for new games.")
     parser.add_argument("--renju", action="store_true", help="Enable Renju restrictions for black.")
@@ -1007,7 +1008,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
-    state_path = pathlib.Path(os.environ.get("GOMOKU_STATE_PATH", DEFAULT_STATE_PATH))
+    state_path = (
+        args.run_dir / "state.json"
+        if args.run_dir is not None
+        else pathlib.Path(os.environ.get("GOMOKU_STATE_PATH", DEFAULT_STATE_PATH))
+    ).expanduser()
     try:
         if args.reset:
             save_state(state_path, new_state(args.size, args.human, args.renju))

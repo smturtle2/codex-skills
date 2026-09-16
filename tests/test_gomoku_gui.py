@@ -31,6 +31,36 @@ def script_env(state_path: pathlib.Path) -> dict[str, str]:
 
 
 class GomokuGuiTests(unittest.TestCase):
+    def test_cli_workspaces_are_isolated_and_legacy_state_remains_usable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = pathlib.Path(tmpdir)
+            legacy = project / "legacy/state.json"
+            first = pathlib.Path(".codex-skills/gomoku/first")
+            second = pathlib.Path(".codex-skills/gomoku/second")
+
+            def invoke(*args, env=None):
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), *args], cwd=project,
+                    env=env or script_env(legacy), capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return json.loads(result.stdout)
+
+            started = invoke("--run-dir", str(first), "--start-game")
+            self.assertTrue(started["setup_complete"])
+            invoke("--run-dir", str(second))
+            self.assertFalse(legacy.exists())  # Explicit CLI workspace takes precedence.
+            self.assertTrue(invoke("--run-dir", str(first))["setup_complete"])
+            self.assertFalse(invoke("--run-dir", str(second))["setup_complete"])
+            invoke("--start-game")
+            self.assertTrue(legacy.is_file())
+            self.assertTrue(invoke()["setup_complete"])
+            env = os.environ.copy()
+            env.pop("GOMOKU_STATE_PATH", None)
+            invoke(env=env)
+            self.assertTrue((project / ".codex-skills/gomoku/default/state.json").is_file())
+            self.assertFalse((project / ".codex-gomoku").exists())
+
     def test_new_state_defaults_to_empty_black_turn(self) -> None:
         state = gomoku_gui.new_state()
 

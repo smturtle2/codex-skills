@@ -9,7 +9,7 @@ import time
 import uuid
 from typing import Any
 
-DEFAULT_ROOT = pathlib.Path("world-runs")
+DEFAULT_ROOT = pathlib.Path(".codex-skills/world-simulator")
 ACTIVE_FILE = ".world-simulator-active.json"
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 VALID_MODES = {"studio", "play"}

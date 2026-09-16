@@ -7,14 +7,16 @@ description: Play 오목/Gomoku against the user on a local GUI board, with Code
 
 Codex chooses moves; the Python/Pygame helper displays the board and validates legality. During play, do not write or run an AI search/scoring engine or read the backing storage. Use the helper's Codex view.
 
-Set `SKILL_DIR` to this skill's absolute directory and run from the session project. The script declares its pygame dependency for uv.
+Set `SKILL_DIR` to this skill's absolute directory and run from the session project root. Store game state in `.codex-skills/gomoku/<run-id>/` unless the user chooses another workspace. Choose a unique ID for a new game session and pass the same `--run-dir` on every call; reuse the original folder to resume. For an older standalone state file, keep using `GOMOKU_STATE_PATH` instead. Preserve game state while play or resumption is needed. The script declares its pygame dependency for uv.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
 
 ## Start and Play
 
 Launch the GUI:
 
 ```bash
-uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --gui
+uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --run-dir <run-dir> --gui
 ```
 
 New games open on settings. Let the user choose them and click Start Game; use `--start-game` only when the user explicitly requests starting with the current settings. Settings changes alone do not start play.
@@ -24,20 +26,20 @@ Repeat the turn loop:
 1. Wait for the game to start and Codex's turn:
 
    ```bash
-   uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --wait-for-codex-turn
+   uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --run-dir <run-dir> --wait-for-codex-turn
    ```
 
 2. Read the returned status and `ascii_board`. If the game ended, report the winner or draw.
 3. Before choosing a move, read [references/tactics.md](references/tactics.md) if not already in context, then inspect tactical facts:
 
    ```bash
-   uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --threat-view
+   uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --run-dir <run-dir> --threat-view
    ```
 
 4. Choose a legal move from the visible board and those facts, then apply it:
 
    ```bash
-   uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --codex-move <row> <col>
+   uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --run-dir <run-dir> --codex-move <row> <col>
    ```
 
 5. Immediately start the next wait.

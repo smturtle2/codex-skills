@@ -18,6 +18,10 @@ Use $skill-installer to install skills/idea-scribe from https://github.com/smtur
 $idea-scribe로 동네 독서 모임 아이디어를 정리해줘. 내가 계속 말할 테니 끼어들지 말고 기록해.
 ```
 
+## 작업 파일
+
+세션에 별도 작업 상태가 필요하면 프로젝트 루트 기준 `.codex-skills/idea-scribe/<run-id>/`를 사용합니다. 사용자가 `raw.txt`나 `organized.html`의 저장 위치를 지정하면 그 위치를 우선하고, 기존 위치는 옮기지 않고 그 자리에서 재개합니다. 재개에 필요한 데이터는 보존하고 이번 실행에서 만든 폐기 가능한 중간 파일만 정리합니다.
+
 ## 결과물
 
 `raw.txt`에는 원문이 쌓이고, `organized.html`에는 현재 정리본이 남습니다.

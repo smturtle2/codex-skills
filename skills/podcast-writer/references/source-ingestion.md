@@ -8,7 +8,7 @@ Read this for YouTube sources or when ordinary extraction is insufficient. Set `
 - PDF: extract text; inspect rendered pages or use OCR if text extraction is unreliable.
 - Website: fetch the current body and remove navigation, ads, comments, related links, and other page furniture.
 
-Keep source identity and factual uncertainty in working evidence notes so the evaluator can verify the script.
+Keep source identity and factual uncertainty in evidence notes under this episode's `.codex-skills/podcast-writer/<run-id>/` workspace (or the requested work location) so the evaluator can verify the script. Save collected text and helper transcript output in the same run.
 
 ## YouTube
 

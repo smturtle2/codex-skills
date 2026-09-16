@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -562,7 +563,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", help="Optional input manifest JSON.")
     parser.add_argument("--project-root", default=".", help="Session project root. Defaults to the current directory.")
-    parser.add_argument("--run-dir", help="Existing or new run directory. Relative paths resolve from --project-root.")
+    parser.add_argument("--run-dir", help="Existing or new workspace, relative to --project-root. Default: .codex-skills/animation-creator/<unique-id>.")
     parser.add_argument("--output-dir", help="Alias for --run-dir.")
     parser.add_argument("--name", default="")
     parser.add_argument("--character-name", default="")
@@ -706,8 +707,8 @@ def main() -> None:
         run_dir = resolve_project_path(raw_run_dir, project_root)
     else:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        run_dir = (project_root / "animation-runs" / f"{run_name}-{timestamp}").resolve()
-    run_dir.mkdir(parents=True, exist_ok=True)
+        run_dir = (project_root / ".codex-skills" / "animation-creator" / f"{run_name}-{timestamp}-{uuid.uuid4().hex[:8]}").resolve()
+    run_dir.mkdir(parents=True, exist_ok=bool(raw_run_dir))
     existing_jobs = existing_jobs_by_id(run_dir)
 
     prompts_dir = run_dir / "prompts"

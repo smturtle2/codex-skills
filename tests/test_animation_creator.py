@@ -137,8 +137,7 @@ class AnimationCreatorTests(unittest.TestCase):
             project.mkdir()
             env = self.fake_rembg_env(root)
 
-            prepared = self.run_script(
-                "prepare_animation_run.py",
+            prepare_args = (
                 "--project-root",
                 str(project),
                 "--character-name",
@@ -151,11 +150,15 @@ class AnimationCreatorTests(unittest.TestCase):
                 "friendly waving loop",
                 "--frame-actions",
                 "; ".join(WAVE_BEATS),
-                cwd=project,
-                env=env,
             )
+            prepared = self.run_script("prepare_animation_run.py", *prepare_args, cwd=project, env=env)
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
             run_dir = pathlib.Path(prepared.stdout.strip())
+            self.assertEqual(run_dir.parent, project / ".codex-skills/animation-creator")
+            another = self.run_script("prepare_animation_run.py", *prepare_args, cwd=project, env=env)
+            self.assertEqual(another.returncode, 0, another.stderr)
+            self.assertNotEqual(pathlib.Path(another.stdout.strip()), run_dir)
+            self.assertFalse((project / "animation-runs").exists())
             manifest_path = run_dir / "animation_manifest.json"
             jobs_path = run_dir / "animation-jobs.json"
             manifest = self.read_json(manifest_path)

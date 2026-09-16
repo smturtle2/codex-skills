@@ -7,7 +7,9 @@ description: Create character animations from a source image or character descri
 
 Use one canonical character per run and `$image-creator` for every generated base or action sheet. Do not synthesize character frames with local drawing, tiling, or warping scripts.
 
-Set `SKILL_DIR` to this skill's absolute directory. Run helpers with `uv run --project "$SKILL_DIR"` from the session project. Default runs to `animation-runs/<run-id>/`; resolve requested relative destinations from the project root.
+Set `SKILL_DIR` to this skill's absolute directory. Run helpers with `uv run --project "$SKILL_DIR"` from the session project root. Keep working files in `.codex-skills/animation-creator/<run-id>/` unless the user chooses another workspace. Use a unique ID for a new run and reuse the existing path when continuing, including older runs elsewhere. Resolve relative input and output paths from the project root.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
 
 ## Plan the Action
 
@@ -40,7 +42,7 @@ uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/build_generation_prompt.py" \
   --run-dir <run-dir> --job-id <job-id>
 ```
 
-Give stdout to `$image-creator` as the authoritative final prompt, unchanged. Do not rewrite it or maintain a separate `prompts/image-creator/` copy.
+Give stdout to `$image-creator` as the authoritative final prompt, unchanged, and pass a destination inside this run. Do not rewrite it or maintain a separate `prompts/image-creator/` copy.
 
 For each action, supply both `references/canonical-base.png` as identity input and `references/registration-guides/<action-id>.png` as the edit template. Save attempts under the run's `generated/attempts/` with non-overwriting names.
 
@@ -62,4 +64,6 @@ uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/finalize_animation_run.py" \
 
 Read [references/qa-rubric.md](references/qa-rubric.md) before acceptance. Review validation results, the contact sheet, and animation where a viewer is available; deterministic checks alone cannot establish identity or motion quality. Repair the failed action or processing step without recreating valid work.
 
-Report the run and canonical-base paths, generated action IDs, final WebP links, contact-sheet and validation links, use of `$image-creator` for base/actions, and repairs, omissions, or visual-review limitations.
+After acceptance, copy the finished WebP assets to the requested output destination; if none was given, use descriptive, non-overwriting filenames in the project root. Keep the canonical base, manifest, and selected generation results for later actions; remove only expendable intermediates from this run. Retain incomplete runs for recovery.
+
+Report the run and canonical-base paths, generated action IDs, delivered WebP links, contact-sheet and validation links, use of `$image-creator` for base/actions, and repairs, omissions, or visual-review limitations.

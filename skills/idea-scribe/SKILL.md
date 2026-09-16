@@ -12,6 +12,10 @@ During an active scribing session, maintain exactly two user-facing files in the
 
 Reuse these files across turns unless the user names a different destination. Treat an explicit request to end recording or discuss the skill as session control, not another idea to silently capture.
 
+These two files are deliverables, so keep them at that destination. If separate working files are needed, use the project-root-relative `.codex-skills/idea-scribe/<run-id>/` unless the user chooses another workspace; choose a unique ID for new work and reuse its path when continuing. Create no workspace when writing the two deliverables directly. Preserve unfinished work and remove only expendable files from your run.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
+
 ## Record Each Idea
 
 1. Append the user's message to `raw.txt` before interpreting it. Preserve wording, spelling, punctuation, and internal line breaks; separate message bodies with one blank line.

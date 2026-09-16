@@ -20,6 +20,10 @@ Requires subagent tools for content review. YouTube audio transcription fallback
 Use $podcast-writer to turn these sources into a 10-minute solo episode for beginners. Save the script as plain text.
 ```
 
+## Working files
+
+Keep candidate scripts, source notes, and review state in the project-root-relative `.codex-skills/podcast-writer/<run-id>/` workspace. An explicit work location wins; resume older existing locations in place. Retain resumable data and clean up only expendable intermediates created by this run. Save the final `.txt` script to the requested destination.
+
 ## Output
 
 A `.txt` file containing only the spoken script, ready for a separate TTS or recording step.

@@ -123,7 +123,7 @@ def run_dialog(args):
         spec = load_request(args.request)
         origin = None if args.preview else capture_origin()
         runtime = find_python(args.python)
-        directory = Path(args.run_dir or Path.cwd() / "dialog-runs" / uuid.uuid4().hex).expanduser().resolve()
+        directory = Path(args.run_dir or Path.cwd() / ".codex-skills" / "user-dialog" / uuid.uuid4().hex).expanduser().resolve()
         directory.mkdir(parents=True, exist_ok=True)
     else:
         directory = Path(args.run_dir).expanduser().resolve()
@@ -192,7 +192,7 @@ def main():
     show.add_argument("request", help="JSON file or - for stdin")
     show.add_argument("--preview", action="store_true", help="Render without Codex delivery; save message.md")
     show.add_argument("--render-image", help="With --preview, export the rendered widget to PNG and close")
-    show.add_argument("--run-dir")
+    show.add_argument("--run-dir", help="Workspace (default: .codex-skills/user-dialog/<unique-id> from the project working directory)")
     show.add_argument("--python")
     resume = commands.add_parser("resume", help="Reopen a saved draft or return its submitted result")
     resume.add_argument("run_dir")

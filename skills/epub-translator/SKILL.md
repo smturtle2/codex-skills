@@ -16,7 +16,11 @@ Codex owns language, voice, terminology, and edition choices. The bundled helper
 - Preserve reading order, anchors, link destinations, and source image payloads except for explicitly edited image jobs. Source layout wrappers and ruby/furigana are flattened; the helper constructs target XHTML and CSS.
 - Write the new EPUB to a path distinct from the source.
 
-Set `SKILL_DIR` to this skill's absolute directory and choose a persistent run folder. Read [references/translation-data.md](references/translation-data.md) before writing edition settings or translation JSON; consult it again only when its contract is missing from context.
+Set `SKILL_DIR` to this skill's absolute directory. From the session project root, use `.codex-skills/epub-translator/<run-id>/` for working files unless the user chooses another workspace. Choose a unique ID for a new translation and pass the same folder as `--workdir` throughout. Resume existing translations at their original paths, including older locations. Keep the final EPUB at the requested output destination.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
+
+Read [references/translation-data.md](references/translation-data.md) before writing edition settings or translation JSON; consult it again only when its contract is missing from context.
 
 ## Start or Resume
 
@@ -56,6 +60,6 @@ uv run --script "$SKILL_DIR/scripts/epub_translate.py" validate --workdir <run-d
 
 Review `build-report.json`, including `untranslated_candidates` and `divergences`. Proper names and context-sensitive translations may be valid; resolve findings through source review. Mechanical validation does not prove translation quality.
 
-If interrupted, retain real completed rows and notes, then resume from `status`; never fabricate missing translations. A blocked image job remains unresolved even if text work can continue.
+If interrupted, retain real completed rows and notes, then resume from `status`; never fabricate missing translations. A blocked image job remains unresolved even if text work can continue. Preserve translation state and notes for further work; after validation, remove only disposable build intermediates from this run.
 
 Report the output EPUB and run folder, item and chunk progress, image-job results and unsupported count, reviewed report findings, and build/validation results. Claim completion only when every translation exists, every editable image job is resolved, and both commands succeed.

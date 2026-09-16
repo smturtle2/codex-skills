@@ -14,4 +14,8 @@ Use $skill-installer to install skills/user-dialog from https://github.com/smtur
 
 Ask naturally, for example: “Use $user-dialog to ask me which deployment target to choose, with buttons for staging and production.”
 
+## Working files
+
+When a dialog run needs persisted state, use the project-root-relative `.codex-skills/user-dialog/<run-id>/` workspace unless the user explicitly gives a location. Resume older existing locations in place, retain state needed for recovery, and remove only expendable intermediates created by this run.
+
 For the skill instructions, see [SKILL.md](../../skills/user-dialog/SKILL.md) and the [view contract](../../skills/user-dialog/references/view-contract.md).

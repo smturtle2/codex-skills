@@ -7,16 +7,20 @@ description: Generate a visual blueprint before building new frontend UI or subs
 
 Use the session's selected reasoning model. Build from a generated, saved, and inspected UI mockup.
 
+Keep working mockups and design notes under the project-root-relative `.codex-skills/ui-blueprint/<run-id>/` unless the user chooses another workspace. Use a unique ID for a new design and reuse the original folder when continuing, including older locations. Keep the selected blueprint for follow-up work; clean up only expendable attempts. Deliver requested assets to their output destinations and implement code in the existing project structure.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
+
 ## Workflow
 
 1. Read the existing frontend structure, design system, routes, and components relevant to the requested screen.
 2. Distill the product, audience, primary task, viewport, required content and controls, and visual constraints into a blueprint brief.
-3. Use `$image-creator` to generate one product-specific mockup. Give it the brief and the project-root `ui-blueprints/` directory as the destination.
+3. Use `$image-creator` to generate one product-specific mockup. Give it the brief and this run's working directory as the destination.
 4. Inspect the saved image before writing UI code. Extract actionable notes on layout, hierarchy, typography, color, spacing, controls, and responsive behavior.
 5. Implement the screen in the existing stack using local components and patterns.
 6. Verify the implementation in a browser or equivalent renderer on desktop and mobile. Compare composition and hierarchy against the blueprint and repair meaningful drift.
 
-Keep the blueprint under `ui-blueprints/` with a descriptive, non-overwriting filename even if the app does not use it as an asset. If image generation fails or is unavailable, report the blocker; proceed without a blueprint only when the user has accepted that fallback.
+Keep the blueprint in the run folder with a descriptive, non-overwriting filename even if the app does not use it as an asset. If the user requests a delivered mockup, also save it at the requested destination. If image generation fails or is unavailable, report the blocker; proceed without a blueprint only when the user has accepted that fallback.
 
 ## Blueprint and Implementation
 

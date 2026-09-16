@@ -20,6 +20,10 @@ Requires a desktop GUI environment and Python with Pygame. Codex supplies the op
 Use $gomoku to start a game. I’ll play black on a 15×15 board.
 ```
 
+## Working files
+
+Keep resumable game state in the project-root-relative `.codex-skills/gomoku/<run-id>/` workspace when no location is requested. An explicit location wins; resume older existing state in place. Retain data needed to resume and clean up only expendable intermediates created by this run.
+
 ## Output
 
 An interactive Pygame board with legal-move checks, win detection, and optional Renju restrictions.

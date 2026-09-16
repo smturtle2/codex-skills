@@ -2,7 +2,7 @@
 
 ## Request
 
-Pass a JSON object as a file or stdin (`-`). Asset paths are absolute or relative to the project working directory.
+Pass a JSON object as a file or stdin (`-`). Run from the project root and keep request files in the dialog's workspace, normally `.codex-skills/user-dialog/<run-id>/`. Asset paths are absolute or relative to the project working directory, not the request file's folder.
 
 | Key | Contract |
 | --- | --- |
@@ -130,7 +130,7 @@ Remote-task and Windows delivery are unsupported.
 | `validate <request.json\|->` | Check a request without opening a window. |
 | `show <request.json\|-> --preview` | Open without delivery; submission saves `message.md`. |
 | `show <request.json\|-> --preview --render-image <file.png>` | Export the renderer's own visible widget tree and close, without delivery. Useful for inspecting layout. |
-| `show <request.json\|-> --run-dir <path>` | Choose where the run is saved. |
+| `show <request.json\|-> --run-dir <path>` | Choose the workspace. Without this option, create a unique run under `.codex-skills/user-dialog/` in the project working directory. |
 | `doctor --delivery` | Check native libraries and task connection without sending. |
 | `status <run-dir>` / `resume <run-dir>` | Inspect status / reopen the saved draft; submitted runs stay closed. |
 | `update <run-dir> <request.json|->` | Queue one live update; optional `--revision N` checks the current revision and `--timeout` defaults to 10 seconds. |

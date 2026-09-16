@@ -2,7 +2,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .epub_translator/
+/.codex-skills/
 
+# Keep older workspaces ignored while they remain available for resumption.
 animation-runs/
 ui-blueprints/
 world-runs/

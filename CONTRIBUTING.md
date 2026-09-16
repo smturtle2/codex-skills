@@ -4,6 +4,12 @@ Keep each skill independently installable and the catalog easy to browse.
 
 [Back to the catalog](README.md) · [한국어](CONTRIBUTING.ko.md)
 
+## Runtime workspaces
+
+Runtime-generated working files belong in the project-root-relative `.codex-skills/<skill-name>/<run-id>/` by default. An explicitly requested location wins, and existing older locations should be resumed in place without moving or deleting them. Create a workspace only when needed; retain resumable data and remove only expendable intermediates created by the current run. Final deliverables stay at the destinations requested by the user. The default Git ignore rule is `/.codex-skills/`; track data there only when the user intentionally asks for it.
+
+Include this convention in each skill's own `SKILL.md` so it works when installed alone. Use a unique ID for new work and the same path for continuation. Pass the workspace to helpers and delegated work, align helper defaults and examples, and verify new runs, resume, and output destinations together. For world-simulator, the session ID is the run ID beneath `.codex-skills/world-simulator/`.
+
 ## Add a skill
 
 1. Create `skills/<skill-name>/SKILL.md` with YAML frontmatter containing `name` and `description`. Use a lowercase, hyphenated name matching the folder. Describe when the skill should be used.

@@ -7,31 +7,33 @@ description: Build and play a persistent single-player world RPG in a browser, w
 
 Codex authors the world, narration, characters, and consequences. Python only stores, retrieves, validates, commits, and displays them; do not turn it into a story engine.
 
-Set `SKILL_DIR` to this skill's absolute directory. Run from the session project; storage defaults to `world-runs/`. For an existing world, keep its original storage root and pass `--root <root>` consistently if the working directory differs.
+Set `SKILL_DIR` to this skill's absolute directory and run from the session project root. Default storage to `.codex-skills/world-simulator/` unless the user chooses another workspace. Each world has a unique session ID and its session folder is the run folder. Store turn bundles and other working files there alongside the database and assets. For an existing world, keep its original storage root, including older locations. Pass the same `--root <root>` and `--session <session-id>` on subsequent calls. Preserve world data for continued play; remove only expendable working files from that session. Save requested exports at their output destination.
+
+When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
 
 ## Start or Resume
 
 ```bash
-uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" start
+uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" start --root .codex-skills/world-simulator
 ```
 
-Add `--session <stable-id>` to resume rather than create another world. Keep the server process alive and give the printed local URL if the browser does not open. Once open, world revisions and play input belong in the browser so the chronicle remains complete.
+Use the chosen storage root and add `--session <session-id>` to resume rather than create another world. For a new world, retain the returned session ID and path. Keep the server process alive and give the printed local URL if the browser does not open. Once open, world revisions and play input belong in the browser so the chronicle remains complete.
 
 ## Process Turns
 
 1. Wait for and claim browser input:
 
    ```bash
-   uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" next
+   uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" next --root <root> --session <session-id>
    ```
 
 2. Load [references/turn-contract.md](references/turn-contract.md) when its data contract is absent from context. Use [references/world-compiler.md](references/world-compiler.md) for `studio`/`begin` or [references/scene-director.md](references/scene-director.md) for `play`; reread on mode changes or context loss, not mechanically every turn.
-3. Use focus records and the complete index. Retrieve missing facts that affect the turn with `inspect "<id, name, or text>"` through the same CLI.
+3. Use focus records and the complete index. Retrieve missing facts that affect the turn with `inspect "<id, name, or text>" --root <root> --session <session-id>` through the same CLI.
 4. Author one TurnBundle containing the visible response and all resulting state changes.
 5. Commit it atomically:
 
    ```bash
-   uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" commit <turn-bundle.json>
+   uv run --no-project python "$SKILL_DIR/scripts/world_simulator.py" commit <turn-bundle.json> --root <root> --session <session-id>
    ```
 
 6. Remove the temporary bundle after success and return immediately to `next`. On commit failure, correct the bundle and retry the same claimed turn.
