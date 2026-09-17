@@ -40,6 +40,7 @@ class View:
         self.option_panels = []
         self.choice_controls = []
         self.records = {}
+        self._refresh_dependencies = None
         for node in walk(spec['body']):
             if node['type'] in {'input', 'choice'}:
                 self.values[node['id']] = initial_value(node)
@@ -57,7 +58,7 @@ class View:
                 self.writers[key](value)
             finally:
                 self.restoring = False
-        self.refresh()
+        self.refresh(key)
 
     def changed(self, key, value):
         if self.restoring or self.ui.view.restoring:
@@ -66,24 +67,78 @@ class View:
             return self.ui.view.changed(key, value)
         if not self.restoring:
             self.values[key] = value
-            self.refresh()
+            self.refresh(key)
 
-    def refresh(self):
-        for widget, key in self.text_bindings:
+    @staticmethod
+    def _condition_refs(condition):
+        """Yield value keys referenced anywhere in a nested condition."""
+        if isinstance(condition, dict):
+            ref = condition.get('ref')
+            if isinstance(ref, str):
+                yield ref
+            for value in condition.values():
+                yield from View._condition_refs(value)
+        elif isinstance(condition, (list, tuple)):
+            for value in condition:
+                yield from View._condition_refs(value)
+
+    def _dependencies(self):
+        counts = (len(self.text_bindings), len(self.option_panels), len(self.rules), len(self.stacks))
+        if self._refresh_dependencies is not None and self._refresh_dependencies[0] == counts:
+            return self._refresh_dependencies[1]
+        dependencies = {
+            'bindings': {}, 'panels': {}, 'rules': {}, 'stacks': {},
+        }
+
+        def add(kind, key, item):
+            dependencies[kind].setdefault(key, []).append(item)
+
+        for item in self.text_bindings:
+            add('bindings', item[1], item)
+        for item in self.option_panels:
+            add('panels', item[1], item)
+        for item in self.rules:
+            widget, node = item
+            refs = set(self._condition_refs(node.get('visible_when')))
+            refs.update(self._condition_refs(node.get('enabled_when')))
+            for key in refs:
+                add('rules', key, item)
+        for stack_key, (stack, _) in self.stacks.items():
+            refs = set()
+            for child in self.nodes[stack_key]['children']:
+                refs.update(self._condition_refs(child.get('visible_when')))
+            for key in refs:
+                add('stacks', key, (stack_key, stack))
+        self._refresh_dependencies = (counts, dependencies)
+        return dependencies
+
+    def refresh(self, changed_key=None):
+        if changed_key is None:
+            bindings = self.text_bindings
+            panels = self.option_panels
+            rules = self.rules
+            stacks = [(key, stack) for key, (stack, _) in self.stacks.items()]
+        else:
+            dependencies = self._dependencies()
+            bindings = dependencies['bindings'].get(changed_key, ())
+            panels = dependencies['panels'].get(changed_key, ())
+            rules = dependencies['rules'].get(changed_key, ())
+            stacks = dependencies['stacks'].get(changed_key, ())
+        for widget, key in bindings:
             value = self.values.get(key)
             widget.set_text('' if value is None else str(value), literal=True)
-        for widget, node in self.rules:
+        for widget, node in rules:
             widget.set_visible(matches(node.get('visible_when'), self.values))
             widget.set_sensitive(matches(node.get('enabled_when'), self.values))
-        for panel, key, value in self.option_panels:
+        for panel, key, value in panels:
             panel.set_visible(self.values.get(key) == value)
-        for key, (stack, _) in self.stacks.items():
-            children = self.nodes[key]['children']
+        for stack_key, stack in stacks:
+            children = self.nodes[stack_key]['children']
             visible = [child for child in children if matches(child.get('visible_when'), self.values)]
             if visible and stack.get_visible_child_name() not in [child['id'] for child in visible]:
                 select_page(stack, visible[0]['id'])
         if self.ui._built:
-            self.ui.checkpoint()
+            self.ui.schedule_checkpoint()
 
     def validate(self, values):
         try:

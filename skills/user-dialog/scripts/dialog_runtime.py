@@ -214,6 +214,18 @@ class Dialog:
             animate()
             self._sending_source = GLib.timeout_add(50, animate)
 
+    def schedule_checkpoint(self):
+        if not self._checkpoint_source and not self._finished and self.state['status'] != 'submitted':
+            self._checkpoint_source = GLib.timeout_add(300, self.flush_checkpoint)
+
+    def flush_checkpoint(self):
+        self._checkpoint_source = 0
+        if self._updating or any(d.dialog_dragging for d in self.documents):
+            self.schedule_checkpoint()
+        else:
+            self.checkpoint()
+        return GLib.SOURCE_REMOVE
+
     def checkpoint(self):
         if self._updating:
             return GLib.SOURCE_CONTINUE
@@ -341,7 +353,6 @@ class Dialog:
         self._built = True
         self.checkpoint()
         self.refit()
-        self._checkpoint_source = GLib.timeout_add(500, self.checkpoint)
         self.presentation.initial()
         self.window.present()
         self.state["status"] = "open"
@@ -372,7 +383,7 @@ class Dialog:
         for path, (node, widget) in self.view.records.items():
             records.append({'path': list(path), 'type': node['type'], 'size': [widget.get_width(), widget.get_height()],
                             'mapped': widget.get_mapped(), 'opacity': widget.get_opacity(),
-                            'documents': [[w.web.get_width(), w.web.get_height(), w._height, w.dialog_ready]
+                            'documents': [[w.web.get_width(), w.web.get_height(), w._height, w.dialog_ready, w.metrics]
                                           for w in descendants(widget) if hasattr(w, 'dialog_ready')],
                             'text_views': [[w.get_width(), w.get_height(), w.get_vadjustment().get_value(),
                                             w.get_vadjustment().get_upper()]

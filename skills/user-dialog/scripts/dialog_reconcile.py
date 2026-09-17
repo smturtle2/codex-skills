@@ -228,4 +228,5 @@ class ViewUpdate:
         for name in ('values', 'writers', 'widgets', 'rules', 'stacks', 'nodes',
                      'records', 'text_bindings', 'option_panels', 'choice_controls'):
             getattr(self.old, name).clear()
+        self.old._refresh_dependencies = None
         self.old.spec = None

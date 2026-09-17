@@ -52,7 +52,7 @@ node accepts either literal `text` or `ref`; a ref displays the current input/ch
 resolve from the project base. `text` remains a compatibility alias normalized to `markdown`.
 
 Standalone `code` nodes preserve and copy their exact `text`, with an optional `language` hint.
-They share the Markdown code renderer, including syntax highlighting, spacing, and the language/copy header. They use a gray,
+They share the Markdown code renderer, including syntax highlighting, spacing, and the language/wrap/copy header. Wrapping is on by default for every code block; turning it off uses horizontal scrolling, and copy preserves the exact source text. They use a gray,
 code-toned background and share the bundled D2Coding font with fenced code in documents. Document surfaces use a
 separate white/light-theme surface (or the theme-appropriate dark surface); fenced code inside documents remains
 visually distinct from surrounding document text. Theme changes update both code presentations.
@@ -67,7 +67,7 @@ The document renderer uses WebKitGTK 6.0. Markdown parsing scopes remain separat
 preserve the convenient filename/source-copy document view. Explicit properties override these defaults independently.
 `label` only supplies the title text; it does not make the title visible. Titles use one line with ellipsis when needed,
 with a tooltip exposing the full title/path. When shown, the title is `label` for authored Markdown and the `label` or
-filename for Markdown files. Source-copy copies the exact original Markdown, and code-block controls copy code without
+filename for Markdown files. Source-copy copies the exact original Markdown, and code-block controls copy the exact code source without
 fences; each clicked copy control briefly shows a check icon in place of a toast.
 Markdown file image paths resolve from the Markdown file's directory. File path convenience is unchanged, including image
 preview and external-open links for other file types.
@@ -97,7 +97,7 @@ Footer buttons require `label` and `action`; `primary: true` selects the keyboar
 
 ## Live updates
 
-`update <run-dir> <request.json|-> [--revision N] [--timeout SECONDS]` applies JSON compiled against the original `show` base. It owns the exact originating thread, request ID, and revision; stable element IDs reuse unchanged widgets, compatible changed fields preserve values, and a focused or selected replaced subtree waits until focus leaves or selection clears. Removing or changing the type of an answered field, or removing a chosen option, is rejected. Assets at the same paths are reread for an update; they are not watched automatically. Updates are accepted while the dialog is open and stop at submission. A timeout returns `queued`; do not resubmit it. `status` reports `revision` and `update`, and each command writes `updates/<command_id>.result.json`. `applied` is acknowledged after paint; closing the window before confirmation reports `interrupted`.
+`update <run-dir> <request.json|-> [--revision N] [--timeout SECONDS]` applies JSON compiled against the original `show` base. It owns the exact originating thread, request ID, and revision; stable element IDs reuse unchanged widgets, compatible changed fields preserve values, and a focused or selected replaced subtree waits until focus leaves or selection clears. Literal `ref` display values update in place; live replacements wait while document text is selected or dragged. Removing or changing the type of an answered field, or removing a chosen option, is rejected. Assets at the same paths are reread for an update; they are not watched automatically. Updates are accepted while the dialog is open and stop at submission. A timeout returns `queued`; do not resubmit it. `status` reports `revision` and `update`, and each command writes `updates/<command_id>.result.json`. `applied` is acknowledged after paint; closing the window before confirmation reports `interrupted`.
 
 ## Response
 
@@ -155,8 +155,8 @@ The runtime prevents retries of `sending`, `unknown`, or accepted deliveries; do
 Automatic closing waits for a matching new response item after the saved pre-send history position.
 While sending, the clicked submit button shows a fixed-size sending indicator, and document selection/copy remains available.
 Automatic focus prefers inputs, then an action button; it does not select display text. Manual text selection remains available.
-Automatic focus skips offscreen inputs so opening a long popup preserves its start. Content-height changes reschedule window sizing after text layout validation.
-Set `USER_DIALOG_DEBUG_LAYOUT=1` to record geometry and opacity changes in `layout.jsonl`, without recording content or answers.
+Automatic focus skips offscreen inputs so opening a long popup preserves its start. Content-height changes reschedule window sizing after text layout validation, but automatic resizing waits during document selection. Draft updates are coalesced for 300 ms and flushed before submit or close.
+Set `USER_DIALOG_DEBUG_LAYOUT=1` to record geometry and opacity changes in `layout.jsonl`; document metrics include loads, text updates, and message counts, without recording document contents or answers.
 The window titlebar close control remains available; the runtime adds no separate Close or Check again buttons.
 If confirmation fails, the same clicked submit button offers a confirmation-only retry that never resends the response.
 Older runs without a saved history position cannot use automatic confirmation.

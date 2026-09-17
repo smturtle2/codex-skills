@@ -8,8 +8,11 @@ class DialogLayout:
         self.ui = ui
         self.source = 0
         self.signals = {}
+        self.last_size = None
 
     def prepare(self, widget):
+        if hasattr(widget, 'dialog_ready'):
+            return
         if isinstance(widget, Gtk.TextView) and not widget.get_editable() and widget not in self.signals:
             adjustment = widget.get_vadjustment()
             self.signals[widget] = (adjustment, adjustment.connect('changed', self.request))
@@ -33,6 +36,8 @@ class DialogLayout:
         ui = self.ui
         if ui._finished or ui.state['status'] == 'submitted':
             return GLib.SOURCE_REMOVE
+        if any(d.get_mapped() and (d.dialog_dragging or d.dialog_has_selection) for d in ui.documents):
+            return GLib.SOURCE_REMOVE
         ui._keyboard.prepare(ui.content)
         self.prepare(ui.content)
         if width is not None:
@@ -54,7 +59,10 @@ class DialogLayout:
         actual_height = max(minimum, natural) + 32
         if bounds:
             actual_height = min(actual_height, max(250, bounds.height - 80))
-        ui.window.set_default_size(actual_width, actual_height)
+        size = (actual_width, actual_height)
+        if size != self.last_size:
+            self.last_size = size
+            ui.window.set_default_size(*size)
         return GLib.SOURCE_REMOVE
 
     def prune(self):

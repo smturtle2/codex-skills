@@ -39,10 +39,14 @@ class DocumentView(Gtk.Box):
         self.document = document if document is not None else (compile_segments(segments, base) if segments else compile_document(source, base))
         self._next_document = None
         self._document_token = ''
+        self.metrics = {'loads': 0, 'text_updates': 0, 'messages': {}}
         self.base = base.resolve()
         self._started = False
         self._loaded = False
         self.dialog_has_selection = False
+        self.dialog_dragging = False
+        self._viewport_source = 0
+        self._last_viewport = None
         self._height = 80
         self._measured_width = 0
         manager = WebKit.UserContentManager()
@@ -67,6 +71,8 @@ class DocumentView(Gtk.Box):
         self.set_hexpand(True)
         self.set_vexpand(False)
         self._map_handler = self.connect('map', self.start)
+        self._scroll = ui.scroller.get_vadjustment()
+        self._scroll_handler = self._scroll.connect('value-changed', self.schedule_viewport)
         ui.documents.add(self)
         ui.style.bind(self)
 
@@ -77,6 +83,10 @@ class DocumentView(Gtk.Box):
         if self._reload_source:
             GLib.source_remove(self._reload_source)
             self._reload_source = 0
+        self._scroll.disconnect(self._scroll_handler)
+        if self._viewport_source:
+            self.ui.window.remove_tick_callback(self._viewport_source)
+            self._viewport_source = 0
         self.ui.documents.discard(self)
         self.disconnect(self._map_handler)
         self.manager.disconnect(self._message_handler)
@@ -103,6 +113,7 @@ class DocumentView(Gtk.Box):
             if self._next_document is not None:
                 self.document, self._next_document = self._next_document, None
             self._document_token = uuid.uuid4().hex
+            self.metrics['loads'] += 1
             self.web.load_html(html_page(self.document, self.ui.style.manager.get_dark(),
                                         self.display, self.background(), self._document_token), self.base.as_uri() + '/')
         return GLib.SOURCE_REMOVE
@@ -115,8 +126,34 @@ class DocumentView(Gtk.Box):
                          if literal else compile_document(source, self.base))
         if self._reload_source:
             GLib.source_remove(self._reload_source)
-        if self._started:
-            self._reload_source = GLib.timeout_add(100, self.reload)
+            self._reload_source = 0
+        if self._started and self._loaded:
+            self._reload_source = GLib.idle_add(self.flush_text if literal else self.reload)
+
+    def flush_text(self):
+        self._reload_source = 0
+        if self._next_document is not None:
+            self.document, self._next_document = self._next_document, None
+        self.metrics['text_updates'] += 1
+        self.evaluate('window.documentText(' + json.dumps(self.source) + ')')
+        return GLib.SOURCE_REMOVE
+
+    def schedule_viewport(self, *args):
+        if not self._viewport_source and self.dialog_dragging and self.get_mapped():
+            self._viewport_source = self.ui.window.add_tick_callback(self.send_viewport)
+
+    def send_viewport(self, *args):
+        self._viewport_source = 0
+        found, bounds = self.web.compute_bounds(self.ui.scroller)
+        if found and self.get_mapped() and self._loaded:
+            origin = bounds.get_y()
+            top = -origin
+            bottom = self.ui.scroller.get_height() - origin
+            viewport = (top, bottom, origin)
+            if viewport != self._last_viewport:
+                self._last_viewport = viewport
+                self.evaluate(f'window.documentViewport({top}, {bottom}, {origin})')
+        return GLib.SOURCE_REMOVE
 
     @property
     def dialog_ready(self):
@@ -140,6 +177,8 @@ class DocumentView(Gtk.Box):
             if message.get('document') != self._document_token:
                 return
             kind = message.get('type')
+            counts = self.metrics['messages']
+            counts[kind] = counts.get(kind, 0) + 1
             if kind == 'size':
                 width, height = float(message['width']), float(message['height'])
                 if not math.isfinite(height) or width < 32 or height < 0:
@@ -154,8 +193,20 @@ class DocumentView(Gtk.Box):
                 self._loaded = True
                 self.document_theme(self.ui.style.manager.get_dark())
                 self.ui.layout.request()
+                if self._literal:
+                    self.flush_text()
+                self.send_viewport()
             elif kind == 'selection':
                 self.dialog_has_selection = bool(message['selected'])
+                if not self.dialog_has_selection:
+                    self.ui.layout.request()
+            elif kind == 'drag':
+                self.dialog_dragging = bool(message['active'])
+                if self.dialog_dragging:
+                    self._last_viewport = None
+                    self.send_viewport()
+                else:
+                    self.ui.layout.request()
             elif kind == 'copy':
                 index = message.get('index')
                 if type(index) is int and 0 <= index < len(self.document.codes):

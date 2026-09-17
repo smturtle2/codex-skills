@@ -21,10 +21,12 @@ Ask naturally, for example: “Use $user-dialog to ask me which deployment targe
 
 For authored content, use a `markdown` node with literal `text` or a `ref` to an input/choice value. Markdown files use the same renderer through `file`; both accept independent `display` options for title, border, source-copy, and code-copy controls.
 
-Popup text and controls use bundled Pretendard, and code uses D2Coding. Standalone code and Markdown code blocks share syntax colors, spacing, and a header with the language on the left and copy button on the right. Markdown files retain their filename and document frame by default. Fonts load locally without changing the system theme or installing system fonts.
+Popup text and controls use bundled Pretendard, and code uses D2Coding. Standalone code and Markdown code blocks share syntax colors, spacing, and a header with the language on the left and wrap/copy controls on the right. Wrapping is on by default; turning it off uses horizontal scrolling, and copying preserves the exact source text. Markdown files retain their filename and document frame by default. Fonts load locally without changing the system theme or installing system fonts.
 
 ## Working files
 
 When a dialog run needs persisted state, use the project-root-relative `.codex-skills/user-dialog/<run-id>/` workspace unless the user explicitly gives a location. Resume older existing locations in place, retain state needed for recovery, and remove only expendable intermediates created by this run.
+
+Literal `ref` values update in place. Live replacements wait while document text is selected or dragged, automatic resizing waits during selection, and draft updates are coalesced for 300 ms before submit or close flushes them.
 
 For the skill instructions, see [SKILL.md](../../skills/user-dialog/SKILL.md) and the [view contract](../../skills/user-dialog/references/view-contract.md).

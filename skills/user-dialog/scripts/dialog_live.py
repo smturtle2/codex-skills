@@ -29,6 +29,8 @@ class LiveUpdates:
         ui = self.ui
         if self.closed:
             return False
+        if any(d.get_mapped() and (d.dialog_dragging or d.dialog_has_selection) for d in ui.documents):
+            return True
         if self.transition is not None or self.frame_handler is not None or ui.presentation.busy:
             return True
         try:
