@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jev Developer"
+  short_description: "Develop with Jev judgments and evidence"
+  default_prompt: "Use $jev-developer to design or improve the Jev integration requested in this project."

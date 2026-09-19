@@ -15,7 +15,7 @@
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a> · <a href="#world-simulator">world&#8209;simulator</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a> · <a href="#world-simulator">world&#8209;simulator</a>
 </p>
 
 ---
@@ -107,6 +107,24 @@ image-creator
 ```
 
 [사용 가이드](docs/skills/image-creator.ko.md) · [지침](skills/image-creator/SKILL.md)
+
+---
+
+<a id="jev-developer"></a>
+
+<img src="docs/assets/catalog/jev-developer.svg" width="960" alt="jev-developer">
+
+증거 표현, 유형이 지정된 질문, 답변 의미, 판단 구성에 관한 구체적인 지식을 활용해 Jev 통합을 개발합니다.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+jev-developer
+```
+
+[사용 가이드](docs/skills/jev-developer.ko.md) · [지침](skills/jev-developer/SKILL.md)
 
 ---
 
