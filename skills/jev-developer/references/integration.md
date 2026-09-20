@@ -1,123 +1,130 @@
 # Integration
 
-Use this reference for transport, SDK compatibility, response association, and operational diagnosis. Verify the actual installed binding before implementation; the shapes below express explicit request relationships, not an exhaustive acceptance schema.
+Use this reference to implement calls and diagnose transport or binding failures. The syntax below uses caller-defined variables, not application schemas. Match the installed SDK to its documentation; the HTTP overview, structured-content guide, and SDK types differ in permissiveness.
 
-## HTTP Relationships
+## HTTP Contract and Input Types
 
 ```text
 POST https://api.typesafe.ai/v1/systemone
 Authorization: Bearer <API key>
 Content-Type: application/json
 
-Request = {
-  state: string | object | array,
-  model: supported model ID or alias,
-  questions: nonempty map<question ID, Question>
-}
-
-Question = {
-  type: "choice",
-  instructions: content,
-  criteria: map<option ID, content>
-} | {
-  type: "score",
-  instructions: content,
-  criteria: ordered array<content>
-} | {
-  type: "noul",
-  instructions: content,
-  criteria?: { true?: content, false?: content }
-}
+Request = {state: string | object | array, model: string,
+           questions: nonempty map<question ID, Question>}
+Question = {type: "choice", instructions: content,
+            criteria: map<option ID, content>}
+         | {type: "score", instructions: content,
+            criteria: ordered array<content>}
+         | {type: "noul", instructions: content,
+            criteria?: {true?: content, false?: content}}
 ```
 
-`content` denotes the text or structured description accepted at that location by the binding. Nested JSON can contain numbers, booleans, and nulls; top-level state and nullable descriptions have more specific contracts. The structured-content guide accepts broader forms than some compact HTTP descriptions. Python's exposed question types exclude null Score entries, while the JavaScript entry type is more permissive. Use explicit, meaningful instructions and level descriptions rather than depending on permissive null acceptance.
+This is the explicit request form. `content` is a text or structured description; acceptance of omission and null depends on its location and binding:
 
-Custom keys inside these containers have no special transport behavior. Neither source paths nor application-specific dictionaries extend the API.
+| Location | Contract distinction |
+| --- | --- |
+| `state` | HTTP and Python describe text/object/array; JavaScript's `EntryType` additionally admits null, which alone does not establish server acceptance |
+| `instructions` | HTTP overview marks it required; the structured guide and SDK question types permit null, and SDK question types permit omission. Supply complete meaning explicitly |
+| Choice descriptions | Text/object/array or null; null leaves the model-facing option ID as its label |
+| Score descriptions | Ordered levels, starting at index zero; Python uses non-null `JSONContent` entries, JavaScript permits null entries. Use meaningful descriptions |
+| Noul criteria | Optional true/false descriptions; SDKs permit structured content and null |
 
-Sources: [HTTP API](https://docs.typesafe.ai/api), [structured content](https://docs.typesafe.ai/primitives/advanced), [Python question types](https://docs.typesafe.ai/sdk/python/api/types/questions), [JavaScript SDK reference](https://docs.typesafe.ai/sdk/javascript).
+Nested JSON values can include numbers, booleans, and nulls. Choice uses a map; Score uses an array with at least two levels. Check current upper limits in the primitive documentation rather than inferring server limits from SDK validation. Application keys inside content carry meaning, not new transport options.
 
-## Response Handling
+Sources: [HTTP API](https://docs.typesafe.ai/api), [structured content](https://docs.typesafe.ai/primitives/advanced), [Python question types](https://docs.typesafe.ai/sdk/python/api/types/questions), [JavaScript types](https://github.com/typesafe-ai/typesafe-sdk-js/blob/v0.6.0/src/types.ts).
+
+## Python Binding
+
+Package: `typesafe-sdk`. `TYPESAFE_API_KEY` supplies authentication; explicit `api_key=` overrides it. Constructors also accept `model=` and `base_url=`; environment fallbacks are `TYPESAFE_DEFAULT_MODEL` and `TYPESAFE_BASE_URL`.
+
+These are alternative question constructors and calls; variables stand for the application's prepared content:
+
+```python
+from typesafe_sdk import TypeSafeClient, AsyncTypeSafeClient, Choice, Noul, Score
+
+Choice(instructions=instructions, criteria=option_descriptions)
+Score(instructions=instructions, criteria=level_descriptions)
+Noul(instructions=instructions, criteria=truth_descriptions)  # criteria optional
+
+with TypeSafeClient() as client:
+    result = client.system_one(state=state, questions=questions, model="jev-latest")
+
+async with AsyncTypeSafeClient() as client:
+    result = await client.system_one(state=state, questions=questions, model="jev-latest")
+
+result.answers[question_id]       # narrow by answer.type
+result.choices[choice_id].choice
+result.scores[score_id].score
+result.nouls[noul_id].noul
+```
+
+Keep a client alive across related calls for connection reuse; context managers close it. Closing the SDK client also closes a supplied HTTP client, so ownership matters. The async fragment belongs in an async function. Questions may mix SDK objects and raw question dictionaries with explicit `type`.
+
+`system_one(..., response_model=ResponseType)` parses the response into a Pydantic model. `SystemOneResponse` subclasses can expose named answers; a custom `BaseModel` describes the response body. This changes client-side access, not Jev's output vocabulary. `extra_body=` shallow-merges last and can replace `state`, `questions`, or `model`; use it only for a confirmed API feature requiring it.
+
+Sources: [Python client](https://docs.typesafe.ai/sdk/python/api/clients/sync), [async client](https://docs.typesafe.ai/sdk/python/api/clients/async), [response types](https://docs.typesafe.ai/sdk/python/api/types/responses), [usage](https://docs.typesafe.ai/sdk/python/usage).
+
+## JavaScript / TypeScript Binding
+
+Package: `@typesafe-ai/sdk`. The constructor uses `apiKey`, `defaultModel`, and `baseURL`; their environment fallbacks match Python's variables. A request's `model` overrides the client default.
+
+```javascript
+import { TypeSafeClient, choice, score, noul } from "@typesafe-ai/sdk";
+
+choice(instructions, optionDescriptions);
+score(instructions, levelDescriptions);
+noul(instructions, truthDescriptions);  // second argument optional
+
+const client = new TypeSafeClient({ defaultModel: "jev-latest" });
+const result = await client.systemOne({ state, questions });
+const answer = result.answers[questionId];
+```
+
+Question definitions determine inferred answer types. For a heterogeneous/dynamic map, narrow `answer.type` before reading `.choice`, `.score`, or `.noul`. `systemOne(request, { signal, timeout, retry })` takes transport options separately from the request. `.withResponse()` on its returned promise provides `{ data, response, requestId }` for HTTP metadata. Keep API-key-bearing calls in a trusted runtime; browser enablement exposes the key to page users.
+
+Sources: [JavaScript SDK](https://docs.typesafe.ai/sdk/javascript), [client](https://github.com/typesafe-ai/typesafe-sdk-js/blob/v0.6.0/src/client.ts), [builders](https://github.com/typesafe-ai/typesafe-sdk-js/blob/v0.6.0/src/questions.ts), [response access](https://github.com/typesafe-ai/typesafe-sdk-js/blob/v0.6.0/src/api-promise.ts).
+
+## Response Association
 
 ```text
-Response = {
-  model: string,
-  answers: map<question ID, Answer>,
-  usage: { input_tokens: integer, output_tokens: integer }
-}
-
-ChoiceAnswer = {
-  type: "choice", choice: option ID,
-  probabilities: map<option ID, finite number in [0, 1]>,
-  confidence: finite number in [0, 1]
-}
-ScoreAnswer = {
-  type: "score", score: finite number in [0, L - 1],
-  legend: map<level index, content>,
-  probabilities: map<level index, finite number in [0, 1]>,
-  confidence: finite number in [0, 1]
-}
-NoulAnswer = { type: "noul", noul: finite number in [0, 1] }
+Response = {model: string, answers: map<question ID, Answer>,
+            usage: {input_tokens: integer, output_tokens: integer}}
+ChoiceAnswer = {type: "choice", choice: option ID, probabilities, confidence}
+ScoreAnswer  = {type: "score", score, legend, probabilities, confidence}
+NoulAnswer   = {type: "noul", noul}
 ```
 
-Use the SDK's typed results and validate any assumptions it does not enforce. Associate answers by requested IDs, check the expected primitive, and ensure selected IDs resolve to supplied candidates. Do not silently replace missing or malformed answers with negative probabilities or no-match outcomes.
+Ranges and formulas are in [answer semantics](model-and-answer-semantics.md). HTTP and JavaScript Score maps use string indices; Python maps use integers. Associate answers by requested ID, preserve original-item mappings across batches, and resolve choices against the supplied candidates. Check missing answers, expected primitive types, finite ranges, and distribution sums with rounding tolerance where the binding does not enforce them.
 
-Retain the mapping needed to interpret distributions. HTTP Score indices are strings; Python uses integer keys. Allow numerical rounding when checking distribution sums and expected scores. Missing fields, non-finite values, and an unmapped choice are interface failures, not uncertain semantic judgments.
+A missing/malformed answer is an interface failure, not a negative proposition or no-match. Python's forward-compatible parser can skip unknown answer kinds; inspect `result.raw_http_response.json()` when diagnosing missing entries. Static TypeScript inference establishes expected types, not semantic correctness. Keep distributions and legends when downstream policy needs them.
 
-Keep the original item-to-question association through batching and concurrency. Preserve the actual returned model identity when reproducibility matters. Application output may be simpler than the raw answer, but discard information deliberately according to what the consumer needs.
+Sources: [HTTP responses](https://docs.typesafe.ai/api), [Python response handling](https://docs.typesafe.ai/sdk/python/usage).
 
-Sources: [HTTP API](https://docs.typesafe.ai/api), [Python response types](https://docs.typesafe.ai/sdk/python/api/types/responses), [Score wire and SDK mappings](https://docs.typesafe.ai/primitives/score).
+## Time Budgets and Failures
 
-## Bindings and Time Budgets
+| Binding | Controls and meaning |
+| --- | --- |
+| Python | `timeout=` in seconds for HTTP operations; `retry=RetryPolicy(...)` on client/call; `max_retries` counts attempts after the first |
+| Python retry budget | `RetryPolicy.timeout` counts the initial attempt and delays when deciding further retries; this is not a guaranteed interruption of an in-flight operation |
+| JavaScript | `timeout` in milliseconds per attempt; `retry: { maxRetries: ... }`; no Python-style total retry budget in the inspected binding |
+| JavaScript cancellation | `signal: AbortSignal` cancels the request and pending retries |
 
-| Binding | Package and entry points | Timing semantics |
-| --- | --- | --- |
-| Python | `typesafe-sdk`; import `typesafe_sdk`; `TypeSafeClient`, `AsyncTypeSafeClient`; `Choice`, `Score`, `Noul`; `system_one` | HTTP-operation timeouts use seconds; `RetryPolicy.timeout` is a separate total retry budget |
-| JavaScript / TypeScript | `@typesafe-ai/sdk`; `TypeSafeClient`; `choice`, `score`, `noul`; `systemOne` | Request timeout uses milliseconds per attempt; `AbortSignal` can cancel the request and pending retries |
+Derive budgets from when the application still needs the answer. Layered SDK/application retries multiply attempts; coordinate their ownership. Retrying inference and repeating an effect already executed by the application are separate decisions.
 
-The inspected JavaScript request options do not specify Python's total retry-budget field. Do not copy timeout numbers or retry configuration between languages without translating the contract. Preserve project connection reuse, cancellation, and asynchronous conventions. Follow the project's environment and dependency tooling. Use uv for skill-owned Python helper scripts, with incidental dependencies isolated from the target project.
+`401` calls for authentication repair; `422` for request repair; `429` and `529` for backoff under the SDK's retry policy. Use returned retry timing where supported. Python HTTP errors expose `TypeSafeAPIError.status`, `.body`, `.request_id`; connection/timeouts have separate exception classes. JavaScript `APIError` exposes `.status`, `.body`, `.requestId`, with separate connection, timeout, and user-abort errors. A successful HTTP status can still fail response validation.
 
-Distinguish an HTTP-operation timeout, a retry budget, and the application deadline after which a result is no longer useful. SDK retries and application retries can multiply attempts if layered blindly. Inference retry must not automatically repeat an already executed effect.
+Record request identity and the relevant evidence/question/model mapping for diagnosis. SDK debug logging includes unredacted request and response bodies even when credential headers are redacted; choose logging deliberately when capturing source material.
 
-Sources: [Python SDK](https://docs.typesafe.ai/sdk/python), [Python client](https://docs.typesafe.ai/sdk/python/api/clients/sync), [Python retries](https://docs.typesafe.ai/sdk/python/api/retries), [JavaScript request options](https://docs.typesafe.ai/sdk/javascript/api/interfaces/RequestOptions).
+Sources: [Python retries](https://docs.typesafe.ai/sdk/python/api/retries), [exceptions](https://docs.typesafe.ai/sdk/python/api/exceptions), [JS request options](https://docs.typesafe.ai/sdk/javascript/api/interfaces/RequestOptions), [JS errors](https://github.com/typesafe-ai/typesafe-sdk-js/blob/v0.6.0/src/errors.ts).
 
 ## Resolve Model Capabilities
 
-Use `model: "jev-latest"` by default for new integrations. It tracks the latest stable official release and is the SDK default. Preserve an existing explicit model selection; use a versioned ID when the project requires reproducibility or policies calibrated against that version. Do not hardwire the alias to a particular release.
+Use `jev-latest` for new integrations unless the project explicitly selects another model. It tracks the stable official release; versioned IDs support reproducibility and version-calibrated policies. Preserve the returned `model`. `GET /v1/models`, Python `client.models.list()`, or JavaScript `await client.models.list()` discovers available names; the listing may omit accepted versioned IDs.
 
-English is Jev's primary training language and its strongest language for accuracy according to the model documentation. Prefer English for authored instructions and criteria when the task permits. Preserve source-language evidence where translation could alter meaning, and evaluate non-English workloads on their actual content. English preference is not an English-only input restriction.
+Jev evaluates text and structured JSON; non-text sources need an appropriate representation before evaluation. English is its primary training language and strongest for accuracy. Prefer English for authored instructions and criteria where appropriate, preserving source-language meaning and assessing other-language workloads on their actual inputs. Domain adaptation uses supplied evidence, instructions, criteria, and consuming policy; a client response model does not train Jev.
 
-Resolve configuration from the target project and the selected model's current contract:
+Consult model-specific limits for both `state + all questions` and `state + longest question`, including serialized overhead. Check option/level limits in primitive documentation. These ceilings constrain valid requests; batch size and policy thresholds depend on quality and workload. If documentation conflicts, compare the precise feature reference and installed SDK/source, and identify unresolved server behavior rather than inventing a contract.
 
-| Needed information | Where to establish it |
-| --- | --- |
-| Model identity and alias resolution | Project configuration, model documentation, and the actual response |
-| Supported input modalities | Selected model's documented capabilities |
-| Request-wide and per-question context limits | Model-specific limits, including how shared state and question content are counted |
-| Choice option and Score level limits | Primitive documentation and the installed binding's validation rules |
-| Language suitability | Model documentation and evaluation on the actual input language |
+Follow the target project's environment tooling. Use uv for skill-owned Python helpers with incidental dependencies isolated from the project.
 
-Account for serialized overhead in both context budgets. A token ceiling does not establish a useful batch size or guarantee quality with unrelated context. A permissive SDK schema does not by itself establish server support.
-
-`GET /v1/models` discovers account-available model names. Check the model documentation before treating that listing as exhaustive of accepted versioned IDs. The response's `model` identifies the version that answered. Keep version-dependent policies reproducible; do not silently move a threshold calibrated for one version onto a moving alias. Do not translate source material merely to satisfy an assumed language requirement.
-
-Sources: [Models](https://docs.typesafe.ai/models), [Choice limits](https://docs.typesafe.ai/primitives/choice), [Score levels](https://docs.typesafe.ai/primitives/score).
-
-## Errors and Diagnosis
-
-`401` indicates authentication failure; `422` indicates request validation failure; `429` indicates rate limiting; `529` indicates service overload. Follow the actual SDK's documented transient-error handling. A failed request has no proposition probability. Preserve partial failures explicitly rather than reporting missing items as negative judgments.
-
-Trace the first incorrect transformation:
-
-| Observation | Inspect |
-| --- | --- |
-| Expected answer cannot be selected | Source availability, candidate coverage, and the stated answer boundary |
-| Answers belong to the wrong items | Projection order, paths, question IDs, and original-item mapping |
-| An optional result has the wrong meaning | Scope of absence, candidate fit, ambiguity, and source lookup |
-| Ranking changes unexpectedly | Question comparability, candidate-set changes, rubric direction, ties, and preserved distributions |
-| Individually plausible components conflict | Candidate domains, tuple constraints, and missing information dependencies |
-| Correct judgment causes the wrong effect | Consumed answer, policy, target freshness, preconditions, and observed execution |
-| Behavior changes after an update | Evidence, instructions, criteria, model resolution, and consumer policy versions |
-
-Record enough of these associations to reproduce the relevant failure, without requiring every source to be logged. Distinguish request acceptance, model quality, consumer correctness, and observed outcomes. Community implementations and saved measurements support concrete design alternatives; their default thresholds, batch widths, and performance claims are not API guarantees.
-
-Source: [HTTP errors](https://docs.typesafe.ai/api). Use the [official documentation index](https://docs.typesafe.ai/llms.txt) to locate current details; `.md` variants of documentation pages can provide a compact reading form.
+Sources: [Models](https://docs.typesafe.ai/models), [Choice](https://docs.typesafe.ai/primitives/choice), [Score](https://docs.typesafe.ai/primitives/score), [documentation index](https://docs.typesafe.ai/llms.txt).

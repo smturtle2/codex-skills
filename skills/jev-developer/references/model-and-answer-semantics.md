@@ -9,7 +9,7 @@ state + one question's instructions + its answer definitions
     → typed answer associated with the caller's question ID
 ```
 
-The request can carry several questions over the same state. A question does not receive another question's answer as hidden context. Instruction paths identify content already supplied; they do not fetch external records, execute JSONPath, or isolate the model from other supplied content.
+The request can carry several questions over the same state. A question does not receive another question's answer as hidden context. Jev suits focused semantic judgments with the needed information directly available. Code constructs intermediate subjects or resolves exact relationships when a judgment would otherwise require several hidden reasoning steps. Paths guide interpretation of supplied content; they do not fetch records, execute JSONPath, or restrict access to other state.
 
 | Request location | Semantic role |
 | --- | --- |
@@ -28,12 +28,12 @@ Sources: [Primitives](https://docs.typesafe.ai/primitives), [Choice](https://doc
 
 ```text
 choice ∈ supplied option IDs
-probabilities: option ID → probability
+probabilities: option ID → probability in [0, 1]
 Σ probabilities[option ID] = 1
 choice = an option with maximal probability
 ```
 
-The distribution belongs to that answer space. Adding, removing, or changing alternatives changes the comparison. Probabilities from separate candidate sets are not a common absolute-quality scale. One Choice selects one alternative; multiple independently applicable labels require separate applicability information.
+Use Choice when the consumer needs one identity from supplied alternatives. Its distribution belongs to that answer space. Adding, removing, or changing alternatives changes the comparison; probabilities from separate candidate sets are not a common absolute-quality scale. Overlapping or near-duplicate alternatives can divide probability among acceptable answers. Clarify the selection rule or consolidate equivalent candidates when their identity is immaterial; preserve distinct occurrences when identity matters. Independently applicable labels call for separate applicability judgments.
 
 An explicit rejection option participates in this same distribution. Its description determines the scope of rejection. It may mean no supplied candidate fits; it does not automatically establish absence from a larger source. Ambiguity among candidates and a definite no-match are also different information.
 
@@ -48,9 +48,9 @@ noul ∈ [0, 1]
 noul = estimated probability that the defined proposition is true
 ```
 
-There is no separate `confidence`. A midpoint probability expresses unresolved truth, not a medium amount of an attribute. An unavailable source is a data-availability condition, not a special meaning of `noul = 0.5`.
+There is no separate `confidence`. A midpoint probability expresses unresolved truth, not a medium amount of an attribute.
 
-The proposition's scope determines the meaning of a negative answer. Lack of support in supplied material does not establish falsity outside it. A question combining support, completeness, and compatibility will not reveal which condition failed; request separate information only when that distinction matters to the consumer.
+Use Noul when truth of a defined condition is the useful signal, including independent membership or suitability. The proposition's scope determines the meaning of a negative answer. Lack of support in supplied material does not establish falsity outside it. Missing evidence may support a clear negative about documented support while leaving a broader truth question unresolved; absence is not automatically encoded as a midpoint.
 
 Keep `true` aligned with the instruction and `false` with its negation. Either positive or defect-oriented propositions are possible; consumer thresholds must use the actual polarity. Independently phrased questions need not produce complementary probabilities. For an exact complement of the same proposition, derive `1 - p` from its single answer.
 
@@ -65,11 +65,11 @@ score = Σ i × probabilities[i]
 legend[i] = description associated with level i
 ```
 
-The descriptions define the property. Each level needs an independently understandable meaning, not a reference to a neighboring description. Combining unrelated properties in one scale can leave inputs high on one property and low on another without a meaningful position.
+Use Score when the consumer needs degree on a describable ordered scale. Each level should stand on its own and levels should progress along the same property. Combining independently varying properties can leave no meaningful position for an input; use separate judgments when the consumer needs those dimensions.
 
 The expected index can fall between levels. It is not an exact quantity, a percentage of affected subjects, or a probability that the answer is correct. Equal expectations can hide different concentrations or mass at opposite ends of the scale. Use the distribution when those distinctions affect behavior.
 
-`score / (L - 1)` rescales the index range; it does not calibrate the result as a probability or establish equal semantic spacing. Combining normalized scores requires aligned direction and a meaningful trade-off between their dimensions. A weighted preference does not automatically represent the probability of a joint outcome.
+`score / (L - 1)` rescales the index range; it does not calibrate the result as a probability or establish equal semantic spacing. Numeric labels inside descriptions do not change the index weights. When levels have externally defined values or utilities `v[i]`, code may compute `Σ v[i] × probabilities[i]`, provided those values meaningfully represent the levels. Exact numeric extraction instead requires source candidates or deterministic parsing; the [composition reference](composition-and-execution.md#values-and-structure) explains that boundary.
 
 HTTP maps use stringified indices; Python SDK maps use integer indices. Retain the legend rather than inferring level meaning from an unassociated number.
 
@@ -77,11 +77,11 @@ Source: [Score](https://docs.typesafe.ai/primitives/score).
 
 ## Confidence and Consistency
 
-Choice and Score `confidence` summarizes the returned distribution's concentration. It is not an additional probability of correctness, suitability, permission, or successful execution. The inspected confidence documentation does not publish a formula to reimplement; use the returned field or an explicitly defined alternative measure over the distribution.
+Choice and Score `confidence ∈ [0, 1]` summarizes the returned distribution's concentration. It is not an additional probability of correctness, suitability, permission, or successful execution. The inspected confidence documentation does not publish a formula to reimplement; use the returned field or an explicitly defined alternative measure over the distribution.
 
-Low concentration can reflect several acceptable alternatives as well as insufficient evidence. Inspect what the alternatives mean before interpreting a low value as failure. Uncertainty in an unused conditional answer need not block a different branch.
+Low concentration can reflect several acceptable alternatives, conflicting criteria, or insufficient evidence. Inspect those causes before choosing clarification, additional evidence, or a consumption rule. High concentration can coexist with an incomplete candidate set or a mistaken premise. Uncertainty in an unused conditional answer need not block a different branch.
 
-Independent question evaluation is not statistical independence. Separate answers are not a joint distribution, and changing primitive type need not preserve probabilities or an established threshold. Do not assume exact repeatability of returned numbers. Calibration is an empirical property over relevant predictions and outcomes, not a certificate for one answer.
+Independent question evaluation is not statistical independence. Separate answers are not a joint distribution, and changing primitive type need not preserve probabilities or thresholds. Exact numerical repeatability is not guaranteed. For probability-consuming policies, assess calibration on relevant outcomes; for ranking, assess order quality. For acceptance or abstention, measure errors among accepted items together with coverage. [Consumer policy](composition-and-execution.md#joint-meaning-and-consumer-policy) explains combination and threshold evaluation.
 
 Sources: [Confidence](https://docs.typesafe.ai/confidence), [structural invariants](https://docs.typesafe.ai/model-jaggedness/jev-1.13#common-sense-structural-invariants). [Recorded repeated-request observations](https://github.com/anessbelbati/jev-rerank-bench/blob/cd9a35b22aeb4187334f7018a0ee1960a7470586/results/determinism.json) are community measurements, not a universal variability bound.
 
@@ -98,7 +98,6 @@ The following are documented failure modes to investigate for the selected model
 | Irrelevant state can reduce accuracy | Preserve decision-changing evidence while removing material unrelated to the judgment |
 | Adversarial framing can change an answer | Keep source content distinct from evaluation instructions; assess the actual input conditions rather than assuming names create protection |
 | Conflicting instructions and criteria impair interpretation | Describe the same relationship with consistent polarity and answer boundaries |
-| No free-form text generation | Obtain candidate values from source processing or another producer; Jev can select or assess them |
 
 These properties motivate concrete representations; they do not establish a preferred key casing, nesting depth, field count, or batch size. Numeric preprocessing should preserve units and provenance rather than turn every number into an unsupported adjective. Verify model changes before carrying forward release-specific assumptions.
 

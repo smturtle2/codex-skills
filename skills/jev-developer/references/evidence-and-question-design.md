@@ -17,9 +17,11 @@ Derive the representation from the unresolved distinction. Preserve the observat
 | Missing values | Known availability and scope: not obtained, not stated within the supplied material, or inapplicable |
 | Transformed text | Qualifications, negation, ownership, and the relationship to the original when wording matters |
 
-A key names a role; it cannot establish an observation or certify truth. Decode known status or category codes through their authoritative mapping. If the mapping or distinguishing evidence is unavailable, retrieve it, narrow the question to the observable scope, or preserve that uncertainty. Do not invent meaning to complete a record.
+A key names a role; it cannot establish an observation or certify truth. Decode known status or category codes through their authoritative mapping. If distinguishing evidence is unavailable, the calling software can obtain it, narrow the question to the observable scope, or preserve uncertainty. Label prior model assessments as assessments, especially when reused in a later request.
 
-A native JSON boolean can represent a known fact. A number can remain numeric. `null` needs meaning from its surrounding contract. Text-only input does not require converting every nested JSON value to a string.
+A native JSON boolean can represent a known fact and a quantity can remain numeric. `null` takes meaning from its surrounding contract. Keep exact numeric relationships explicit where needed, retaining units and the computation's source basis.
+
+Projection changes what Jev can know. Truncation can remove qualifications or the only supporting passage; deduplication can erase distinct occurrences or attribution; summaries can lose negation or ownership. Preserve decision-changing context and original-content mappings. When supplied material is partial, scope absence judgments to that material. Additional evidence is useful when it resolves a specific distinction; a larger state alone is not better evidence.
 
 Sources: [State](https://docs.typesafe.ai/concepts/state), [model limitations](https://docs.typesafe.ai/model-jaggedness/jev-1.13), [Python question types](https://docs.typesafe.ai/sdk/python/api/types/questions).
 
@@ -35,7 +37,7 @@ Sources: [State](https://docs.typesafe.ai/concepts/state), [model limitations](h
 
 Moving a local subject into instructions can reduce lookup through a large shared collection. Keeping common material in state avoids repeating it. Neither placement universally improves accuracy. Compare duplication, target ambiguity, irrelevant context, and measured behavior rather than requiring every fact in state or every target in instructions.
 
-Structured instructions and descriptions carry ordinary labeled content. An inner key is not an API operator. Use a sentence when it expresses the complete relationship; use an object or array when it makes distinct roles clearer. Do not expand simple content into a universal envelope.
+Structured instructions and descriptions carry ordinary labeled content, not API operators. Use a sentence for a complete relationship and an object or array when explicit roles improve clarity. Put candidate-specific identifying evidence in its description when this avoids a lookup; keep genuinely shared evidence in state. Neither structure nor location gives source text authority to redefine the evaluator.
 
 Sources: [Structured content](https://docs.typesafe.ai/primitives/advanced), [question-local field information](https://docs.typesafe.ai/cookbooks/sde_cascade). Source-level implementations: [question-local subjects](https://github.com/sufianetaouil/every/blob/aaa72d582a831420dfd23a788e3bc948c798c248/every/judge.py#L67), [shared subjects with explicit references](https://github.com/hev/reranker/blob/1eb47266270b32b2a3667f9fb89646378ca9c9d6/hev_rerank/rerank.py#L85). These establish available constructions, not a universal performance ranking.
 
@@ -49,7 +51,7 @@ Use shape to express actual ownership, order, and correspondence:
 - Co-located comparison attributes reduce implicit joins. Preserve their owners and source basis.
 - References to shared data require the referenced contents to be supplied. An external ID, path, or URL alone does not provide those contents.
 
-Parallel arrays are not intrinsically invalid, but their positional correspondence must be unambiguous. Flattening or selective duplication is a trade-off, not a fixed-depth rule. Preserve original content separately when code must return it exactly.
+Parallel arrays require unambiguous positional correspondence. Flattening can shorten a lookup while losing ownership; selective duplication can clarify comparisons while increasing input and synchronization work. Choose based on those relationships rather than a fixed nesting depth.
 
 Source: [State](https://docs.typesafe.ai/concepts/state). JSON ordering and key semantics: [RFC 8259 §§4–5](https://www.rfc-editor.org/rfc/rfc8259#section-4).
 
@@ -65,19 +67,19 @@ source identity ← caller mapping  ← question ID ← returned answer
 
 Build locations and caller mappings from the same ordered snapshot. Rebuild them when filtering, truncating, sorting, or splitting changes positions. Keep original identity outside any temporary batch index. Returned answers are matched by key, not response iteration order.
 
-Do not compress several roles into a vague correctness question. A proposed value may occur in the source while belonging to a different entity or property. State the relationship being checked. A question about what supplied evidence supports differs from one about truth outside that evidence.
+A proposed value may occur in the source while belonging to a different entity or property. State the relationship being checked, including quantifiers and scope: one occurrence, every occurrence, or any qualifying occurrence are different conditions. A judgment about what supplied evidence supports differs from one about truth outside that evidence.
 
 Source: [Primitives: field references and question IDs](https://docs.typesafe.ai/primitives).
 
 ## Define the Answer Boundary
 
-**Choice:** describe what identifies each alternative and what distinguishes close alternatives. Meaning can come from an unambiguous option name, its description, or explicitly associated source content. Do not require a redundant description when it adds no information. Define any rejection outcome's scope rather than assuming a reserved no-match label exists.
+**Choice:** describe what identifies each alternative and distinguishes close alternatives. An unambiguous option name may supply enough meaning; otherwise add its description or associated content. If several alternatives can satisfy the condition, specify how a single selection should be made or obtain independent applicability information. Define rejection explicitly; there is no reserved no-match label.
 
-**Noul:** express one proposition. Add true/false descriptions when they clarify a real boundary, including a plausible near-match that does not satisfy the relation. If a negative result conflates omission, contradiction, and unrelated evidence, that is the information the question requested. Obtain separate distinctions only when the consumer needs them.
+**Noul:** express one proposition and align true/false descriptions with its polarity. Clarify the boundary through necessary conditions and exclusions where useful. Support, contradiction, omission, and inapplicability require separate distinctions when they lead to different consumer behavior.
 
-**Score:** describe recognizable levels of the same property in the intended direction. Each entry should stand on its own. More levels are useful only when their meanings are distinguishable. If different dimensions can vary independently and need separate treatment, represent their judgments separately rather than assigning an uninterpretable mixed level.
+**Score:** describe recognizable levels in the intended direction, with enough separation for supplied evidence to locate an input. Adding indistinguishable levels increases apparent resolution without adding useful meaning. Separate dimensions when independently useful; preserve relationships when the property itself is relational.
 
-The state, instruction, and criteria must describe the same evaluation. A criterion about a different property changes the question even if the request is schema-valid. Treat source passages as evidence with specified roles, not authority to redefine the evaluator. A source useful for one dimension need not establish facts for another.
+The instruction and criteria must define the same evaluation. Check inconsistencies before adding further instructions: changing criteria can change the question even when the request remains schema-valid. Source roles also matter: material useful for one dimension may provide no evidence for another.
 
 Sources: [Choice](https://docs.typesafe.ai/primitives/choice), [Noul](https://docs.typesafe.ai/primitives/noul), [Score](https://docs.typesafe.ai/primitives/score). Source-level evidence for distinct material roles: [question definitions](https://github.com/jxucoder/mimicry/blob/0bd751f82b51ba96752c2bab910ec6496ed1696f/src/mimicry/engine.py#L44).
 
@@ -94,6 +96,4 @@ Distinguish what changed before attributing better answers to formatting:
 | Reordering or changing caller IDs | Preserve one-to-one identity and paths; distinguish this from changing model-facing alternatives |
 | Increasing batch size | Separate grouping unchanged shared evidence from adding new records to the state |
 
-Check subject mix-ups, known errors, missing-evidence behavior, and consumed outcomes alongside token use and latency. Increased confidence alone is not evidence of improvement. A meaning-preserving transformation should not be mistaken for new evidence, but identical probabilities are not guaranteed. Retain the exact request or sufficient reproducible provenance when diagnosing a mismatch; do not require indiscriminate storage of source data.
-
-These are comparison controls derived from the information relationships above, not measured guarantees for a particular JSON layout.
+Use the same labeled inputs to compare subject association, relevant errors, and missing-evidence behavior alongside tokens and latency. Repeat observations when variability could explain a difference. Record enough of the request and projection to reproduce the mismatch. These comparison controls follow from information relationships; a preferred layout still requires evidence from the actual task.

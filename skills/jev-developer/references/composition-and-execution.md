@@ -1,6 +1,6 @@
 # Composition and Execution
 
-Use this reference when joining judgments into a value or behavior, scheduling requests, or changing consumer policy. The relationships below are composable; they are not mandatory pipelines or a closed catalog.
+Use this reference when joining judgments into a value or behavior, scheduling requests, or changing consumer policy. These are design relationships, not additional Jev operators. Select them according to the information the consumer needs.
 
 ## Selection, Presence, and Suitability
 
@@ -15,35 +15,27 @@ Let `C` be supplied candidate IDs. Let `⊥` denote an explicitly described reje
 
 An existential fit answer does not establish that the selected candidate fits. Source presence does not establish candidate coverage: retrieval or parsing may have omitted the correct occurrence. No supplied candidate is different from no matching candidate, and both differ from uncertainty among plausible matches.
 
-With no candidates, do not construct a candidate-selection request. With one candidate, identity is already known, but suitability may still need judgment. With several, choose the information the consumer needs rather than attaching every construction mechanically.
+With no candidates, handle the empty set in code or obtain candidates before selection. With one, identity is known but suitability may still need judgment. Measure candidate coverage separately from selection quality: judging the supplied set more accurately cannot recover an omitted answer.
 
 Sources: [Selection with source presence](https://docs.typesafe.ai/cookbooks/semantic_find), [source candidate selection](https://docs.typesafe.ai/cookbooks/pre_parsed_value_extraction_cookbook), [relative choice and applicability](https://docs.typesafe.ai/model-jaggedness/jev-1.13#common-sense-structural-invariants).
 
 ## Collections and Reusable Judgments
 
-```text
-item identity ↔ evidence ↔ question definition ↔ answer
-
-map     : reconnect answers to their original items
-rank    : order the quantity whose meaning is being compared
-filter  : apply an acceptance policy
-group   : use category identity or independently assessed membership
-reduce  : compute counts or aggregates in code
-```
-
 Per-item Nouls compare the truth of a common condition on each item; they are not normalized across the collection. Per-item Scores require the same rubric meaning and direction. One Choice distribution compares its supplied alternatives and cannot be merged with another shortlist's distribution as if both were an absolute scale.
 
-Ranking does not itself require exclusion or a cutoff. For filtering, losing a relevant item and retaining an irrelevant item may have different consequences. Context selection can preserve exact surviving text and required dependencies instead of generating a replacement summary.
+Ranking does not itself require exclusion or a cutoff. Itemwise evaluation offers a reusable common criterion; pairwise comparison can express relative preference but requires code to aggregate comparisons, handle ties or cycles, and control call count. Grouping uses category identity for exclusive membership and separate applicability for overlapping membership. Code computes counts and aggregates from the consumed decisions.
 
-Keep raw judgments and their definitions separate from weights, display filters, and acceptance policy. If evidence and question meaning remain unchanged, a policy change can sometimes reuse the same answers. Changing a model, criterion, or candidate set changes the judgment-producing process and requires reconsidering that reuse.
+For filtering, choose policy using the consequences of false inclusion, false exclusion, and abstention. Measure retained quality together with coverage; an apparently accurate filter may discard most useful items. Context selection can retain exact surviving content and dependencies without producing a summary.
+
+Keep raw judgments and definitions separate from weights, display filters, and acceptance policy. Reuse answers when only the consuming policy changes and the required evidence, instructions, criteria, candidates, and model identity remain applicable. An alias alone is insufficient to identify the model behind cached answers. Recheck policy quality when inputs or outcome frequencies shift.
 
 Sources: [Re-ranking](https://docs.typesafe.ai/cookbooks/rerank_typesafe), [composite scoring](https://docs.typesafe.ai/patterns/composite-scoring), [features consumed by a learned model](https://docs.typesafe.ai/cookbooks/autoresearch_feature_discovery).
 
 ## Values and Structure
 
-For a source-backed value, code discovers candidate occurrences, Jev selects the semantic role, and code resolves the ID to exact source content. Preserve each occurrence's identity and context. Parsing, normalization, and exact calculations belong after or before the judgment as their dependencies require. Selection cannot repair missing candidates.
+For a source-backed value, code discovers candidate occurrences, Jev selects the semantic role, and code resolves the ID to exact content. Preserve occurrence identity and context through parsing and normalization. A numeric return type does not imply Score: source selection retrieves a value, code computes an exact quantity, and Score estimates degree on described levels.
 
-Bounded components can also be evaluated and assembled into a larger typed value. Distinguish omission from explicit false or a supplied value when the domain requires it. Code checks the assembled result: individually valid fields do not imply a compatible tuple. When a field needs information that another answer determines, construct that information before the dependent judgment.
+For bounded component domains, Jev can select components and code can assemble a typed value. Preserve omission separately from explicit false when meaningful. Individually valid fields do not imply a compatible tuple: code checks known constraints; a joint semantic relation may need its own judgment. Evaluate compatible tuples directly when that preserves an essential relationship within a manageable candidate space, or construct later candidates from earlier answers when they genuinely depend on them.
 
 Boundary judgments can determine how ordered source units are grouped. Code then constructs blocks while preserving order and content. A later judgment about those blocks has a genuine dependency because its subjects did not exist before grouping.
 
@@ -55,7 +47,7 @@ Questions whose evidence and subjects already exist can share a request. State a
 
 Sequence inference when an earlier answer is needed to retrieve material, construct the next subject, or establish the next candidate set. Separate calls can also be a scheduling choice without a semantic dependency. Distinguish these reasons before serializing a workflow.
 
-Batching common evidence saves repeated input, but each added question costs tokens. Adding unrelated records to shared state also changes what each judgment sees. Balance context reuse with target clarity and measured quality. Concurrent independent requests still transmit their own states. Use the current request-wide and per-question limits in [integration](integration.md#resolve-model-capabilities), including serialization overhead.
+Batching common evidence saves repeated state input; each added question contributes input tokens. For unchanged state and independent questions, batching avoids repeated transmission and serial latency. Adding records to state is a different change: every question now sees more context. Separate batches when limits, subject clarity, deadlines, or failure isolation warrant it. Concurrent requests each transmit their own state. Account for request-wide and per-question limits in [integration](integration.md#resolve-model-capabilities), and measure tokens and latency rather than prescribing a batch width.
 
 Sources: [Independent and dependent questions](https://docs.typesafe.ai/primitives), [shared-state batching](https://docs.typesafe.ai/cookbooks/parallel_questions), [speculative questions](https://docs.typesafe.ai/patterns/fan-out).
 
@@ -63,7 +55,7 @@ Sources: [Independent and dependent questions](https://docs.typesafe.ai/primitiv
 
 An option ID can identify data or an executable handler. Code exposes supported operations and compatible candidate values; Jev supplies semantic selection. When argument domains already exist, conditional argument questions can accompany operation selection. Their instructions state the operation premise rather than referring to its unanswered selection question.
 
-Code consumes only the selected operation's relevant answers and checks tuple compatibility. It resolves IDs to actual values and execution targets. Values supplied by the caller or present in source material need not be regenerated. A selection over values is distinct from generating new, open-ended content.
+Code consumes the selected operation's relevant answers, checks compatibility, and resolves IDs to values and targets. An unused branch's uncertain answer can be ignored. If the argument domain is open-ended, obtain candidate values from the available input or a capability the application actually needs; selection over supplied values is not generation.
 
 For changing state, bind a decision to its observation, check relevant preconditions before applying it, and inspect the actual effect. Model-facing identifiers need not carry execution authority. A correct semantic choice can still produce a wrong action if its target mapping or observation is stale.
 
@@ -71,10 +63,24 @@ Source: [Function calling](https://docs.typesafe.ai/cookbooks/function_calling).
 
 ## Search, Verification, and Generation
 
-Coarse evidence can support an initial candidate comparison; additional material can support distinctions not observable in that view. Code controls expansion and stopping. Retaining several plausible branches may preserve coverage that greedy selection loses. A local Choice probability is relative to local alternatives; a combined path value is a search statistic, not an established end-to-end success probability.
+Coarse evidence can support an initial candidate comparison; further material can resolve distinctions unavailable in that view. Code controls expansion and stopping. Supply enough branch description to reveal relevant descendants. Retaining several plausible branches can preserve coverage lost by greedy selection; it also consumes more requests. Splitting candidates into separate Choices changes their comparison sets, so shortlist probabilities need a common comparison stage or another justified aggregation rule. Measure final candidate recovery as well as local judgment quality.
 
-A generated value or claim can become a later judgment's subject alongside its independent evidence and requirements. Exact syntax, membership, and arithmetic can be checked in code. Semantic support, contradiction, and requirement coverage need appropriately scoped questions. A proposal cannot independently verify itself.
+A supplied value or claim, whether authored, extracted, or generated, can be judged against independent evidence and requirements. Code checks exact syntax, membership, and arithmetic; Jev judges semantic support and relationships. A proposal cannot independently verify itself. Feedback can identify failed dimensions and their definitions, but Jev does not return a generated rationale.
 
-Use separate signals when they lead to different corrections or acceptance rules. A weighted mean expresses compensation between dimensions; it is unsuitable when one disqualifying condition must remain decisive. Do not mistake a `max`-based gate for a computed union probability. Jev returns judgments, not generated explanations; code can build feedback from the evaluated dimensions, definitions, and outcomes without inventing a rationale the model never supplied.
+Sources: [Hierarchical selection](https://docs.typesafe.ai/cookbooks/hierarchical_classification), [source support](https://docs.typesafe.ai/cookbooks/citation_check), [field-level verification](https://docs.typesafe.ai/cookbooks/sde_cascade), [source-level feedback construction](https://github.com/jxucoder/mimicry/blob/0bd751f82b51ba96752c2bab910ec6496ed1696f/src/mimicry/engine.py#L505).
 
-Sources: [Hierarchical selection](https://docs.typesafe.ai/cookbooks/hierarchical_classification), [source support](https://docs.typesafe.ai/cookbooks/citation_check), [field-level verification and consumption](https://docs.typesafe.ai/cookbooks/sde_cascade). Source-level evidence for reusing definitions and judgments as feedback: [feedback construction](https://github.com/jxucoder/mimicry/blob/0bd751f82b51ba96752c2bab910ec6496ed1696f/src/mimicry/engine.py#L505).
+## Joint Meaning and Consumer Policy
+
+Ask a coherent relational condition directly when that relationship is the needed answer. Split factors when separate results enable distinct corrections, priorities, or reuse. Code can then enforce a chosen policy, but combining marginal probabilities requires care:
+
+```text
+P(A and B) = P(A) × P(B | A)     when P(A) > 0
+P(A or B)  = P(A) + P(B) - P(A and B)
+E[count]   = Σ P(A_i)
+```
+
+The first two need joint/conditional information; independently evaluated questions do not establish statistical independence. The last follows from linearity of expectation without independence, but represents an expected count from meaningful probabilities, not an exact count of observed truths. A model's answer to a conditionally worded question remains an estimate, not a guarantee of probabilistic consistency across calls.
+
+A weighted mean expresses compensation between dimensions; an all-required gate preserves individually required conditions. `min`, `max`, or products used as policy scores do not automatically become calibrated joint probabilities. Choose thresholds on labeled tuning data, then assess errors and coverage on held-out inputs. Enforce known complements and deterministic identities in code instead of asking the model to rediscover them.
+
+Related API behavior: [structural consistency limits](https://docs.typesafe.ai/model-jaggedness/jev-1.13#common-sense-structural-invariants), [confidence](https://docs.typesafe.ai/confidence). The probability identities and policy distinctions above are mathematical and design guidance, not extra model guarantees.
