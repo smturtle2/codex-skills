@@ -103,7 +103,7 @@ Sources: [Hierarchical selection](https://docs.typesafe.ai/cookbooks/hierarchica
 
 ## Joint Meaning and Consumer Policy
 
-Ask a coherent relational condition directly when that relationship is the needed answer. Split factors when separate results enable distinct corrections, priorities, or reuse. Code can then enforce a chosen policy, but combining marginal probabilities requires care:
+Define the intended proposition or measured attribute before choosing component questions. Ask a coherent relational condition directly when that relationship is the needed answer. Split factors when separate results enable distinct corrections, priorities, or reuse. Code can then enforce a chosen policy, but combining marginal probabilities requires care:
 
 ```text
 P(A and B) = P(A) × P(B | A)     when P(A) > 0

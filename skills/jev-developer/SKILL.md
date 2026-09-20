@@ -17,7 +17,11 @@ Use [composition and execution](references/composition-and-execution.md) to deri
 
 ## Know the Interface
 
-Jev evaluates one `state` against named `questions`. Each question contains its own `instructions` and answer definition. The response associates each typed answer with its question ID.
+Jev evaluates a shared `state` through named questions and returns answers by question ID.
+
+- `state` supplies the evidence and situation to evaluate.
+- `instructions` define what to judge about that evidence.
+- `criteria` define the answer meanings: optional true/false clarification for Noul, alternatives for Choice, or ordered levels for Score.
 
 - **Choice** selects a supplied option. Its probabilities compare those alternatives; a relative winner need not be suitable.
 - **Noul** returns the probability that its proposition is true. It has no separate confidence and does not measure attribute intensity.

@@ -1,6 +1,6 @@
 # Evidence and Question Design
 
-Use this reference when preparing state, instructions, or criteria, or diagnosing an incorrect semantic answer. The rules concern information relationships; application field names and layouts are not prescribed.
+Use this reference when preparing state, instructions, or criteria, or diagnosing an incorrect semantic answer.
 
 ## Preserve What Distinguishes Answers
 
@@ -30,12 +30,12 @@ Sources: [State](https://docs.typesafe.ai/concepts/state), [model limitations](h
 | Placement | What it supports | What to retain or check |
 | --- | --- | --- |
 | Shared `state` | Several questions consulting the same material | One supplied source and complete target references |
-| Structured `instructions` | Small question-local subjects, definitions, or proposed values | Clear roles and the relationship to shared evidence |
+| Structured `instructions` | Question-local target or comparison definitions | The relationship to judge between that target or comparison basis and the shared evidence |
 | Choice criterion value | Meaning or distinguishing evidence of one alternative | Returned option ID linked to its real candidate |
 | Score criterion entry | A recognizable level of the judged property | Meaning that stands without reading an adjacent level |
 | Noul criterion descriptions | Clarification of the two sides of one proposition | Polarity consistent with the instruction |
 
-Moving a local subject into instructions can reduce lookup through a large shared collection. Keeping common material in state avoids repeating it. Neither placement universally improves accuracy. Compare duplication, target ambiguity, irrelevant context, and measured behavior rather than requiring every fact in state or every target in instructions.
+Moving a local subject into instructions can reduce lookup through a large shared collection. Keeping common material in state avoids repeating it. Compare duplication, target ambiguity, irrelevant context, and measured behavior.
 
 Structured instructions and descriptions carry ordinary labeled content, not API operators. Use a sentence for a complete relationship and an object or array when explicit roles improve clarity. Put candidate-specific identifying evidence in its description when this avoids a lookup; keep genuinely shared evidence in state. Neither structure nor location gives source text authority to redefine the evaluator.
 
@@ -79,7 +79,7 @@ Source: [Primitives: field references and question IDs](https://docs.typesafe.ai
 
 **Score:** describe recognizable levels in the intended direction, with enough separation for supplied evidence to locate an input. Adding indistinguishable levels increases apparent resolution without adding useful meaning. Separate dimensions when independently useful; preserve relationships when the property itself is relational.
 
-The instruction and criteria must define the same evaluation. Check inconsistencies before adding further instructions: changing criteria can change the question even when the request remains schema-valid. Source roles also matter: material useful for one dimension may provide no evidence for another.
+The instruction and criteria must define the same evaluation. Reuse that judgment by changing evidence and subject references while retaining its meaning. Changes to the proposition, option definitions, or scale require reviewing expected labels and consumer policy. Material useful for one dimension may provide no evidence for another.
 
 Sources: [Choice](https://docs.typesafe.ai/primitives/choice), [Noul](https://docs.typesafe.ai/primitives/noul), [Score](https://docs.typesafe.ai/primitives/score). Source-level evidence for distinct material roles: [question definitions](https://github.com/jxucoder/mimicry/blob/0bd751f82b51ba96752c2bab910ec6496ed1696f/src/mimicry/engine.py#L44).
 
