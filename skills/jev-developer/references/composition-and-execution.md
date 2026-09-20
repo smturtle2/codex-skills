@@ -1,6 +1,38 @@
 # Composition and Execution
 
-Use this reference when joining judgments into a value or behavior, scheduling requests, or changing consumer policy. These are design relationships, not additional Jev operators. Select them according to the information the consumer needs.
+Use this reference to derive a Jev-backed implementation from required behavior. The constructions are application designs using Jev's primitives, not additional API operators or a fixed workflow.
+
+## Find the Judgment That Enables the Result
+
+Relate the required output or effect to available inputs. Separate known transformations from unresolved meaning: parsing exposes possible values, known constraints narrow candidates, and semantic judgment identifies the requested role. Jev contributes the missing information at that boundary.
+
+Work backward from what the consumer needs to know. Express it as a distinction over an identifiable subject and evidence. A useful answer changes the output, a policy decision, or evidence obtained next. If every answer leads to the same behavior, reconsider the question's purpose. If available evidence cannot resolve the distinction, obtain the missing material or represent the unresolved state.
+
+Choose judgment units by both the required result and the context each judgment needs. An item-level question may still depend on shared conditions or other items. Supply those relationships or judge the relation as a unit. Decompose when the resulting questions each have sufficient context and their answers preserve what the consumer needs. When a later judgment uses an earlier result, explicitly supply that result as an assessment together with the evidence needed to interpret it.
+
+## Represent the Result Through Judgments
+
+The required output type alone does not determine the primitive. Consider what information must survive from input to output:
+
+| Required information | Possible representation | What calling code supplies |
+| --- | --- | --- |
+| Identity of an existing value or operation | Choice over meaningful candidate IDs | Candidate discovery, ID-to-value/handler mapping |
+| Which subjects satisfy a condition | Noul per subject with a common definition | Subject enumeration, membership policy, collection assembly |
+| Relative quality or preference | Comparable Scores/Nouls, or Choice between alternatives | Ranking or comparison aggregation appropriate to that meaning |
+| Relations or boundaries among source units | Questions over relevant pairs or boundaries | Pair construction, grouping, consistency and order preservation |
+| A structured value with bounded parts | Component judgments or Choice over compatible tuples | Allowed domains, compatibility checks, final assembly |
+
+Compare constructions by retained information, candidate coverage, evidence availability, and cost. Direct tuple selection preserves joint alternatives but can enlarge the candidate space; component judgments require compatibility handling. Itemwise judgments support reuse; comparisons expose preferences within the compared set. Boundary judgments let original content survive reconstruction.
+
+Keep the connection explicit in the implementation:
+
+```text
+source identity → supplied evidence → question/answer association
+                                       ↓
+required output ← code assembly/policy ← resolved semantic information
+```
+
+Determine how answers become output and whether the next subject already exists. This establishes implementation responsibilities and request dependencies; the sections below explain the choices.
 
 ## Selection, Presence, and Suitability
 
@@ -33,9 +65,9 @@ Sources: [Re-ranking](https://docs.typesafe.ai/cookbooks/rerank_typesafe), [comp
 
 ## Values and Structure
 
-For a source-backed value, code discovers candidate occurrences, Jev selects the semantic role, and code resolves the ID to exact content. Preserve occurrence identity and context through parsing and normalization. A numeric return type does not imply Score: source selection retrieves a value, code computes an exact quantity, and Score estimates degree on described levels.
+Preserve source occurrence identity through parsing and normalization so selected IDs resolve to exact content. A numeric return type can come from source selection, exact code calculation, or Score's estimated degree; choose according to the required meaning.
 
-For bounded component domains, Jev can select components and code can assemble a typed value. Preserve omission separately from explicit false when meaningful. Individually valid fields do not imply a compatible tuple: code checks known constraints; a joint semantic relation may need its own judgment. Evaluate compatible tuples directly when that preserves an essential relationship within a manageable candidate space, or construct later candidates from earlier answers when they genuinely depend on them.
+Preserve omission separately from explicit false when meaningful. Individually valid components do not imply a compatible tuple: code checks known constraints, while a joint semantic relation may need its own judgment. Construct later candidates from earlier answers when their domains genuinely depend on those answers.
 
 Boundary judgments can determine how ordered source units are grouped. Code then constructs blocks while preserving order and content. A later judgment about those blocks has a genuine dependency because its subjects did not exist before grouping.
 
@@ -53,7 +85,7 @@ Sources: [Independent and dependent questions](https://docs.typesafe.ai/primitiv
 
 ## Operations and Arguments
 
-An option ID can identify data or an executable handler. Code exposes supported operations and compatible candidate values; Jev supplies semantic selection. When argument domains already exist, conditional argument questions can accompany operation selection. Their instructions state the operation premise rather than referring to its unanswered selection question.
+When argument domains already exist, conditional argument questions can accompany operation selection. Their instructions state the operation premise rather than referring to its unanswered selection question.
 
 Code consumes the selected operation's relevant answers, checks compatibility, and resolves IDs to values and targets. An unused branch's uncertain answer can be ignored. If the argument domain is open-ended, obtain candidate values from the available input or a capability the application actually needs; selection over supplied values is not generation.
 

@@ -4,7 +4,7 @@ Use this reference when preparing state, instructions, or criteria, or diagnosin
 
 ## Preserve What Distinguishes Answers
 
-Derive the representation from the unresolved distinction. Preserve the observations that let the model distinguish plausible answers, including their role and scope.
+Derive the representation from the distinction the question must resolve. Preserve observations together with the subjects, conditions, and comparison basis that give them meaning. State task-specific terms and rules when they affect the answer. After filtering, summarizing, or splitting input, check that each question still receives the evidence and relationships it needs. If an untransmitted fact changes the required answer, supply it or narrow the question to the supported scope.
 
 | Information in the source | What its representation must preserve when relevant |
 | --- | --- |

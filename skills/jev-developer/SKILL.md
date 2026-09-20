@@ -5,7 +5,15 @@ description: Design, implement, and improve software using TypeSafe AI's Jev. Us
 
 # Jev Developer
 
-Design and implement Jev judgments that fit the requested behavior. Jev evaluates supplied information and returns typed judgments. The SDK handles transport and response types; the calling software prepares evidence, performs exact calculations, resolves returned IDs, and applies results. Jev does not retrieve external evidence, generate free-form content, or execute selected operations. Additional capabilities belong to the application only when its requirements need them.
+Build the requested software behavior using Jev where semantic judgment supplies information the program needs. Jev evaluates supplied information and returns typed judgments. The SDK handles transport and response types; calling software prepares evidence, performs exact calculations, resolves IDs, and applies results. Jev does not retrieve external evidence, generate free-form content, or execute selected operations.
+
+## Design from the Required Behavior
+
+Start from the required output or effect and available inputs. Identify the unresolved meaning that changes the result and the information Jev must read to judge it. Express the subject, conditions, and evidence relationships in the request. Assign known transformations, exact calculations, and data joins to code where appropriate, so the remaining semantic judgment has the context it needs.
+
+Choose judgment units and answer spaces that preserve the information needed to construct the result. Existing values can become candidates, relations can be judged over pairs, and structure can be assembled from boundary or component judgments. A complex output need not require a complex model answer.
+
+Use [composition and execution](references/composition-and-execution.md) to derive and compare constructions. Implement the evidence preparation and result consumption with the API call, including how absence or uncertainty affects behavior. Its sections describe alternatives, not a mandatory pipeline.
 
 ## Know the Interface
 
@@ -20,13 +28,11 @@ Jev evaluates one `state` against named `questions`. Each question contains its 
 
 ## Apply the Knowledge
 
-Derive the judgment from the subject, available evidence, and distinctions the consumer needs. Choose the primitive by that information, not the final programming-language type alone. Keep a coherent relationship together; separate factors when their individual answers enable useful policy or diagnosis.
-
 | Need | Reference |
 | --- | --- |
 | Choose a primitive or interpret its distribution | [Model and answer semantics](references/model-and-answer-semantics.md) |
 | Build evidence, locate subjects, or define criteria | [Evidence and question design](references/evidence-and-question-design.md) |
-| Combine judgments, assemble values, or arrange requests | [Composition and execution](references/composition-and-execution.md) |
+| Turn required behavior into judgments, values, and request dependencies | [Composition and execution](references/composition-and-execution.md) |
 | Write HTTP/SDK calls or diagnose integration failures | [Integration](references/integration.md) |
 
 Use relevant references as needed and retain their knowledge in context. For new integrations, default to `jev-latest` unless the project explicitly selects another model. Prefer English for authored instructions and criteria where appropriate, reflecting Jev's stronger English accuracy; preserve source-language meaning. Confirm version-sensitive contracts against the installed binding and official documentation.

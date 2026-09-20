@@ -9,7 +9,7 @@ state + one question's instructions + its answer definitions
     → typed answer associated with the caller's question ID
 ```
 
-The request can carry several questions over the same state. A question does not receive another question's answer as hidden context. Jev suits focused semantic judgments with the needed information directly available. Code constructs intermediate subjects or resolves exact relationships when a judgment would otherwise require several hidden reasoning steps. Paths guide interpretation of supplied content; they do not fetch records, execute JSONPath, or restrict access to other state.
+Each question evaluates the supplied state, its instructions, and its answer definitions. Untransmitted conversation, code, and prior answers are not shared context. Distinguish having relevant material from making its relationships clear enough for the judgment. Code can resolve known mappings, joins, and exact relations before evaluation. Paths guide interpretation of supplied content; they do not fetch records, execute JSONPath, or restrict access to other state. Questions in the same request do not read one another's answers.
 
 | Request location | Semantic role |
 | --- | --- |

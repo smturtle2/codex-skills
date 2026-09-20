@@ -113,7 +113,7 @@ Derive budgets from when the application still needs the answer. Layered SDK/app
 
 `401` calls for authentication repair; `422` for request repair; `429` and `529` for backoff under the SDK's retry policy. Use returned retry timing where supported. Python HTTP errors expose `TypeSafeAPIError.status`, `.body`, `.request_id`; connection/timeouts have separate exception classes. JavaScript `APIError` exposes `.status`, `.body`, `.requestId`, with separate connection, timeout, and user-abort errors. A successful HTTP status can still fail response validation.
 
-Record request identity and the relevant evidence/question/model mapping for diagnosis. SDK debug logging includes unredacted request and response bodies even when credential headers are redacted; choose logging deliberately when capturing source material.
+For a wrong semantic answer, inspect the actual transmitted content and its evidence/question/model mapping. Check whether preparation removed a needed condition, broke a subject reference, or left a required relationship implicit before attributing the failure to model judgment. Request success and high confidence do not establish that the intended question was conveyed. SDK debug logging includes unredacted request and response bodies even when credential headers are redacted; choose logging deliberately when capturing source material.
 
 Sources: [Python retries](https://docs.typesafe.ai/sdk/python/api/retries), [exceptions](https://docs.typesafe.ai/sdk/python/api/exceptions), [JS request options](https://docs.typesafe.ai/sdk/javascript/api/interfaces/RequestOptions), [JS errors](https://github.com/typesafe-ai/typesafe-sdk-js/blob/v0.6.0/src/errors.ts).
 
