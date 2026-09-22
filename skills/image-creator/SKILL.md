@@ -29,6 +29,17 @@ Inspect local inputs when required by the current tool instructions; do not turn
 - Use only arguments exposed by the current tool. Tool instructions govern invocation and result delivery.
 - If the tool fails or provides no generated source file, report the actual failure and stop. Do not retry automatically.
 
+In code mode, build `request` from the arguments above and handle the result as follows; it is not a `content[]` response:
+
+```js
+const result = await tools.image_gen__imagegen(request);
+store("image-creator:last-result", result);
+text({ output_hint: result.output_hint ?? null });
+generatedImage(result);
+```
+
+If result handling fails, recover with `load("image-creator:last-result")` and continue saving without generating again. Do not print the full result or its image data.
+
 Do not critique or regenerate the output within this skill. A calling workflow may inspect the saved result and request a separate repair attempt.
 
 ## Transparent Output
@@ -42,17 +53,19 @@ Apply this branch only to an explicit transparency or alpha request; a `.png` fi
 
 ## Save
 
-Set `SKILL_DIR` to the absolute directory containing this file. Use only the generated source path returned by the tool; do not search logs, state databases, temporary directories, or image caches.
+Set `SKILL_DIR` to the absolute directory containing this file. Pass the tool's unmodified `output_hint` to the helper; it extracts the explicitly named source file. Do not search logs, state databases, temporary directories, or image caches.
 
 Use the requested destination file. For a directory or no destination, choose a descriptive, non-overwriting filename using the returned suffix (PNG for transparency), under that directory or the current project root.
 
 ```bash
-uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/save_generated_image.py" \
-  --source <returned-source-path> --destination <destination-file> --json
+uv run --quiet --project "$SKILL_DIR" "$SKILL_DIR/scripts/save_generated_image.py" \
+  --output-hint "$OUTPUT_HINT" --destination <destination-file> --json
 ```
+
+`OUTPUT_HINT` holds the returned hint verbatim; preserve it with shell-safe quoting or a subprocess argument array. Alternatively, use `--source <returned-source-path>` when the tool exposes the exact path directly. The two source options are mutually exclusive; missing or ambiguous hints fail without guessing a path.
 
 Add `--require-transparency` for transparent output, `--overwrite` only with explicit replacement permission, and `--relative-to <root>` when a relative handoff path is requested. The helper copies the source byte for byte. On failure, report its error without claiming the file was saved.
 
 ## Handoff
 
-Return the saved file link, exact final prompt, input paths and roles, actual dimensions and format, transparency request/check status, and overwrite status. Include the helper's `relative_path` when requested. Dimensions describe the returned file, not a guaranteed generation size.
+Return the helper's actual `saved_path` as the file link (it may differ from the requested destination after a filename collision), exact final prompt, input paths and roles, actual dimensions and format, transparency request/check status, and overwrite status. Include the helper's `relative_path` when requested. Dimensions describe the returned file, not a guaranteed generation size.

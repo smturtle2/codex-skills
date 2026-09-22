@@ -16,7 +16,9 @@ class SaveGeneratedImageError(Exception):
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate and copy an image_gen output file without modifying it.")
-    parser.add_argument("--source", required=True, help="File path returned by image_gen.")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--source", help="File path returned by image_gen.")
+    source.add_argument("--output-hint", help="Unmodified output_hint returned by image_gen.")
     parser.add_argument("--destination", required=True, help="Exact output file path.")
     parser.add_argument(
         "--require-transparency",
@@ -34,6 +36,28 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def resolved_path(raw: str) -> pathlib.Path:
     return pathlib.Path(raw).expanduser().resolve()
+
+
+def source_from_hint(hint: str) -> pathlib.Path:
+    prefix = "Generated images are saved to "
+    suffix = " by default."
+    candidates: list[pathlib.Path] = []
+    for line in hint.splitlines():
+        if not line.startswith(prefix) or not line.endswith(suffix):
+            continue
+        parts = line[len(prefix):-len(suffix)].split(" as ")
+        # Paths can contain spaces, including the delimiter itself. Match the
+        # declared directory to the file's parent rather than guessing a split.
+        for index in range(1, len(parts)):
+            directory = pathlib.Path(" as ".join(parts[:index]))
+            source = pathlib.Path(" as ".join(parts[index:]))
+            if directory.is_absolute() and source.is_absolute() and source.parent == directory:
+                candidates.append(source)
+    if len(candidates) != 1:
+        raise SaveGeneratedImageError(
+            "output_hint must identify exactly one absolute source file in its declared directory"
+        )
+    return candidates[0].resolve()
 
 
 def validate_destination(destination: pathlib.Path, relative_to: str | None) -> pathlib.Path | None:
@@ -99,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     temp_path: pathlib.Path | None = None
     try:
-        source = resolved_path(args.source)
+        source = source_from_hint(args.output_hint) if args.output_hint is not None else resolved_path(args.source)
         destination = resolved_path(args.destination)
         if not source.is_file():
             raise SaveGeneratedImageError(f"Source image not found: {source}")

@@ -89,6 +89,67 @@ class SaveGeneratedImageTests(unittest.TestCase):
             self.assertTrue(json.loads(overwritten.stdout)["overwritten"])
             self.assertEqual(destination.read_bytes(), source.read_bytes())
 
+    def test_output_hint_finds_source_and_avoids_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            source_dir = root / "generated as images \u8cc7\u6599"
+            source_dir.mkdir()
+            source = source_dir / "hero as image \u8cc7\u6599.png"
+            destination = root / "hero.png"
+            self.make_source(source)
+            original = source.read_bytes()
+            destination.write_bytes(b"old")
+            hint = (
+                f"Generated images are saved to {source.parent} as {source} by default.\n"
+                "Use the generated file for the requested asset.\n"
+                "The image may be opened from that location."
+            )
+
+            result = self.run_helper(
+                "--output-hint", hint, "--destination", str(destination), "--json", cwd=root,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(pathlib.Path(payload["saved_path"]), root / "hero-2.png")
+            self.assertEqual((root / "hero-2.png").read_bytes(), original)
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(destination.read_bytes(), b"old")
+
+    def test_output_hint_rejects_ambiguous_or_invalid_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            source_dir = root / "generated images"
+            source_dir.mkdir()
+            source = source_dir / "hero.png"
+            self.make_source(source)
+            valid_hint = (
+                f"Generated images are saved to {source.parent} as {source} by default.\n"
+                "Additional explanation follows."
+            )
+            cases = {
+                "empty hint": "",
+                "unrecognized prose containing existing path": f"The generated file is {source}.",
+                "valid hint repeated twice": f"{valid_hint}\n{valid_hint}",
+                "declared directory inconsistent with file": (
+                    f"Generated images are saved to {root / 'other'} as {source} by default."
+                ),
+                "relative source": "Generated images are saved to images as images/hero.png by default.",
+                "missing actual source": (
+                    f"Generated images are saved to {source.parent} as {source_dir / 'missing.png'} by default."
+                ),
+                "both --source and --output-hint": valid_hint,
+            }
+            for index, (name, hint) in enumerate(cases.items()):
+                with self.subTest(case=name):
+                    case_destination = root / f"destination-{index}.png"
+                    args = ["--output-hint", hint, "--destination", str(case_destination)]
+                    if name == "both --source and --output-hint":
+                        args[0:0] = ["--source", str(source)]
+                    result = self.run_helper(*args, cwd=root)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(case_destination.exists())
+
     def test_relative_root_is_checked_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = pathlib.Path(tmpdir)
