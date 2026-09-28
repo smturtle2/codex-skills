@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Jev Developer</title>
+  <rect width="64" height="64" fill="#FFFFFF"/>
+<path d="M22 21h6v22h-6M28 32h5" fill="none" stroke="#498FEC" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="9" y="14" width="14" height="14" rx="4" fill="#DDEBFD"/>
+<rect x="9" y="36" width="14" height="14" rx="4" fill="#DDEBFD"/>
+<circle cx="44" cy="32" r="13" fill="#498FEC"/>
+<path d="m38 32 4 4 8-8" fill="none" stroke="#FFFFFF" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

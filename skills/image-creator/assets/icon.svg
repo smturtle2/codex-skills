@@ -1,7 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
   <title id="title">Image Creator</title>
-  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
-  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="14" y="16" width="36" height="32" rx="4"/><circle cx="39" cy="26" r="4" fill="#C56D3A" stroke="none"/><path d="m15 42 11-12 9 10 6-6 9 10" fill="#7F9F8D"/>
-  </g>
+  <rect width="64" height="64" fill="#FFFFFF"/>
+<rect x="8" y="11" width="48" height="42" rx="6" fill="#498FEC"/>
+<rect x="13" y="16" width="38" height="32" rx="2" fill="#FFFFFF"/>
+<circle cx="41" cy="25" r="4" fill="#498FEC"/>
+<path d="m13 43 12-15 12 15 7-8 7 8v5H13Z" fill="#DDEBFD"/>
+<path d="m13 45 13-10 15 13H13Z" fill="#498FEC"/>
 </svg>

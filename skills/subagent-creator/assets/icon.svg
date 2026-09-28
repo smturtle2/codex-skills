@@ -1,7 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
   <title id="title">Subagent Creator</title>
-  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
-  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M32 25v10M18 35h28M18 35v7M46 35v7"/><rect x="25" y="12" width="14" height="14" rx="4" fill="#C56D3A"/><rect x="11" y="42" width="14" height="12" rx="3"/><rect x="39" y="42" width="14" height="12" rx="3"/>
-  </g>
+  <rect width="64" height="64" fill="#FFFFFF"/>
+<path d="M32 22v12M16 43v-9h32v9" fill="none" stroke="#498FEC" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="24" y="8" width="16" height="16" rx="4" fill="#498FEC"/>
+<rect x="8" y="41" width="16" height="15" rx="4" fill="#DDEBFD"/>
+<rect x="40" y="41" width="16" height="15" rx="4" fill="#DDEBFD"/>
+<path d="M13 48.5h6M45 48.5h6" stroke="#498FEC" stroke-width="2.3" stroke-linecap="round"/>
 </svg>

@@ -12,10 +12,12 @@
   </g>
   <svg xmlns="http://www.w3.org/2000/svg" width="88" height="88" viewBox="0 0 64 64" role="img" aria-labelledby="title" x="32" y="40">
   <title id="title">Idea Scribe</title>
-  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2" />
-  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M20 14h18l8 8v28H20z" /><path d="M38 14v10h8M27 31h12M27 38h9" /><path d="m29 45 15-15 4 4-15 15-6 2z" fill="#C56D3A" />
-  </g>
+  <rect width="64" height="64" fill="#FFFFFF" />
+<rect x="27" y="16" width="29" height="39" rx="5" fill="#DDEBFD" />
+<path d="M35 29h13M35 36h13M35 43h8" stroke="#498FEC" stroke-width="2.3" stroke-linecap="round" />
+<path d="M16 33c0-4-8-6-8-14a13 13 0 0 1 26 0c0 8-8 10-8 14v3H16Z" fill="#498FEC" stroke="#FFFFFF" stroke-width="2.5" stroke-linejoin="round" />
+<path d="M17 40h8M19 44h4" stroke="#498FEC" stroke-width="2.8" stroke-linecap="round" />
+<path d="m17 21 4 4 4-4M21 25v7" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
 </svg>
   <text x="148" y="68" fill="#BC547D" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="2.5">CODEX SKILL</text>
   <text x="146" y="111" fill="#242735" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="44" font-weight="700">idea-scribe</text>

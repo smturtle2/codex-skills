@@ -10,15 +10,15 @@
     <rect x="28" y="28" width="112" height="112" rx="24"/>
     <rect x="56" y="56" width="112" height="112" rx="24"/>
   </g>
-  <g transform="translate(32 40)">
-  <rect width="88" height="88" rx="20" fill="white"/>
-  <g fill="none" stroke="#BC547D" stroke-width="3">
-    <rect x="20" y="20" width="18" height="18" rx="4"/>
-    <rect x="50" y="20" width="18" height="18" rx="4"/>
-    <rect x="20" y="50" width="18" height="18" rx="4"/>
-    <path d="M50 59h18m-9-9v18"/>
-  </g>
-</g>
+  <svg xmlns="http://www.w3.org/2000/svg" width="88" height="88" viewBox="0 0 64 64" role="img" aria-labelledby="title" x="32" y="40">
+  <title id="title">Jev Developer</title>
+  <rect width="64" height="64" fill="#FFFFFF" />
+<path d="M22 21h6v22h-6M28 32h5" fill="none" stroke="#498FEC" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" />
+<rect x="9" y="14" width="14" height="14" rx="4" fill="#DDEBFD" />
+<rect x="9" y="36" width="14" height="14" rx="4" fill="#DDEBFD" />
+<circle cx="44" cy="32" r="13" fill="#498FEC" />
+<path d="m38 32 4 4 8-8" fill="none" stroke="#FFFFFF" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
   <text x="148" y="68" fill="#BC547D" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="2.5">CODEX SKILL</text>
   <text x="146" y="111" fill="#242735" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="44" font-weight="700">jev-developer</text>
 </g>

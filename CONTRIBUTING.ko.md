@@ -25,6 +25,17 @@ uv run scripts/update_catalog.py
 
 생성 도구가 각 스킬에 같은 규격의 SVG 헤더를 만듭니다. 스킬 폴더에 `assets/icon.svg`가 있으면 사용하고, 없으면 공통 모듈 심볼을 넣습니다. 색상은 스킬 이름으로 정하므로 다른 스킬이 추가·삭제돼도 바뀌지 않습니다.
 
+앱용 개별 아이콘은 `agents/openai.yaml`의 `interface.icon_small`을 `./assets/icon-small.svg`로 지정합니다. 투명 배경의 단색 심벌을 사용하고 세부 요소 사이도 투명하게 비웁니다. Codex는 로컬 SVG 아이콘을 현재 글자색의 마스크로 표시하므로 불투명 배경이나 겹친 색상 면이 있으면 형태가 가려집니다. `interface.icon_large`는 컬러 디자인을 유지하도록 `./assets/icon-large.png`로 지정합니다. `assets/icon.svg`는 편집 가능한 컬러 원본이자 목록용 그림으로 유지합니다.
+
+흰색(`#FFFFFF`) 바탕에 파랑(`#498FEC`)으로 주요 형태를, 연한 파랑(`#DDEBFD`)으로 보조 형태를 표현합니다. 겹친 형태는 어두운 외곽선 대신 흰 여백으로 구분합니다. 작은 SVG는 앱의 테마 색을 적용할 수 있도록 투명 배경과 단색을 유지합니다.
+
+SVG 원본을 변경한 뒤 256×256 PNG를 생성하고 함께 커밋합니다.
+
+```sh
+uv run scripts/render_skill_icons.py
+uv run scripts/render_skill_icons.py --check
+```
+
 ## 스킬 수정·삭제
 
 스킬 지침과 영향을 받는 사용 가이드를 함께 수정합니다. 가이드가 있으면 해당 언어의 첫 문단을 목록 요약으로 사용합니다.

@@ -25,6 +25,17 @@ Guides, screenshots, and custom icons are optional. A skill without a guide stil
 
 The generator creates a consistent SVG header for each skill. It uses `assets/icon.svg` from the skill folder when available, or a shared module symbol otherwise. Colors are derived from the skill name, so adding or removing another skill does not change them.
 
+For custom app icons, set `interface.icon_small` in `agents/openai.yaml` to `./assets/icon-small.svg`: a monochrome symbol with a transparent background and transparent gaps between details. Codex renders local SVG icons as current-color masks, so opaque backgrounds and overlapping colored fills obscure the symbol. Set `interface.icon_large` to `./assets/icon-large.png` to preserve the full-color artwork. Keep `assets/icon.svg` as its editable source and the catalog artwork.
+
+Use white (`#FFFFFF`) backgrounds, blue (`#498FEC`) primary shapes, and light blue (`#DDEBFD`) secondary shapes. Separate overlapping shapes with white space instead of dark outlines. Keep small SVGs monochrome and transparent so the app can apply its theme color.
+
+Render the 256×256 PNGs after changing their SVG sources, and commit both:
+
+```sh
+uv run scripts/render_skill_icons.py
+uv run scripts/render_skill_icons.py --check
+```
+
 ## Update or remove a skill
 
 Update the skill instructions and any affected guides together. If a guide exists, its first paragraph supplies the summary in that language's catalog.

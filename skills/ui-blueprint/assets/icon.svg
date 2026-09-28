@@ -1,7 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title id="title">Ui Blueprint</title>
-  <rect x="1" y="1" width="62" height="62" rx="15" fill="#F6EFE2"/>
-  <g fill="none" stroke="#203D37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="12" y="14" width="40" height="36" rx="4"/><path d="M12 23h40M25 23v27"/><path d="M18 19h1M23 19h1"/><rect x="31" y="29" width="14" height="8" rx="1" fill="#C56D3A" stroke="none"/><path d="M31 43h14"/>
-  </g>
+  <title id="title">UI Blueprint</title>
+  <rect width="64" height="64" fill="#FFFFFF"/>
+<rect x="8" y="11" width="48" height="42" rx="6" fill="#DDEBFD"/>
+<path d="M14 11h36a6 6 0 0 1 6 6v5H8v-5a6 6 0 0 1 6-6Z" fill="#498FEC"/>
+<path d="M15 16.5h1M21 16.5h1" stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round"/>
+<rect x="13" y="27" width="10" height="21" rx="2" fill="#FFFFFF"/>
+<rect x="28" y="27" width="23" height="10" rx="2" fill="#498FEC"/>
+<path d="M29 43h21M29 48h13" stroke="#498FEC" stroke-width="2.3" stroke-linecap="round"/>
 </svg>
