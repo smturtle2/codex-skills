@@ -17,12 +17,12 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from dialog_state import encode, finish_state, read_state, run_lock, save_state
 from dialog_keyboard import Keyboard
-from dialog_spec import format_response
+from dialog_response import format_response
 from dialog_view import View
 from dialog_style import DialogStyle
 from dialog_layout import DialogLayout
 from dialog_presentation import Presentation
-from dialog_delivery import deliver, confirm_delivery
+from dialog_delivery import UNCERTAIN, deliver, confirm_delivery
 
 
 STYLE = """
@@ -250,7 +250,7 @@ class Dialog:
         if self.live:
             self.live.close()
         self.state["message"] = format_response(self.state["spec"], collected, action, include_values=include_values)
-        (self.run_dir / "message.md").write_text(self.state["message"], encoding="utf-8")
+        (self.run_dir / "message.txt").write_text(self.state["message"]["text"], encoding="utf-8")
         self.checkpoint()
         finish_state(self.run_dir, self.state, "submitted", collected, action)
         if not self.state.get("origin"):
@@ -287,7 +287,7 @@ class Dialog:
         if delivery.get("observation", {}).get("status") == "observed":
             self.finish_delivery()
         else:
-            self._retry_available = (delivery["status"] in {"accepted", "unknown"}
+            self._retry_available = (delivery["status"] in UNCERTAIN
                                      and "boundary_item_id" in delivery)
             self.set_sending(False)
             if self._submit_button:

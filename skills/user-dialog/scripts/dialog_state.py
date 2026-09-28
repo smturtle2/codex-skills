@@ -14,7 +14,7 @@ def encode(value):
 
 def read_state(directory):
     value = json.loads((Path(directory) / "state.json").read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or value.get("version") != 2:
+    if not isinstance(value, dict) or value.get("version") != 3:
         raise ValueError("Unsupported dialog state")
     return value
 

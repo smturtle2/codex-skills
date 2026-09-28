@@ -1,6 +1,6 @@
 # user-dialog
 
-Compose popups freely with inputs plus Markdown documents and image or document file paths, then receive the response in the originating Codex task.
+Compose popups freely with inputs plus Markdown documents and image or document file paths, then receive the response as a user message in the originating Codex task.
 
 [All skills](../../README.md#skills) · [한국어](user-dialog.ko.md)
 
@@ -14,6 +14,21 @@ Use $skill-installer to install skills/user-dialog from https://github.com/smtur
 
 The launcher uses uv to manage its Python dependencies. Markdown and standalone code surfaces additionally require the native WebKitGTK 6.0
 runtime; on Debian/Ubuntu, install the `gir1.2-webkit-6.0` package alongside the GTK and libadwaita runtime packages.
+
+Response delivery connects to the existing local Codex app-server that has the originating task loaded.
+It supports CLI, IDE, and app sessions with an accessible Unix control socket; it does not launch a
+replacement server. The default is `$CODEX_HOME/app-server-control/app-server-control.sock` with
+`~/.codex` as the default home. Set `USER_DIALOG_SOCKET` for a custom local socket.
+Run `doctor --delivery` through the skill launcher to check the connection without sending a message.
+
+Submitting adds a user message to the active turn, or starts a turn if the task is idle. The popup
+closes after confirming the exact message in the conversation. If delivery is uncertain, the answer
+stays saved and confirmation can be retried without sending it again.
+
+Response titles, field labels, and the submitted button receive the CLI theme's accent color
+automatically. Use the existing popup JSON; no emphasis ranges or extra styling options are needed.
+Answers retain their exact text, including any Markdown the user typed. Other clients may show
+plain text. New submissions save a text preview in `message.txt` and the complete message in `state.json`.
 
 ## Use
 

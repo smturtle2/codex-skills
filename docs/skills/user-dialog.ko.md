@@ -1,6 +1,6 @@
 # user-dialog
 
-입력 필드와 Markdown 문서, 이미지 또는 문서 파일 경로를 자유롭게 조합해 팝업을 만들고 응답을 원래 Codex 작업으로 전달합니다.
+입력 필드와 Markdown 문서, 이미지 또는 문서 파일 경로를 자유롭게 조합해 팝업을 만들고 응답을 원래 Codex 작업에 사용자 메시지로 전달합니다.
 
 [전체 스킬](../../README.ko.md#skills) · [English](user-dialog.md)
 
@@ -14,6 +14,21 @@ Use $skill-installer to install skills/user-dialog from https://github.com/smtur
 
 런처는 uv로 Python 의존성을 관리합니다. Markdown과 독립 코드 블록을 사용하려면 네이티브 WebKitGTK 6.0 런타임도 필요합니다.
 Debian/Ubuntu에서는 GTK 및 libadwaita 런타임 패키지와 함께 `gir1.2-webkit-6.0`을 설치하세요.
+
+응답은 원래 작업이 로드된 기존 로컬 Codex app-server에 연결해 전달합니다.
+Unix 제어 소켓에 접근할 수 있는 CLI·IDE·앱 세션을 지원하며, 별도 서버를 실행하지 않습니다.
+기본 경로는 `$CODEX_HOME/app-server-control/app-server-control.sock`이고 기본 홈은 `~/.codex`입니다.
+별도 로컬 소켓을 사용하면 `USER_DIALOG_SOCKET`으로 지정하세요.
+스킬 런처의 `doctor --delivery` 명령으로 메시지를 보내지 않고 연결을 확인할 수 있습니다.
+
+제출하면 진행 중인 턴에 사용자 메시지를 추가하고, 작업이 대기 중이면 새 턴을 시작합니다.
+정확히 그 메시지가 대화에 기록된 것을 확인한 뒤 팝업을 닫습니다. 전달 여부가 불명확하면
+답변을 저장해 두고, 다시 보내지 않고 도착 확인만 재시도할 수 있습니다.
+
+응답의 제목·항목명·누른 버튼에는 CLI 테마의 강조색이 자동 적용됩니다.
+기존 팝업 JSON을 그대로 사용하며, 강조 범위나 추가 스타일 옵션을 지정할 필요가 없습니다.
+사용자가 직접 쓴 Markdown을 포함해 답변 원문은 유지합니다. 다른 클라이언트에서는 일반 텍스트로
+표시될 수 있습니다. 새 제출은 `message.txt`에 텍스트 미리보기를, `state.json`에 전체 메시지를 저장합니다.
 
 ## 사용법
 

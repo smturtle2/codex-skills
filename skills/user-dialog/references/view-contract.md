@@ -49,7 +49,7 @@ List `layout` is `{"type":"column"}` (default), `{"type":"row"}`, or `{"type":"g
 
 Markdown bodies use CommonMark through markdown-it-py with tables, strikethrough, task lists, and footnotes. A `markdown`
 node accepts either literal `text` or `ref`; a ref displays the current input/choice value literally. Relative image paths
-resolve from the project base. `text` remains a compatibility alias normalized to `markdown`.
+resolve from the project base.
 
 Standalone `code` nodes preserve and copy their exact `text`, with an optional `language` hint.
 They share the Markdown code renderer, including syntax highlighting, spacing, and the language/wrap/copy header. Wrapping is on by default for every code block; turning it off uses horizontal scrolling, and copy preserves the exact source text. They use a gray,
@@ -101,9 +101,19 @@ Footer buttons require `label` and `action`; `primary: true` selects the keyboar
 
 ## Response
 
-The runtime produces a bold `[💬 Popup response · TITLE]` header, labeled answers, and a bold `→ BUTTON_LABEL` final line.
+The runtime produces a `[💬 Popup response · TITLE]` header, labeled answers, and a `→ BUTTON_LABEL` final line.
+It automatically marks the header, field labels, and button line with `text_elements` UTF-8 byte ranges.
+The CLI displays these in its theme's accent color; clients without this styling still show readable plain text.
+Request authors do not specify ranges or add formatting options. Generated labels have no Markdown delimiters
+or escaping; Markdown typed by the user remains verbatim. This is client emphasis, not Markdown bold.
+Each submission becomes one ordinary user message in the originating conversation, not a tool output.
 The source text is fixed English; titles, field labels, and button text come from the popup, with optional `message.title` and `response_label` overrides. Typed text and line breaks remain verbatim.
-Choices use option labels; attachments use file links; empty/inactive fields and display-only content are omitted.
+Choices use option labels; attachments show the filename and absolute path on separate lines;
+empty/inactive fields and display-only content are omitted.
+Submission saves the complete text input object in `state.json` and a plain-text preview in `message.txt`.
+Retries reuse that object. Runtime state uses version 3; other state versions are rejected.
+Arrival confirmation uses message identity and text, so
+presentation differences never cause a duplicate submission.
 
 ## Example
 
@@ -130,22 +140,34 @@ GTK 4.16+, and libadwaita 1.6+. Markdown bodies and standalone code additionally
 `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1`, and `gir1.2-webkit-6.0`; uv does not install native libraries.
 Document styles and math/diagram engines are bundled locally, with versions and licenses under `assets/document/vendor`.
 Hidden document tabs load on first display; ordinary documents do not load the math or diagram engines.
-Normal delivery requires the originating local Codex desktop connection and a Codex CLI supporting
-`thread/items/list`. `USER_DIALOG_CODEX` selects the CLI (default: `codex` on PATH).
-The runtime starts a temporary read-only app-server to confirm the response, then stops it.
-Remote-task and Windows delivery are unsupported.
+Normal delivery requires the originating task to be loaded in an existing local Codex app-server.
+The runtime connects over WebSocket to `$CODEX_HOME/app-server-control/app-server-control.sock`
+(`CODEX_HOME` defaults to `~/.codex`). `USER_DIALOG_SOCKET` selects a custom local Unix socket;
+set it before `show` and keep the same setting for updates and recovery. It never starts another
+server or resumes a thread on a different server. CLI, IDE, and app tasks can use this connection;
+a standalone CLI without an accessible server socket cannot. Remote and Windows delivery are unsupported.
+The server must support `thread/read`, `thread/loaded/list`, `thread/turns/list`, `thread/items/list`,
+`turn/steer`, `turn/start`, and user-message IDs (`clientUserMessageId` / history `clientId`).
+This protocol was verified with Codex 0.158.0. uv supplies the WebSocket dependency.
+
+Submission uses `turn/steer` with the current `expectedTurnId` while a turn is active, and
+`turn/start` with ordinary text input when idle. Only an explicit turn-change rejection permits
+rerouting; a lost acknowledgement never triggers another send. Delivery and history confirmation
+use the same server connection. Each submission saves a client message ID before sending and
+confirms that exact `userMessage` and its original text. The ID correlates messages; it is not
+assumed to make repeat sends idempotent.
 
 | Command | Purpose |
 | --- | --- |
 | `elements` / `--help` | List element types / CLI options. |
 | `validate <request.json\|->` | Check a request without opening a window. |
-| `show <request.json\|-> --preview` | Open without delivery; submission saves `message.md`. |
+| `show <request.json\|-> --preview` | Open without delivery; submission saves `message.txt` and the styled input in state. |
 | `show <request.json\|-> --preview --render-image <file.png>` | Export the renderer's own visible widget tree and close, without delivery. Useful for inspecting layout. |
 | `show <request.json\|-> --run-dir <path>` | Choose the workspace. Without this option, create a unique run under `.codex-skills/user-dialog/` in the project working directory. |
-| `doctor --delivery` | Check native libraries and task connection without sending. |
+| `doctor --delivery` | Check native libraries, the originating loaded task, and turn/history reads without sending. |
 | `status <run-dir>` / `resume <run-dir>` | Inspect status / reopen the saved draft; submitted runs stay closed. |
 | `update <run-dir> <request.json|->` | Queue one live update; optional `--revision N` checks the current revision and `--timeout` defaults to 10 seconds. |
-| `deliver <run-dir>` | Retry a confirmed pre-send failure from the original task. |
+| `deliver <run-dir>` | Retry a pre-send failure or explicit rejection from the original task. |
 | `confirm <run-dir>` | Recheck a submitted response without sending it again. |
 
 `show`, `resume`, and `doctor` accept `--python <path>`; `USER_DIALOG_PYTHON` also selects the renderer interpreter.
@@ -153,10 +175,11 @@ Keep the run and referenced assets available. On failure, inspect status and `re
 Submission and delivery are separate: a saved answer may have unconfirmed delivery.
 The runtime prevents retries of `sending`, `unknown`, or accepted deliveries; do not resend those answers manually.
 Automatic closing waits for a matching new response item after the saved pre-send history position.
+New responses match by client message ID and exact text, so identical answers from separate popups remain distinct.
+An interrupted `sending` state is also confirmation-only.
 While sending, the clicked submit button shows a fixed-size sending indicator, and document selection/copy remains available.
 Automatic focus prefers inputs, then an action button; it does not select display text. Manual text selection remains available.
 Automatic focus skips offscreen inputs so opening a long popup preserves its start. Content-height changes reschedule window sizing after text layout validation, but automatic resizing waits during document selection. Draft updates are coalesced for 300 ms and flushed before submit or close.
 Set `USER_DIALOG_DEBUG_LAYOUT=1` to record geometry and opacity changes in `layout.jsonl`; document metrics include loads, text updates, and message counts, without recording document contents or answers.
 The window titlebar close control remains available; the runtime adds no separate Close or Check again buttons.
 If confirmation fails, the same clicked submit button offers a confirmation-only retry that never resends the response.
-Older runs without a saved history position cannot use automatic confirmation.

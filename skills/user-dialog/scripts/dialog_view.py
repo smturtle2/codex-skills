@@ -16,7 +16,7 @@ def continuous_markdown(children):
         parts = [node.get('text', '') for node in pending]
         return {'type': 'markdown', 'text': '\n\n'.join(parts), '_segments': parts}
     for node in children:
-        bare = (node['type'] in {'markdown', 'text'}
+        bare = (node['type'] == 'markdown'
                 and not set(node) - {'type', 'text', 'children', 'display'}
                 and not any(node.get('display', {}).values()))
         if bare:
@@ -200,7 +200,7 @@ class View:
         ui = self.ui
         Gtk = ui.Gtk
         kind = node['type']
-        if kind in {'markdown', 'text'}:
+        if kind == 'markdown':
             widget = markdown_document(ui, node.get('text', ''), Path(ui.state['base']),
                                        node.get('label') or 'Markdown', display=node.get('display'),
                                        segments=node.get('_segments'))

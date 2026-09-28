@@ -1,6 +1,6 @@
 ---
 name: user-dialog
-description: Compose popups with inputs, Markdown documents, and image or document file paths, then return the user's response to the conversation.
+description: Compose popups with inputs, Markdown documents, and image or document file paths, then return the response as a user message in the originating conversation.
 ---
 
 # User Dialog
@@ -17,8 +17,8 @@ See the [view contract](references/view-contract.md) for supported syntax and op
 
 Run from the session project root. Keep request JSON, state, and logs in
 `.codex-skills/user-dialog/<run-id>/` unless the user chooses another workspace.
-Use a unique ID for each new dialog and reuse its path for updates and recovery,
-including dialogs saved at older locations. Input asset paths remain project-relative.
+Use a unique ID for each new dialog and reuse its path for updates and recovery.
+Input asset paths remain project-relative.
 
 When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
 
@@ -33,8 +33,14 @@ working directory; use `status <run-dir>` to inspect pending updates.
 Read the [view contract](references/view-contract.md) for JSON syntax when needed,
 or its [runtime section](references/view-contract.md#runtime) for validation, preview, and recovery.
 
-The runtime formats responses and delivers them as internal tool input to the
-originating task. No polling or manual reposting is needed. Continue independent
-work while awaiting input; retain the run if delivery fails. Clean up expendable
+The runtime preserves submitted answers and delivers them as one user message to
+the originating task through its existing local app-server. It adds input to an
+active turn or starts a turn when the task is idle. No agent polling or manual
+reposting is needed. Continue independent work while awaiting input; retain the
+run if delivery fails. Clean up expendable
 files only after delivery is confirmed and the window has closed; preserve any
 draft or state still needed for recovery. Save requested exports at their output destination.
+
+Response titles, field labels, and the submitted button are emphasized automatically
+using the client's theme where supported. Compose the usual request JSON; no
+emphasis ranges or additional styling fields are needed. Answer text stays verbatim.

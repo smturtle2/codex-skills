@@ -3,7 +3,6 @@
 from copy import deepcopy
 import json
 from pathlib import Path
-import re
 
 class FieldError(ValueError):
     def __init__(self, field, message):
@@ -69,12 +68,6 @@ def compile_request(request, base):
         if not isinstance(node, dict):
             raise ValueError("Every view node must be an object")
         node = deepcopy(node)
-        if node.get('type') == 'text':
-            node['type'] = 'markdown'
-            if 'ref' in node:
-                node.pop('text', None)
-            else:
-                node.setdefault('text', '')
         if node.get("type") not in TYPES:
             raise ValueError(f"Unknown node type: {node.get('type')}")
         allowed = {"type", "id", "label", "visible_when", "enabled_when"}
@@ -298,34 +291,3 @@ def validate_values(spec, values, required=True):
                 fail(f"{node['label']}: use YYYY-MM-DD")
         elif node.get("format") == "file" and not Path(value).is_file():
             fail(f"{node['label']}: missing file")
-
-
-def escape(text):
-    return re.sub(r"([\\`*_\[\]<>])", r"\\\1", str(text)).replace("\n", " ")
-
-
-def format_response(spec, values, button_label=None, *, include_values=True):
-    """Markdown presentation follows the view; typed prose stays verbatim."""
-    if include_values:
-        validate_values(spec, values)
-    style = spec.get("message", {})
-    title = style.get("title", spec["title"])
-    source = " ".join(part for part in (style.get("icon", "💬"), "Popup response") if part)
-    lines = [f"**[{escape(source)} · {escape(title)}]**"]
-    for node, _ in (active_fields(spec, values) if include_values else ()):
-        value = values.get(node["id"])
-        if value in (None, "", []):
-            continue
-        label = escape(node.get("response_label", node["label"]))
-        if node["type"] == "choice":
-            selected = value if node.get("multiple") else [value]
-            value = ", ".join(escape(option["label"]) for option in node["options"] if option["value"] in selected)
-        elif node.get("format") == "boolean":
-            value = escape(node.get("true_label", "On") if value else node.get("false_label", "Off"))
-        elif node.get("format") == "file":
-            path = Path(value).resolve()
-            value = f"[{escape(path.name)}](<{path}>)"
-        lines += ["", f"**{label}**  ", str(value)]
-    if button_label:
-        lines += ["", f"**→ {escape(button_label)}**"]
-    return "\n".join(lines) + "\n"

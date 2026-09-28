@@ -186,7 +186,7 @@ image-creator, ui-blueprint
 
 <img src="docs/assets/catalog/user-dialog.svg" width="960" alt="user-dialog">
 
-Compose popups freely with inputs plus Markdown documents and image or document file paths, then receive the response in the originating Codex task.
+Compose popups freely with inputs plus Markdown documents and image or document file paths, then receive the response as a user message in the originating Codex task.
 
 ```text
 Use $skill-installer.

@@ -8,7 +8,7 @@ import tempfile
 import time
 import uuid
 
-from dialog_delivery import require_owner
+from dialog_connection import require_owner
 from dialog_state import read_state, run_lock
 
 

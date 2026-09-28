@@ -1,8 +1,8 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["markdown-it-py>=4,<5", "mdit-py-plugins>=0.5,<0.7", "Pygments>=2.19,<3", "bleach[css]>=6.2,<7"]
+# dependencies = ["markdown-it-py>=4,<5", "mdit-py-plugins>=0.5,<0.7", "Pygments>=2.19,<3", "bleach[css]>=6.2,<7", "websockets>=15,<16"]
 # ///
-"""Compose a dialog from JSON and send Markdown to its originating Codex task."""
+"""Compose a dialog from JSON and send a user response to its originating Codex task."""
 
 import argparse
 import json
@@ -16,7 +16,8 @@ import uuid
 
 from dialog_state import encode, read_state, run_lock, save_state
 from dialog_spec import compile_request, read_json, parse_json, TYPES, walk
-from dialog_delivery import capture_origin, require_owner, deliver, confirm_delivery
+from dialog_connection import capture_origin, require_owner
+from dialog_delivery import deliver, confirm_delivery
 from dialog_updates import send_update
 
 
@@ -62,9 +63,9 @@ def python_environment(executable):
     environment = os.environ.copy()
     # The launcher uses uv's isolated pure-Python packages; the renderer uses
     # the system interpreter that owns GI. Share package roots, not GI binaries.
-    import bleach, markdown_it, mdit_py_plugins, pygments
+    import bleach, markdown_it, mdit_py_plugins, pygments, websockets
     roots = list(dict.fromkeys(str(Path(module.__file__).resolve().parent.parent)
-                              for module in (bleach, markdown_it, mdit_py_plugins, pygments)))
+                              for module in (bleach, markdown_it, mdit_py_plugins, pygments, websockets)))
     environment["PYTHONPATH"] = os.pathsep.join([*roots, environment.get("PYTHONPATH", "")]).rstrip(os.pathsep)
     if os.name == "nt":
         binary = str(Path(executable).absolute().parent)
@@ -110,7 +111,7 @@ def load_request(source, base=None):
 
 
 def has_documents(spec):
-    return any(node['type'] in {'markdown', 'text', 'code'} or
+    return any(node['type'] in {'markdown', 'code'} or
                (node['type'] == 'file' and Path(node['path']).suffix.lower() in {'.md', '.markdown'})
                for node in walk(spec['body']))
 
@@ -155,7 +156,7 @@ def run_dialog(args):
         if args.command == "show":
             if (directory / "state.json").exists():
                 raise ValueError("Run already exists; use resume or a new directory")
-            state = {"version": 2, "request_id": uuid.uuid4().hex, "status": "pending",
+            state = {"version": 3, "request_id": uuid.uuid4().hex, "status": "pending",
                      "spec": spec, "base": str(Path.cwd()), "origin": origin,
                      "title": spec["title"], "subtitle": spec.get("subtitle", ""),
                      "draft": {}, "response": {}, "revision": 0,
@@ -209,10 +210,10 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     doctor = commands.add_parser("doctor", help="Locate Python with GTK and libadwaita")
     doctor.add_argument("--python")
-    doctor.add_argument("--delivery", action="store_true", help="Read-only check of the originating desktop connection")
+    doctor.add_argument("--delivery", action="store_true", help="Read-only check of the originating app-server and history APIs")
     show = commands.add_parser("show", help="Open a composed JSON view")
     show.add_argument("request", help="JSON file or - for stdin")
-    show.add_argument("--preview", action="store_true", help="Render without Codex delivery; save message.md")
+    show.add_argument("--preview", action="store_true", help="Render without Codex delivery; save message.txt")
     show.add_argument("--render-image", help="With --preview, export the rendered widget to PNG and close")
     show.add_argument("--run-dir", help="Workspace (default: .codex-skills/user-dialog/<unique-id> from the project working directory)")
     show.add_argument("--python")
@@ -224,7 +225,7 @@ def main():
     validation = commands.add_parser("validate", help="Compile a JSON request without opening it")
     validation.add_argument("request")
     commands.add_parser("elements", help="List composable basic element types")
-    delivery = commands.add_parser("deliver", help="Retry a confirmed pre-send failure from its originating task")
+    delivery = commands.add_parser("deliver", help="Retry a pre-send failure or explicit rejection from its originating task")
     delivery.add_argument("run_dir")
     confirmation = commands.add_parser("confirm", help="Recheck a submitted response without resending")
     confirmation.add_argument("run_dir")
@@ -246,7 +247,7 @@ def main():
             result = {"status": "available", **find_python(args.python)}
             if args.delivery:
                 origin = capture_origin()
-                result["origin"] = {key: origin[key] for key in ("thread_id", "host_id", "title")}
+                result["origin"] = {key: origin[key] for key in ("thread_id", "transport", "socket")}
             print(encode(result))
             return 0
         if args.command == "status":

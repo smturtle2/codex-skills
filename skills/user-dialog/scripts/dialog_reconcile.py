@@ -26,7 +26,7 @@ def assets(spec, base):
             paths.append(path)
             if path.suffix.lower() in {'.md', '.markdown'}:
                 text, directory = path.read_text(encoding='utf-8'), path.parent
-        if node['type'] in {'markdown', 'text'} or (node['type'] == 'file' and path.suffix.lower() in {'.md', '.markdown'}):
+        if node['type'] == 'markdown' or (node['type'] == 'file' and path.suffix.lower() in {'.md', '.markdown'}):
             from dialog_document import compile_document
             paths.extend(compile_document(text, directory).resources)
         for path in paths:
