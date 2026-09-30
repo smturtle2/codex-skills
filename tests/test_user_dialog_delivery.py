@@ -216,6 +216,22 @@ class UserDialogDeliveryTests(unittest.TestCase):
                 self.assertEqual(submitted['delivery']['status'], 'failed')
         self.assertEqual(self.sends, [])
 
+    def test_unsafe_legacy_conditions_preserve_the_draft_without_opening_a_window(self):
+        state = self.state()
+        state.update(status='dismissed', base=str(self.root), response={}, revision=0,
+                     draft={'n': '-'}, spec={'title': 'Count', 'body': {
+                         'type': 'group', 'enabled_when': {'not': {'ref': 'n', 'equals': 0}},
+                         'children': [{'type': 'input', 'id': 'n', 'label': 'Count',
+                                       'format': 'number', 'required': True, 'value': 1}]}})
+        save_state(self.run, state)
+        original = (self.run / 'state.json').read_bytes()
+        with patch.object(user_dialog, 'find_python') as renderer:
+            with self.assertRaisesRegex(ValueError, 'own field or descendant'):
+                user_dialog.run_dialog(argparse.Namespace(command='resume', run_dir=str(self.run), python=None))
+        renderer.assert_not_called()
+        self.assertEqual((self.run / 'state.json').read_bytes(), original)
+        self.assertEqual(self.sends, [])
+
 
 if __name__ == '__main__':
     unittest.main()

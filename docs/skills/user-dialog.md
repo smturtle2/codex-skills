@@ -44,4 +44,9 @@ When a dialog run needs persisted state, use the project-root-relative `.codex-s
 
 Literal `ref` values update in place. Live replacements wait while document text is selected or dragged, automatic resizing waits during selection, and draft updates are coalesced for 300 ms before submit or close flushes them.
 
+Number/date drafts retain incomplete and invalid edits across resume and compatible updates. Submission saves the draft, converts and validates active fields, then records the response before delivery. Invalid numbers, including nonfinite values, show a field error; text answers retain their exact content. Submitted numbers and dates use normalized values, and integer precision is preserved.
+Put conditional controllers outside the content they control. Conditions cannot depend on their own fields or descendants, and field-dependency cycles are rejected so an invalid required controller remains editable and cannot be silently omitted.
+
+Tabs/pages honor the requested `none`, `crossfade`, `slide`, or `fade-through` effect and duration. One presentation controller waits for documents and settled layout, runs the chosen effect, and restores focus. Zero duration disables animation while retaining readiness checks.
+
 For the skill instructions, see [SKILL.md](../../skills/user-dialog/SKILL.md) and the [view contract](../../skills/user-dialog/references/view-contract.md).

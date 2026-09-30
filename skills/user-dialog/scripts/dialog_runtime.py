@@ -2,7 +2,6 @@
 
 import threading
 import math
-import json
 import os
 from pathlib import Path
 import sys
@@ -16,6 +15,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from dialog_state import encode, finish_state, read_state, run_lock, save_state
+from dialog_values import active_fields, editable_values, normalize_values
 from dialog_keyboard import Keyboard
 from dialog_response import format_response
 from dialog_view import View
@@ -138,8 +138,7 @@ class Dialog:
 
     def collect(self):
         values = {name: read() for name, (read, _) in self._bindings.items()}
-        # Validate without coercing user-defined values or accepting NaN.
-        return json.loads(encode(values))
+        return editable_values(self.state['spec'], values)
 
     def set_validator(self, callback):
         if not callable(callback):
@@ -226,13 +225,13 @@ class Dialog:
             self.checkpoint()
         return GLib.SOURCE_REMOVE
 
-    def checkpoint(self):
+    def checkpoint(self, values=None):
         if self._updating:
             return GLib.SOURCE_CONTINUE
         if self._finished or self.state["status"] == "submitted":
             self._checkpoint_source = 0
             return GLib.SOURCE_REMOVE
-        values = self.collect()
+        values = self.collect() if values is None else values
         if values != self.state.get("draft"):
             self.state["draft"] = values
             save_state(self.run_dir, self.state)
@@ -241,18 +240,22 @@ class Dialog:
     def submit(self, values=None, *, action="submit", include_values=True, button=None):
         if self._finished or self._submitting or self.state["status"] == "submitted":
             return
-        collected = (self.collect() if values is None else values) if include_values else {}
+        draft = self.collect() if values is None else editable_values(self.state['spec'], values)
+        self.checkpoint(draft)
+        collected = normalize_values(self.state['spec'], draft, self.state['base']) if include_values else {}
         if include_values and self._validator:
             message = self._validator(collected)
             if message is not None:
                 self.message(message, error=True)
                 return
+        message = format_response(self.state["spec"], collected, action, include_values=include_values)
+        submitted = ({node['id']: collected.values.get(node['id'])
+                      for node, _ in active_fields(self.state['spec'], collected)} if include_values else {})
         if self.live:
             self.live.close()
-        self.state["message"] = format_response(self.state["spec"], collected, action, include_values=include_values)
+        self.state["message"] = message
         (self.run_dir / "message.txt").write_text(self.state["message"]["text"], encoding="utf-8")
-        self.checkpoint()
-        finish_state(self.run_dir, self.state, "submitted", collected, action)
+        finish_state(self.run_dir, self.state, "submitted", submitted, action)
         if not self.state.get("origin"):
             self.close()
             return

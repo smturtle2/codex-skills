@@ -15,7 +15,7 @@ import sys
 import uuid
 
 from dialog_state import encode, read_state, run_lock, save_state
-from dialog_spec import compile_request, read_json, parse_json, TYPES, walk
+from dialog_spec import compile_request, read_json, parse_json, validate_dependencies, TYPES, walk
 from dialog_connection import capture_origin, require_owner
 from dialog_delivery import deliver, confirm_delivery
 from dialog_updates import send_update
@@ -177,6 +177,7 @@ def run_dialog(args):
             if state["status"] == "submitted":
                 print(encode(summary(directory, state)))
                 return 0
+            validate_dependencies(state['spec'])
             runtime = find_python(args.python, has_documents(state['spec']))
             state.update(status="pending", response={})
         save_state(directory, state)

@@ -106,7 +106,7 @@ class Keyboard:
         page = stack.get_visible_child()
         if page:
             self.prepare(page)
-            if self.ui._built and not self.ui._updating:
+            if self.ui._built and not self.ui._updating and not self.ui.presentation.busy:
                 GLib.idle_add(self._focus_controls, page)
 
     def _focus_controls(self, root=None, visible_only=True):
@@ -167,6 +167,8 @@ class Keyboard:
 
     def _focus(self, widget=None):
         if self.ui._finished:
+            return GLib.SOURCE_REMOVE
+        if self.ui.presentation.busy:
             return GLib.SOURCE_REMOVE
         if widget and widget.get_root() == self.ui.window and widget.is_visible() and widget.is_sensitive():
             if widget.grab_focus():

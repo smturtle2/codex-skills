@@ -1,21 +1,14 @@
-"""Compile composable JSON views, resolve assets and own answer semantics."""
+"""Compile authored JSON views and resolve their assets and references."""
 
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 
-class FieldError(ValueError):
-    def __init__(self, field, message):
-        self.field = field
-        super().__init__(message)
-
+from dialog_values import FieldError, active_fields, condition_refs, initial_value, matches, validate_values, walk
 
 LAYOUTS = {"column", "row", "grid", "group", "tabs", "pages"}
 TYPES = LAYOUTS | {"markdown", "code", "file", "input", "choice", "button", "separator", "table"}
-
-
-def initial_value(node):
-    return deepcopy(node.get("value", False if node.get("format") == "boolean" else [] if node.get("multiple") else None))
 
 
 def parse_json(text):
@@ -28,7 +21,12 @@ def parse_json(text):
                 raise ValueError(f"Duplicate JSON key: {key}")
             result[key] = value
         return result
-    return json.loads(text, parse_constant=reject_constant,
+    def finite_float(text):
+        value = float(text)
+        if not math.isfinite(value):
+            reject_constant(text)
+        return value
+    return json.loads(text, parse_constant=reject_constant, parse_float=finite_float,
                       object_pairs_hook=unique)
 
 
@@ -36,13 +34,40 @@ def read_json(path):
     return parse_json(path.read_text(encoding="utf-8"))
 
 
-def walk(node):
-    yield node
-    for child in node.get("children", []):
-        yield from walk(child)
-    for option in node.get("options", []):
-        for child in option.get("content", []):
-            yield from walk(child)
+def validate_dependencies(spec):
+    """Controllers must remain reachable when a dependent field is invalid."""
+    nodes = list(walk(spec['body']))
+    dependencies = {node['id']: set() for node in nodes if node['type'] in {'input', 'choice'}}
+    for node in nodes:
+        fields = {child['id'] for child in walk(node) if child['type'] in {'input', 'choice'}}
+        refs = set(condition_refs(node.get('visible_when')))
+        refs.update(condition_refs(node.get('enabled_when')))
+        internal = fields & refs
+        if internal:
+            owner = node.get('id') or node.get('label') or node['type']
+            raise ValueError(f"Condition on {owner} depends on its own field or descendant: {', '.join(sorted(internal))}")
+        for key in fields:
+            dependencies[key].update(refs)
+        if node['type'] == 'choice':
+            for option in node['options']:
+                for child in option.get('content', []):
+                    for nested in walk(child):
+                        if nested['type'] in {'input', 'choice'}:
+                            dependencies[nested['id']].add(node['id'])
+    done, visiting = set(), []
+    def visit(key):
+        if key in visiting:
+            cycle = visiting[visiting.index(key):] + [key]
+            raise ValueError('Cyclic field conditions: ' + ' -> '.join(cycle))
+        if key in done:
+            return
+        visiting.append(key)
+        for source in sorted(dependencies[key]):
+            visit(source)
+        visiting.pop()
+        done.add(key)
+    for key in sorted(dependencies):
+        visit(key)
 
 
 def compile_request(request, base):
@@ -168,6 +193,12 @@ def compile_request(request, base):
             if not isinstance(rows, list) or any(not isinstance(row, list) or len(row) != len(columns) or any(not isinstance(cell, str) for cell in row) for row in rows):
                 raise ValueError("Table rows must contain one string per column")
         if kind == "input":
+            for key in ("min", "max"):
+                if key in node and (isinstance(node[key], bool) or not isinstance(node[key], (int, float))
+                                    or isinstance(node[key], float) and not math.isfinite(node[key])):
+                    raise ValueError(f"{key} must be a finite number")
+            if node.get("min", -math.inf) > node.get("max", math.inf):
+                raise ValueError("min must not exceed max")
             for key in ("true_label", "false_label"):
                 if key in node and (not isinstance(node[key], str) or not node[key].strip()):
                     raise ValueError(f"{key} must be a nonempty string")
@@ -191,7 +222,8 @@ def compile_request(request, base):
         if "include_values" in value and (value["type"] != "submit" or not isinstance(value["include_values"], bool)):
             raise ValueError("include_values is a boolean for submit actions only")
         if value["type"] == "set" and isinstance(value.get("value"), dict):
-            if value["value"].get("ref") not in ids:
+            source = ids.get(value["value"].get("ref"))
+            if not source or source['type'] not in {'input', 'choice'}:
                 raise ValueError("Unknown set value reference")
         if value["type"] in {"set", "toggle", "navigate"}:
             target = ids.get(value.get("target"))
@@ -216,78 +248,7 @@ def compile_request(request, base):
     for item in result["actions"]:
         if not isinstance(item.get("label"), str) or not item["label"].strip() or "action" not in item:
             raise ValueError("Footer actions need label and action")
+    validate_dependencies(result)
     defaults = {node["id"]: initial_value(node) for node in nodes if node["type"] in {"input", "choice"}}
-    validate_values(result, defaults, required=False)
+    validate_values(result, defaults, required=False, base=base)
     return result
-
-
-def matches(condition, values):
-    if condition is None:
-        return True
-    if "all" in condition:
-        return all(matches(item, values) for item in condition["all"])
-    if "any" in condition:
-        return any(matches(item, values) for item in condition["any"])
-    if "not" in condition:
-        return not matches(condition["not"], values)
-    value = values.get(condition["ref"])
-    if "equals" in condition:
-        return value == condition["equals"]
-    if "contains" in condition:
-        return isinstance(value, (str, list)) and condition["contains"] in value
-    if "empty" in condition:
-        return (value in (None, "", [])) == condition["empty"]
-    return bool(value)
-
-
-def active_fields(spec, values):
-    def visit(node, groups):
-        if not matches(node.get("visible_when"), values) or not matches(node.get("enabled_when"), values):
-            return
-        if node["type"] in {"input", "choice"}:
-            yield node, groups
-        if node.get("label") and node["type"] in {"group", "column"}:
-            groups = [*groups, node["label"]]
-        for child in node.get("children", []):
-            yield from visit(child, groups)
-        for option in node.get("options", []):
-            selected = values.get(node.get("id"))
-            if option["value"] == selected or isinstance(selected, list) and option["value"] in selected:
-                for child in option.get("content", []):
-                    yield from visit(child, [*groups, option["label"]])
-    yield from visit(spec["body"], [])
-
-
-def validate_values(spec, values, required=True):
-    from datetime import date
-    import math
-    for node, _ in active_fields(spec, values):
-        value = values.get(node["id"])
-        def fail(message):
-            raise FieldError(node["id"], message)
-        if value in (None, "", []):
-            if required and node.get("required"):
-                fail(node.get("error", f"{node['label']}: required"))
-            continue
-        if node["type"] == "choice":
-            selected = value if node.get("multiple") else [value]
-            valid = [option["value"] for option in node["options"]]
-            if not isinstance(selected, list) or any(item not in valid for item in selected) or len(set(selected)) != len(selected):
-                fail(f"{node['label']}: invalid selection")
-        elif node.get("format") == "boolean":
-            if not isinstance(value, bool):
-                fail(f"{node['label']}: expected boolean")
-        elif node.get("format") == "number":
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                fail(f"{node['label']}: invalid number")
-            if value < node.get("min", -math.inf) or value > node.get("max", math.inf):
-                fail(f"{node['label']}: outside allowed range")
-        elif not isinstance(value, str):
-            fail(f"{node['label']}: expected text")
-        elif node.get("format") == "date":
-            try:
-                date.fromisoformat(value)
-            except ValueError:
-                fail(f"{node['label']}: use YYYY-MM-DD")
-        elif node.get("format") == "file" and not Path(value).is_file():
-            fail(f"{node['label']}: missing file")

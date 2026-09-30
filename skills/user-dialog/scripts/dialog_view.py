@@ -3,8 +3,8 @@
 from pathlib import Path
 
 from dialog_content import code_block, file_content, label, markdown_document
-from dialog_spec import FieldError, initial_value, matches, validate_values, walk
-from dialog_transition import FadeStack, fade_switcher, select_page
+from dialog_values import FieldError, condition_refs, editable_value, initial_value, matches, normalize_values, option_selected, validate_values, walk
+from dialog_presentation import page_switcher, select_page, transition_options
 
 
 def continuous_markdown(children):
@@ -33,7 +33,7 @@ def continuous_markdown(children):
 class View:
     def __init__(self, ui, spec):
         self.ui, self.spec = ui, spec
-        self.values, self.writers, self.widgets, self.rules, self.stacks = {}, {}, {}, [], {}
+        self.draft, self.writers, self.widgets, self.rules, self.stacks = {}, {}, {}, [], {}
         self.nodes = {node['id']: node for node in walk(spec['body']) if 'id' in node}
         self.restoring = False
         self.text_bindings = []
@@ -43,15 +43,15 @@ class View:
         self._refresh_dependencies = None
         for node in walk(spec['body']):
             if node['type'] in {'input', 'choice'}:
-                self.values[node['id']] = initial_value(node)
+                self.draft[node['id']] = initial_value(node)
         for key, value in ui.state.get('draft', {}).items():
-            if key in self.values:
-                self.values[key] = value
+            if key in self.draft:
+                self.draft[key] = editable_value(self.nodes[key], value)
 
     def set(self, key, value):
         if self is not self.ui.view:
             return self.ui.view.set(key, value)
-        self.values[key] = value
+        self.draft[key] = value = editable_value(self.nodes[key], value)
         if key in self.writers:
             self.restoring = True
             try:
@@ -66,21 +66,8 @@ class View:
         if self is not self.ui.view:
             return self.ui.view.changed(key, value)
         if not self.restoring:
-            self.values[key] = value
+            self.draft[key] = value
             self.refresh(key)
-
-    @staticmethod
-    def _condition_refs(condition):
-        """Yield value keys referenced anywhere in a nested condition."""
-        if isinstance(condition, dict):
-            ref = condition.get('ref')
-            if isinstance(ref, str):
-                yield ref
-            for value in condition.values():
-                yield from View._condition_refs(value)
-        elif isinstance(condition, (list, tuple)):
-            for value in condition:
-                yield from View._condition_refs(value)
 
     def _dependencies(self):
         counts = (len(self.text_bindings), len(self.option_panels), len(self.rules), len(self.stacks))
@@ -99,20 +86,21 @@ class View:
             add('panels', item[1], item)
         for item in self.rules:
             widget, node = item
-            refs = set(self._condition_refs(node.get('visible_when')))
-            refs.update(self._condition_refs(node.get('enabled_when')))
+            refs = set(condition_refs(node.get('visible_when')))
+            refs.update(condition_refs(node.get('enabled_when')))
             for key in refs:
                 add('rules', key, item)
         for stack_key, (stack, _) in self.stacks.items():
             refs = set()
             for child in self.nodes[stack_key]['children']:
-                refs.update(self._condition_refs(child.get('visible_when')))
+                refs.update(condition_refs(child.get('visible_when')))
             for key in refs:
                 add('stacks', key, (stack_key, stack))
         self._refresh_dependencies = (counts, dependencies)
         return dependencies
 
     def refresh(self, changed_key=None):
+        normalized = normalize_values(self.spec, self.draft, self.ui.state['base'])
         if changed_key is None:
             bindings = self.text_bindings
             panels = self.option_panels
@@ -125,16 +113,16 @@ class View:
             rules = dependencies['rules'].get(changed_key, ())
             stacks = dependencies['stacks'].get(changed_key, ())
         for widget, key in bindings:
-            value = self.values.get(key)
+            value = self.draft.get(key)
             widget.set_text('' if value is None else str(value), literal=True)
         for widget, node in rules:
-            widget.set_visible(matches(node.get('visible_when'), self.values))
-            widget.set_sensitive(matches(node.get('enabled_when'), self.values))
+            widget.set_visible(matches(node.get('visible_when'), normalized))
+            widget.set_sensitive(matches(node.get('enabled_when'), normalized))
         for panel, key, value in panels:
-            panel.set_visible(self.values.get(key) == value)
+            panel.set_visible(option_selected(normalized, key, value))
         for stack_key, stack in stacks:
             children = self.nodes[stack_key]['children']
-            visible = [child for child in children if matches(child.get('visible_when'), self.values)]
+            visible = [child for child in children if matches(child.get('visible_when'), normalized)]
             if visible and stack.get_visible_child_name() not in [child['id'] for child in visible]:
                 select_page(stack, visible[0]['id'])
         if self.ui._built:
@@ -147,13 +135,17 @@ class View:
             if isinstance(error, FieldError):
                 widget = self.widgets.get(error.field)
                 child = widget
+                pages = []
                 while child is not None and child.get_parent() is not None:
                     parent = child.get_parent()
                     if isinstance(parent, self.ui.Gtk.Stack):
-                        parent.set_visible_child(child)
+                        pages.append((parent, child))
                     child = parent
                 if widget:
-                    self.ui.focus(widget)
+                    def reveal():
+                        for parent, child in pages:
+                            parent.set_visible_child(child)
+                    self.ui.presentation.change(reveal, transition={'type': 'none', 'duration': 0}, focus=widget)
             self.ui.message(str(error), error=True)
             return str(error)
         return None
@@ -176,25 +168,32 @@ class View:
             target = action['target']
             value = action.get('value')
             if isinstance(value, dict) and 'ref' in value:
-                value = self.values.get(value['ref'])
+                normalized = normalize_values(self.spec, self.draft, self.ui.state['base'])
+                if value['ref'] in normalized.errors:
+                    self.ui.message(normalized.errors[value['ref']], error=True)
+                    return
+                value = normalized.values.get(value['ref'])
             if kind == 'toggle':
-                old = list(self.values.get(target) or [])
+                old = list(self.draft.get(target) or [])
                 value = [entry for entry in old if entry != value] if value in old else [*old, value]
             self.set(target, value)
         elif kind == 'navigate':
             stack, children = self.stacks[action['target']]
-            children = [child for child in children if matches(child.get('visible_when'), self.values)]
+            normalized = normalize_values(self.spec, self.draft, self.ui.state['base'])
+            children = [child for child in children if matches(child.get('visible_when'), normalized)]
             names = [child['id'] for child in children]
+            if not names:
+                return
             destination = action.get('page')
             if destination in {'next', 'previous'}:
-                index = names.index(stack.get_visible_child_name())
+                current = stack.get_visible_child_name()
+                index = names.index(current) if current in names else (-1 if destination == 'next' else len(names))
                 index += 1 if destination == 'next' else -1
                 if not 0 <= index < len(names):
                     return
                 destination = names[index]
             if destination in names:
                 select_page(stack, destination)
-                self.ui.focus(stack.get_visible_child())
 
     def render(self, node, path=()):
         ui = self.ui
@@ -247,20 +246,14 @@ class View:
                     getattr(widget, f'set_margin_{side}')(8)
         elif kind in {'tabs', 'pages'}:
             widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            transition = node.get('transition', {'type': 'fade-through', 'duration': 320})
-            effects = {'none': Gtk.StackTransitionType.NONE,
-                       'crossfade': Gtk.StackTransitionType.CROSSFADE,
-                       'slide': Gtk.StackTransitionType.SLIDE_LEFT_RIGHT}
-            sequential = transition.get('type') == 'fade-through'
-            stack = (FadeStack(transition.get('duration', 320)) if sequential else
-                     Gtk.Stack(transition_type=effects[transition.get('type', 'none')],
-                               transition_duration=transition.get('duration', 120), vhomogeneous=False))
+            stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, vhomogeneous=False)
             stack.dialog_ui = ui
+            stack.dialog_transition = transition_options(node.get('transition'))
             stack.connect('notify::visible-child', lambda *_: ui.GLib.idle_add(ui.refit) if ui._built else None)
             for child in node['children']:
                 stack.add_titled(self.render(child, path + (child['id'],)), child['id'], child['label'])
             if kind == 'tabs':
-                widget.append(fade_switcher(stack, node['children']))
+                widget.append(page_switcher(stack, node['children']))
             widget.append(stack)
             widget.dialog_stack = stack
             if 'id' in node:
@@ -334,13 +327,7 @@ class View:
         else:
             entry = Gtk.Entry(placeholder_text=node.get('placeholder', 'YYYY-MM-DD' if form == 'date' else ''))
             def changed(widget):
-                value = widget.get_text()
-                if form == 'number' and value:
-                    try:
-                        value = float(value)
-                    except ValueError:
-                        pass
-                self.changed(key, value)
+                self.changed(key, widget.get_text())
             entry.connect('changed', changed)
             self.writers[key] = lambda value: entry.set_text('' if value is None else str(value))
             box.append(entry)
@@ -415,10 +402,10 @@ class View:
         for key, writer in self.writers.items():
             self.restoring = True
             try:
-                writer(self.values[key])
+                writer(self.draft[key])
             finally:
                 self.restoring = False
-            self.ui.bind(key, lambda key=key: self.values[key])
+            self.ui.bind(key, lambda key=key: self.draft[key])
         self.build_actions()
         self.ui.set_validator(self.validate)
         self.refresh()

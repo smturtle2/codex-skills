@@ -60,8 +60,8 @@ class ViewUpdate:
     def __init__(self, ui, spec, fingerprints):
         self.ui, self.old = ui, ui.view
         self.new = View(ui, spec)
-        self.new.values.update({k: v for k, v in self.old.values.items() if k in self.new.values})
-        preserve_answers(self.old, self.new, self.old.values)
+        self.new.draft.update({k: v for k, v in self.old.draft.items() if k in self.new.draft})
+        preserve_answers(self.old, self.new, self.old.draft)
         self.operations, self.removed, self.retained = [], [], set()
         self.asset_change = fingerprints != getattr(self.old, 'assets', {})
         self.new.assets = fingerprints
@@ -174,8 +174,8 @@ class ViewUpdate:
 
     def apply(self):
         ui, new = self.ui, self.new
-        preserve_answers(self.old, new, self.old.values)
-        new.values.update({k: v for k, v in self.old.values.items() if k in new.values})
+        preserve_answers(self.old, new, self.old.draft)
+        new.draft.update({k: v for k, v in self.old.draft.items() if k in new.draft})
         offsets = [(adj, adj.get_value()) for adj in (ui.scroller.get_hadjustment(), ui.scroller.get_vadjustment())]
         pages = {key: stack.get_visible_child_name() for key, (stack, _) in self.old.stacks.items()}
         ui._updating = True
@@ -190,8 +190,8 @@ class ViewUpdate:
             ui._bindings.clear()
             for key, writer in new.writers.items():
                 if new.widgets[key] not in self.retained:
-                    writer(new.values[key])
-                ui.bind(key, lambda key=key: new.values[key])
+                    writer(new.draft[key])
+                ui.bind(key, lambda key=key: new.draft[key])
             if self.footer_changed:
                 ui.set_default_action(None)
                 for button in list(self._children(ui.actions)):
@@ -202,7 +202,7 @@ class ViewUpdate:
                     new.stacks[key][0].set_visible_child_name(name)
             new.stacks = {key: (stack, new.nodes[key]['children']) for key, (stack, _) in new.stacks.items()}
             ui.set_validator(new.validate)
-            ui.state.update(spec=new.spec, title=new.spec['title'], subtitle=new.spec.get('subtitle', ''), draft=dict(new.values))
+            ui.state.update(spec=new.spec, title=new.spec['title'], subtitle=new.spec.get('subtitle', ''), draft=dict(new.draft))
             ui.window.set_title(ui.state['title'])
             ui.window_title.set_title(ui.state['title'])
             ui.window_title.set_subtitle(ui.state['subtitle'])
@@ -225,7 +225,7 @@ class ViewUpdate:
             ui._updating = False
         # Reused controls may retain their original View through signal callbacks.
         # Their methods delegate to ui.view, so release stale trees and data here.
-        for name in ('values', 'writers', 'widgets', 'rules', 'stacks', 'nodes',
+        for name in ('draft', 'writers', 'widgets', 'rules', 'stacks', 'nodes',
                      'records', 'text_bindings', 'option_panels', 'choice_controls'):
             getattr(self.old, name).clear()
         self.old._refresh_dependencies = None

@@ -44,3 +44,11 @@ draft or state still needed for recovery. Save requested exports at their output
 Response titles, field labels, and the submitted button are emphasized automatically
 using the client's theme where supported. Compose the usual request JSON; no
 emphasis ranges or additional styling fields are needed. Answer text stays verbatim.
+
+Drafts retain incomplete number/date edits for resume and compatible updates. Submission
+validates active fields before recording typed numeric/date answers; invalid input stays
+editable in the popup. Use the documented tabs/pages transition type and duration;
+the runtime waits for document readiness, settles layout, and restores focus.
+Place conditional controllers outside the content they control. Self/descendant
+conditions and indirect field-dependency cycles are rejected; keep required
+controllers accessible so invalid drafts can be corrected.

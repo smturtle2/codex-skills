@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from dialog_spec import active_fields, validate_values
+from dialog_values import active_fields, validate_values
 
 
 def _label(value):
@@ -11,7 +11,7 @@ def _label(value):
 
 def format_response(spec, values, button_label=None, *, include_values=True):
     if include_values:
-        validate_values(spec, values)
+        values = validate_values(spec, values)
     parts, elements = [], []
     offset = 0
 
@@ -29,7 +29,7 @@ def format_response(spec, values, button_label=None, *, include_values=True):
     append(f"[{_label(source)} · {title}]", emphasis=True)
     append("\n")
     for node, _ in (active_fields(spec, values) if include_values else ()):
-        value = values.get(node["id"])
+        value = values.values.get(node["id"])
         if value in (None, "", []):
             continue
         if node["type"] == "choice":
