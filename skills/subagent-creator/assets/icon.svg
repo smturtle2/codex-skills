@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title id="title">Subagent Creator</title>
-  <rect width="64" height="64" fill="#FFFFFF"/>
-<path d="M32 22v12M16 43v-9h32v9" fill="none" stroke="#498FEC" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="24" y="8" width="16" height="16" rx="4" fill="#498FEC"/>
-<rect x="8" y="41" width="16" height="15" rx="4" fill="#DDEBFD"/>
-<rect x="40" y="41" width="16" height="15" rx="4" fill="#DDEBFD"/>
-<path d="M13 48.5h6M45 48.5h6" stroke="#498FEC" stroke-width="2.3" stroke-linecap="round"/>
-</svg>

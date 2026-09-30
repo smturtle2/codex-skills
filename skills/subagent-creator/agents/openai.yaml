@@ -1,6 +1,0 @@
-interface:
-  display_name: "Subagent Creator"
-  short_description: "Create or update Codex subagent definitions"
-  icon_small: "./assets/icon-small.svg"
-  icon_large: "./assets/icon-large.png"
-  default_prompt: "Use $subagent-creator to create or update the Codex subagent definitions requested by this task brief."

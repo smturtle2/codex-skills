@@ -15,7 +15,7 @@ Copy a skill’s install prompt below into Codex. Once installed, use `$skill-na
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a> · <a href="#world-simulator">world&#8209;simulator</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
 </p>
 
 ---
@@ -74,24 +74,6 @@ gomoku
 
 ---
 
-<a id="idea-scribe"></a>
-
-<img src="docs/assets/catalog/idea-scribe.svg" width="960" alt="idea-scribe">
-
-Capture ideas verbatim while keeping a readable brief of what still matters.
-
-```text
-Use $skill-installer.
-Repository:
-https://github.com/smturtle2/codex-skills
-Install from skills/:
-idea-scribe
-```
-
-[Guide](docs/skills/idea-scribe.md) · [Instructions](skills/idea-scribe/SKILL.md)
-
----
-
 <a id="image-creator"></a>
 
 <img src="docs/assets/catalog/image-creator.svg" width="960" alt="image-creator">
@@ -128,42 +110,6 @@ jev-developer
 
 ---
 
-<a id="podcast-writer"></a>
-
-<img src="docs/assets/catalog/podcast-writer.svg" width="960" alt="podcast-writer">
-
-Turn documents, websites, and YouTube sources into a source-grounded monologue, revised through independent content review.
-
-```text
-Use $skill-installer.
-Repository:
-https://github.com/smturtle2/codex-skills
-Install from skills/:
-podcast-writer
-```
-
-[Guide](docs/skills/podcast-writer.md) · [Instructions](skills/podcast-writer/SKILL.md)
-
----
-
-<a id="subagent-creator"></a>
-
-<img src="docs/assets/catalog/subagent-creator.svg" width="960" alt="subagent-creator">
-
-Turn a role brief into custom Codex agent definitions with explicit responsibilities and boundaries.
-
-```text
-Use $skill-installer.
-Repository:
-https://github.com/smturtle2/codex-skills
-Install from skills/:
-subagent-creator
-```
-
-[Guide](docs/skills/subagent-creator.md) · [Instructions](skills/subagent-creator/SKILL.md)
-
----
-
 <a id="ui-blueprint"></a>
 
 <img src="docs/assets/catalog/ui-blueprint.svg" width="960" alt="ui-blueprint">
@@ -197,24 +143,6 @@ user-dialog
 ```
 
 [Guide](docs/skills/user-dialog.md) · [Instructions](skills/user-dialog/SKILL.md)
-
----
-
-<a id="world-simulator"></a>
-
-<img src="docs/assets/catalog/world-simulator.svg" width="960" alt="world-simulator">
-
-Co-author a setting in the browser Studio, then play a persistent solo RPG through natural-language actions.
-
-```text
-Use $skill-installer.
-Repository:
-https://github.com/smturtle2/codex-skills
-Install from skills/:
-world-simulator
-```
-
-[Guide](docs/skills/world-simulator.md) · [Instructions](skills/world-simulator/SKILL.md)
 
 <!-- skills:end -->
 

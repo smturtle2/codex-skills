@@ -1,6 +1,0 @@
-interface:
-  display_name: "Podcast Writer"
-  short_description: "Create strict one-person podcast scripts"
-  icon_small: "./assets/icon-small.svg"
-  icon_large: "./assets/icon-large.png"
-  default_prompt: "Use $podcast-writer to turn my sources into a strict one-person podcast script saved as txt."

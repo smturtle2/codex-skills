@@ -4,7 +4,7 @@ __pycache__/
 .epub_translator/
 /.codex-skills/
 
-# Keep older workspaces ignored while they remain available for resumption.
+# Keep older runtime workspaces ignored to protect local data.
 animation-runs/
 ui-blueprints/
 world-runs/

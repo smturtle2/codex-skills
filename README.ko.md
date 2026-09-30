@@ -15,7 +15,7 @@
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#idea-scribe">idea&#8209;scribe</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#podcast-writer">podcast&#8209;writer</a> · <a href="#subagent-creator">subagent&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a> · <a href="#world-simulator">world&#8209;simulator</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
 </p>
 
 ---
@@ -74,24 +74,6 @@ gomoku
 
 ---
 
-<a id="idea-scribe"></a>
-
-<img src="docs/assets/catalog/idea-scribe.svg" width="960" alt="idea-scribe">
-
-떠오르는 생각을 원문 그대로 기록하고, 현재 유효한 내용만 읽기 좋은 문서로 정리합니다.
-
-```text
-Use $skill-installer.
-Repository:
-https://github.com/smturtle2/codex-skills
-Install from skills/:
-idea-scribe
-```
-
-[사용 가이드](docs/skills/idea-scribe.ko.md) · [지침](skills/idea-scribe/SKILL.md)
-
----
-
 <a id="image-creator"></a>
 
 <img src="docs/assets/catalog/image-creator.svg" width="960" alt="image-creator">
@@ -128,42 +110,6 @@ jev-developer
 
 ---
 
-<a id="podcast-writer"></a>
-
-<img src="docs/assets/catalog/podcast-writer.svg" width="960" alt="podcast-writer">
-
-문서·웹사이트·YouTube 자료를 하나의 독백형 대본으로 엮고, 독립적인 내용 검토를 거쳐 다듬습니다.
-
-```text
-Use $skill-installer.
-Repository:
-https://github.com/smturtle2/codex-skills
-Install from skills/:
-podcast-writer
-```
-
-[사용 가이드](docs/skills/podcast-writer.ko.md) · [지침](skills/podcast-writer/SKILL.md)
-
----
-
-<a id="subagent-creator"></a>
-
-<img src="docs/assets/catalog/subagent-creator.svg" width="960" alt="subagent-creator">
-
-역할 설명을 책임 범위와 제약이 명확한 Codex 커스텀 에이전트 정의로 바꿉니다.
-
-```text
-Use $skill-installer.
-Repository:
-https://github.com/smturtle2/codex-skills
-Install from skills/:
-subagent-creator
-```
-
-[사용 가이드](docs/skills/subagent-creator.ko.md) · [지침](skills/subagent-creator/SKILL.md)
-
----
-
 <a id="ui-blueprint"></a>
 
 <img src="docs/assets/catalog/ui-blueprint.svg" width="960" alt="ui-blueprint">
@@ -197,24 +143,6 @@ user-dialog
 ```
 
 [사용 가이드](docs/skills/user-dialog.ko.md) · [지침](skills/user-dialog/SKILL.md)
-
----
-
-<a id="world-simulator"></a>
-
-<img src="docs/assets/catalog/world-simulator.svg" width="960" alt="world-simulator">
-
-브라우저 Studio에서 세계를 함께 만들고, 자연어 행동으로 이어지는 지속형 1인 RPG를 플레이합니다.
-
-```text
-Use $skill-installer.
-Repository:
-https://github.com/smturtle2/codex-skills
-Install from skills/:
-world-simulator
-```
-
-[사용 가이드](docs/skills/world-simulator.ko.md) · [지침](skills/world-simulator/SKILL.md)
 
 <!-- skills:end -->
 

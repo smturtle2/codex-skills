@@ -1,6 +1,0 @@
-interface:
-  display_name: "World Simulator"
-  short_description: "Codex-native persistent world RPG"
-  icon_small: "./assets/icon-small.svg"
-  icon_large: "./assets/icon-large.png"
-  default_prompt: "Use $world-simulator to build a persistent world and begin a free-form RPG adventure."
