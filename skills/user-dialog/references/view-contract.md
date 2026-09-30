@@ -126,9 +126,9 @@ empty/inactive fields and display-only content are omitted.
 Submission first saves the editable draft, converts it, validates active fields, formats the response, and persists the submitted record before delivery.
 `state.json` keeps the editable draft, typed active answers, and complete text input object; `message.txt` holds the plain-text preview.
 Button-only submission still saves the draft while skipping field validation and answers. Legacy numeric drafts reopen as editable text; already submitted messages remain unchanged during recovery.
-Retries reuse that object. Runtime state uses version 3; other state versions are rejected.
-Arrival confirmation uses message identity and text, so
-presentation differences never cause a duplicate submission.
+Any retry before sending reuses that object. Runtime state remains version 3;
+other state versions are rejected. Confirmation matches the saved client message
+UUID and exact text; presentation differences do not permit another submission.
 
 ## Example
 
@@ -155,22 +155,65 @@ GTK 4.16+, and libadwaita 1.6+. Markdown bodies and standalone code additionally
 `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1`, and `gir1.2-webkit-6.0`; uv does not install native libraries.
 Document styles and math/diagram engines are bundled locally, with versions and licenses under `assets/document/vendor`.
 Hidden document tabs load on first display; ordinary documents do not load the math or diagram engines.
-Normal delivery requires the originating task to be loaded in an existing local Codex app-server.
-The runtime connects over WebSocket to `$CODEX_HOME/app-server-control/app-server-control.sock`
-(`CODEX_HOME` defaults to `~/.codex`). `USER_DIALOG_SOCKET` selects a custom local Unix socket;
-set it before `show` and keep the same setting for updates and recovery. It never starts another
-server or resumes a thread on a different server. CLI, IDE, and app tasks can use this connection;
-a standalone CLI without an accessible server socket cannot. Remote and Windows delivery are unsupported.
-The server must support `thread/read`, `thread/loaded/list`, `thread/turns/list`, `thread/items/list`,
-`turn/steer`, `turn/start`, and user-message IDs (`clientUserMessageId` / history `clientId`).
-This protocol was verified with Codex 0.158.0. uv supplies the WebSocket dependency.
+Delivery supports CLI tasks attached to an existing managed shared daemon and
+local desktop tasks. The originating thread and native connection are saved with
+the draft; later commands verify that binding and never select another owner.
 
-Submission uses `turn/steer` with the current `expectedTurnId` while a turn is active, and
-`turn/start` with ordinary text input when idle. Only an explicit turn-change rejection permits
-rerouting; a lost acknowledgement never triggers another send. Delivery and history confirmation
-use the same server connection. Each submission saves a client message ID before sending and
-confirms that exact `userMessage` and its original text. The ID correlates messages; it is not
-assumed to make repeat sends idempotent.
+- CLI: `codex app-server daemon version` supplies the running daemon's `socketPath`.
+  The runtime connects to that existing Unix WebSocket, initializes its own client,
+  and verifies the exact thread is loaded there. Before submission it joins that
+  loaded thread with `thread/resume {threadId, excludeTurns: true}` to receive
+  native item notifications. This joins the existing session without input or
+  configuration overrides; it does not resume an unavailable task elsewhere.
+- Desktop: `$CODEX_HOME/ipc/ipc.sock`, with `CODEX_HOME` defaulting to `~/.codex`.
+  The runtime initializes its own IPC client, discovers the exact original owner,
+  and obtains that owner's initial snapshot and `rolloutPath`. Submission uses
+  only `thread-follower-steer-turn`, reaching the owner's `turn/steer` and
+  reconciling input within the active turn. Inactive rejection retains the answer;
+  no Desktop start fallback exists.
+
+State and response formatting preserve the complete text input and UUID across
+clients. Connection discovery, delivery, native receipt observation, and recovery
+belong to each client's pipeline. CLI retains its detached popup and Core's
+`turn/start`, which admits input to an active regular turn or starts an idle task.
+No queue, manual endpoint, app launch change, or new server is used. Remote,
+embedded CLI, and Windows delivery are unsupported.
+
+For Desktop delivery, `show` and `resume` wait while the popup is writable. The agent must
+keep the originating turn active: wait the same running exec session or cell in
+intervals of at most 60 seconds, without finalizing while input is pending.
+A detached renderer or yielded cell does not itself pin the turn. Cancellation
+or interruption closes the writable popup and preserves its draft or saved answer.
+A writable Desktop popup cannot survive normal completion of its originating turn.
+
+Submission freezes the popup. An admission acknowledgement or uncertain
+attempted-write outcome releases the launcher before canonical confirmation;
+the agent must let that tool return. Core can then process the pending input,
+while the renderer independently observes its receipt and closes automatically
+only after confirmation. Explicit interruption can prevent admitted input from
+being recorded, so acknowledgement alone does not establish delivery.
+
+An acknowledgement records admission as `accepted`; arrival is confirmed separately:
+
+- Live CLI delivery matches native `item/completed` with `item.type: userMessage`,
+  the saved `clientId`, and exact text. History paging is not required.
+- Desktop delivery matches a completed native `UserMessage` in the exact
+  owner-provided canonical log, with the saved `client_id` and exact text. No
+  session globbing or pending/accepted UI placeholder is used.
+
+Before any send, the response and UUID are persisted. Once input may have been
+admitted, an error or lost acknowledgement leaves `sending`, `accepted`, or `unknown`
+delivery confirmation-only; no automatic or manual replay is allowed. The UUID
+correlates a response and does not make repeated sends idempotent. Desktop never
+falls back to start, including after an inactive rejection, timeout, or disconnect.
+
+Recovery reads the exact saved canonical log without sending, attaching, or
+resuming. It requires the saved UUID and a path bound to the originating task.
+If the log lacks native `UserMessage` records, including legacy history, delivery
+remains unconfirmed; text-only matching and metadata guesses are not substitutes.
+Existing version 3 CLI runs retain their saved home and endpoint when automatic
+native discovery verifies them. Older ambiguous delivery records without the
+UUID or bound path remain unconfirmed; recovery does not invent a new origin.
 
 | Command | Purpose |
 | --- | --- |
@@ -178,19 +221,19 @@ assumed to make repeat sends idempotent.
 | `validate <request.json\|->` | Check a request without opening a window. |
 | `show <request.json\|-> --preview` | Open without delivery; submission saves `message.txt` and the styled input in state. |
 | `show <request.json\|-> --preview --render-image <file.png>` | Export the renderer's own visible widget tree and close, without delivery. Useful for inspecting layout. |
-| `show <request.json\|-> --run-dir <path>` | Choose the workspace. Without this option, create a unique run under `.codex-skills/user-dialog/` in the project working directory. |
-| `doctor --delivery` | Check native libraries, the originating loaded task, and turn/history reads without sending. |
+| `show <request.json\|-> --run-dir <path>` | Choose the workspace. Default: `.codex-skills/user-dialog/<run-id>/`. Desktop delivery waits for response/dismissal; CLI returns after startup. |
+| `doctor --delivery` | Check native libraries, native connection discovery, and receipt prerequisites without delivering a response. |
 | `status <run-dir>` / `resume <run-dir>` | Inspect status / reopen the saved draft; submitted runs stay closed. |
-| `update <run-dir> <request.json|->` | Queue one live update; optional `--revision N` checks the current revision and `--timeout` defaults to 10 seconds. |
-| `deliver <run-dir>` | Retry a pre-send failure or explicit rejection from the original task. |
-| `confirm <run-dir>` | Recheck a submitted response without sending it again. |
+| `update <run-dir> <request.json\|->` | Queue one live update; optional `--revision N` checks the current revision and `--timeout` defaults to 10 seconds. |
+| `deliver <run-dir>` | Attempt delivery only when no send has been attempted, from the original task. |
+| `confirm <run-dir>` | Recheck the saved canonical log without sending or resuming. |
 
 `show`, `resume`, and `doctor` accept `--python <path>`; `USER_DIALOG_PYTHON` also selects the renderer interpreter.
 Keep the run and referenced assets available. On failure, inspect status and `renderer.log`.
 Submission and delivery are separate: a saved answer may have unconfirmed delivery.
 The runtime prevents retries of `sending`, `unknown`, or accepted deliveries; do not resend those answers manually.
-Automatic closing waits for a matching new response item after the saved pre-send history position.
-New responses match by client message ID and exact text, so identical answers from separate popups remain distinct.
+Automatic closing waits for a native receipt matching the saved UUID and exact text.
+Identical answers from separate popups remain distinct by their message UUIDs.
 An interrupted `sending` state is also confirmation-only.
 While sending, the clicked submit button shows a fixed-size sending indicator, and document selection/copy remains available.
 Automatic focus prefers inputs, then an action button; it does not select display text. Manual text selection remains available.

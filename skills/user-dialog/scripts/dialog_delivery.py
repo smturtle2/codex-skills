@@ -1,25 +1,21 @@
-"""Persist, submit and confirm user messages without replaying uncertain sends."""
+"""Persist one ordinary user-message attempt and recover receipts without replay."""
 
 from contextlib import contextmanager
-import hashlib
 from pathlib import Path
 import threading
 import uuid
 
-from dialog_connection import AppServer, RpcError, require_owner
-from dialog_observer import ResponseReader
-from dialog_state import save_state
+from dialog_connection import backend_for, require_owner, validate_user_message
+from dialog_state import read_state, save_state
 
 UNCERTAIN = {"sending", "accepted", "unknown"}
 
 
 @contextmanager
-def submission_lock(origin, cancel):
+def submission_lock(directory, cancel):
+    """Serialize attempts for this popup, including independent launcher processes."""
     import fcntl
-    key = hashlib.sha256((origin["home"] + origin["thread_id"]).encode()).hexdigest()
-    directory = Path(origin["home"]) / "user-dialog-locks"
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with (directory / key).open("a+b") as stream:
+    with (Path(directory) / ".delivery-lock").open("a+b") as stream:
         while True:
             if cancel.is_set():
                 raise InterruptedError("Response delivery cancelled")
@@ -34,79 +30,104 @@ def submission_lock(origin, cancel):
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-def observe_response(directory, state, reader):
-    delivery = state["delivery"]
-    delivery["observation"] = {"status": "waiting"}
-    save_state(directory, state)
-    try:
-        match = reader.wait(delivery, state["message"]["text"])
-        delivery.update(status="accepted", observation={"status": "observed", **match})
-        delivery.pop("error", None)
-    except Exception as error:
-        delivery["observation"] = {"status": "unconfirmed", "error": str(error)}
-    save_state(directory, state)
+@contextmanager
+def saved_delivery(directory, state, cancel):
+    """Read and update submission state under the same per-popup lock."""
+    with submission_lock(directory, cancel):
+        state.update(read_state(directory))
+        try:
+            yield
+        except Exception as error:
+            delivery = state.setdefault("delivery", {})
+            if delivery.get("status") in UNCERTAIN:
+                delivery["observation"] = {"status": "unconfirmed", "error": str(error)}
+            else:
+                delivery.update(status="failed", error=str(error))
+            save_state(directory, state)
+
+class DeliveryAttempt:
+    """Persist shared state; native sequencing belongs to the selected backend."""
+
+    def __init__(self, directory, state, cancel, origin_cancel=None):
+        self.directory, self.state, self.cancel = directory, state, cancel
+        self.origin_cancel = origin_cancel
+
+    @property
+    def origin(self):
+        return self.state["origin"]
+
+    @property
+    def message(self):
+        return self.state["message"]
+
+    @property
+    def delivery(self):
+        return self.state["delivery"]
+
+    @property
+    def client_id(self):
+        return self.delivery["client_message_id"]
+
+    def save(self):
+        save_state(self.directory, self.state)
+
+    def sending(self):
+        client_id = self.client_id
+        self.state["delivery"] = {"status": "sending", "client_message_id": client_id}
+        self.save()
+
+    def accepted(self, receipt):
+        self.delivery.update(status="accepted", receipt=receipt)
+        self.save()
+
+    def unknown(self, error):
+        self.delivery.update(status="unknown", error=str(error))
+        self.save()
+
+    def rejected(self, error):
+        self.delivery.update(status="failed", error=str(error))
+        self.save()
+
+    def waiting(self):
+        self.delivery["observation"] = {"status": "waiting"}
+        self.save()
+
+    def observed(self, match):
+        self.delivery.update(status="accepted", observation={"status": "observed", **match})
+        self.delivery.pop("error", None)
+        self.save()
+
+    def unconfirmed(self, error):
+        self.delivery["observation"] = {"status": "unconfirmed", "error": str(error)}
+        self.save()
 
 
 def confirm_delivery(directory, state, cancel=None):
-    """Confirm only, including a process interrupted after persisting 'sending'."""
-    delivery = state.get("delivery", {})
-    if delivery.get("status") not in UNCERTAIN:
-        return
-    try:
-        if "boundary_item_id" not in delivery:
-            raise ValueError("Missing saved pre-send history position")
-        with AppServer(state["origin"], cancel) as server:
-            observe_response(directory, state, ResponseReader(server))
-    except Exception as error:
-        delivery["observation"] = {"status": "unconfirmed", "error": str(error)}
-        save_state(directory, state)
-
-
-def deliver(directory, state, cancel=None):
-    if state.get("delivery", {}).get("status") in UNCERTAIN or state.get("status") != "submitted":
-        return
+    """Dispatch receipt recovery without allowing another input attempt."""
     cancel = cancel if cancel is not None else threading.Event()
-    try:
+    with saved_delivery(directory, state, cancel):
+        if state.get("delivery", {}).get("status") not in UNCERTAIN:
+            return
         require_owner(state["origin"])
-        with submission_lock(state["origin"], cancel), AppServer(state["origin"], cancel) as server:
-            reader = ResponseReader(server)
-            client_id = state["delivery"].get("client_message_id") or str(uuid.uuid4())
-            boundary = reader.bookmark()
-            for attempt in range(3):
-                turn_id = server.active_turn()
-                params = {"threadId": state["origin"]["thread_id"], "clientUserMessageId": client_id,
-                          "input": [state["message"]]}
-                method = "turn/steer" if turn_id else "turn/start"
-                if turn_id:
-                    params["expectedTurnId"] = turn_id
-                server.check()
-                state["delivery"] = {"status": "sending", "client_message_id": client_id,
-                                     "boundary_item_id": boundary, "method": method}
-                save_state(directory, state)
-                try:
-                    receipt = server.call(method, params)
-                except RpcError as error:
-                    if not error.rejected():
-                        state["delivery"].update(status="unknown", error=str(error))
-                        save_state(directory, state)
-                        raise
-                    state["delivery"].update(status="failed", error=str(error))
-                    save_state(directory, state)
-                    if method == "turn/steer" and error.turn_changed() and attempt < 2:
-                        continue
-                    return
-                except Exception as error:
-                    state["delivery"].update(status="unknown", error=str(error))
-                    save_state(directory, state)
-                    raise
-                state["delivery"].update(status="accepted", receipt=receipt)
-                save_state(directory, state)
-                observe_response(directory, state, reader)
-                return
-    except Exception as error:
+        if (state["delivery"]["status"] == "accepted"
+                and state["delivery"].get("observation", {}).get("status") == "observed"):
+            return
+        if not state["delivery"].get("client_message_id"):
+            raise ValueError("Missing saved response identity; this send cannot be recovered")
+        validate_user_message(state["message"], state["delivery"]["client_message_id"])
+        backend_for(state["origin"]).confirm(DeliveryAttempt(directory, state, cancel))
+
+
+def deliver(directory, state, cancel=None, *, origin_cancel=None):
+    """Serialize one response identity, then dispatch its complete native workflow."""
+    cancel = cancel if cancel is not None else threading.Event()
+    with saved_delivery(directory, state, cancel):
         delivery = state.setdefault("delivery", {})
-        if delivery.get("status") in UNCERTAIN:
-            delivery["observation"] = {"status": "unconfirmed", "error": str(error)}
-        else:
-            delivery.update(status="failed", error=str(error))
+        if delivery.get("status") in UNCERTAIN or state.get("status") != "submitted":
+            return
+        require_owner(state["origin"])
+        client_id = delivery.get("client_message_id") or str(uuid.uuid4())
+        validate_user_message(state["message"], client_id)
+        delivery["client_message_id"] = client_id
         save_state(directory, state)
+        backend_for(state["origin"]).deliver(DeliveryAttempt(directory, state, cancel, origin_cancel))

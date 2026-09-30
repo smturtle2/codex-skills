@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -18,8 +19,11 @@ from websockets.sync.server import unix_serve
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'skills/user-dialog/scripts'
 sys.path.insert(0, str(SCRIPTS))
-from dialog_connection import capture_origin, require_owner
+import dialog_connection
+import dialog_cli
+from dialog_connection import capture_origin, open_connection, require_owner
 from dialog_delivery import deliver, confirm_delivery
+from dialog_observer import ResponseReader
 from dialog_response import format_response
 from dialog_state import read_state, save_state
 from dialog_updates import send_update
@@ -27,85 +31,127 @@ import user_dialog
 
 
 class UserDialogDeliveryTests(unittest.TestCase):
-    """Exercise the actual Unix/WebSocket client against a deterministic server."""
+    """Exercise native discovery, subscription, input and receipts over real WS."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.socket = self.root / 'server.sock'
+        self.socket = self.root / 'native-daemon.sock'
         self.thread_id = str(uuid.uuid4())
         self.environment = patch.dict(os.environ, {
-            'CODEX_HOME': str(self.root), 'USER_DIALOG_SOCKET': str(self.socket),
+            'CODEX_HOME': str(self.root), 'USER_DIALOG_SOCKET': str(self.root / 'ignored.sock'),
             'CODEX_THREAD_ID': self.thread_id, 'CODEX_SESSION_ID': self.thread_id,
         })
         self.environment.start()
+        os.environ.pop('CODEX_APP_TOOLS_PIPE_PATH', None)
         self.addCleanup(self.environment.stop)
+        discovery = patch.object(dialog_cli.subprocess, 'run', side_effect=self.discover)
+        self.locator = discovery.start()
+        self.addCleanup(discovery.stop)
         self.mode = 'active'
         self.loaded = True
-        self.calls = []
-        self.sends = []
-        self.history = [{'turnId': 'turn-1', 'item': {'id': 'boundary', 'type': 'agentMessage', 'text': 'Ready'}}]
-        self.persisted = []
+        self.server_home = str(self.root)
+        self.calls, self.sends, self.persisted = [], [], []
+        self.log = self.root / 'sessions' / ('rollout-native-' + self.thread_id + '.jsonl')
+        self.log.parent.mkdir()
+        self.log.write_text(json.dumps({'type': 'session_meta', 'payload': {
+            'id': self.thread_id, 'history_mode': 'paginated'}}) + '\n')
         self.run = self.root / 'run'
         self.run.mkdir()
+        self.guard = threading.Lock()
         self.server = unix_serve(self.handle, str(self.socket))
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.server_thread.start()
         self.addCleanup(self.stop_server)
+        wait = ResponseReader.wait
+        self.short_wait = patch.object(ResponseReader, 'wait',
+            lambda reader, delivery, message, timeout=60: wait(reader, delivery, message, timeout=.08))
+        self.short_wait.start()
+        self.addCleanup(self.short_wait.stop)
+
+    def discover(self, command, **kwargs):
+        self.assertEqual(command, ['codex', 'app-server', 'daemon', 'version'])
+        self.assertTrue(kwargs['check'])
+        return subprocess.CompletedProcess(command, 0, json.dumps({
+            'status': 'running', 'socketPath': str(self.socket),
+            'cliVersion': 'frontend', 'appServerVersion': 'backend',
+        }), '')
 
     def stop_server(self):
         self.server.shutdown()
         self.server_thread.join(timeout=3)
 
+    def metadata(self):
+        return {'id': self.thread_id, 'name': 'Test', 'path': str(self.log),
+                'status': {'type': 'active' if self.mode == 'active' else 'idle'}}
+
+    def event(self, connection, item):
+        connection.send(json.dumps({'method': 'item/completed', 'params': {
+            'threadId': self.thread_id, 'turnId': 'turn-1', 'item': item}}))
+
+    def record(self, item):
+        content = copy.deepcopy(item['content'])
+        for part in content:
+            for element in part.get('text_elements', []):
+                if 'byteRange' in element:
+                    element['byte_range'] = element.pop('byteRange')
+        record = {'type': 'event_msg', 'payload': {
+            'type': 'item_completed', 'thread_id': self.thread_id, 'turn_id': 'turn-1',
+            'item': {'type': 'UserMessage', 'id': item['id'], 'client_id': item['clientId'],
+                     'content': content}}}
+        with self.guard, self.log.open('a') as stream:
+            stream.write(json.dumps(record) + '\n')
+
     def handle(self, connection):
+        subscribed = False
         for raw in connection:
             request = json.loads(raw)
             if 'id' not in request:
                 continue
             method, params = request['method'], request['params']
-            self.calls.append(method)
+            self.calls.append((method, params))
             result, error = {}, None
-            if method == 'thread/read':
-                result = {'thread': {'id': self.thread_id, 'name': 'Test'}}
+            if method == 'initialize':
+                self.assertEqual(params, {'clientInfo': {'name': 'user_dialog', 'version': '3'},
+                                          'capabilities': {'experimentalApi': True}})
+                result = {'codexHome': self.server_home}
+            elif method == 'thread/read':
+                result = {'thread': self.metadata()}
             elif method == 'thread/loaded/list':
                 result = {'data': [self.thread_id] if self.loaded else [], 'nextCursor': None}
-            elif method == 'thread/turns/list':
-                result = {'data': [{'id': 'turn-1', 'status': 'completed' if self.mode == 'idle' else 'inProgress'}]}
-            elif method == 'thread/items/list':
-                start = int(params.get('cursor', 0))
-                end = start + params['limit']
-                result = {'data': self.history[start:end],
-                          'nextCursor': str(end) if end < len(self.history) else None}
-            elif method in {'turn/steer', 'turn/start'}:
+            elif method == 'thread/resume':
+                self.assertEqual(params, {'threadId': self.thread_id, 'excludeTurns': True})
+                self.assertTrue(self.loaded)
+                subscribed = True
+                result = {'thread': self.metadata()}
+            elif method in {'thread/turns/list', 'thread/items/list'}:
+                error = {'code': -32601, 'message': 'Current history store does not support paging'}
+            elif method == 'turn/start':
+                self.assertTrue(subscribed)
                 self.sends.append((method, params))
                 self.persisted.append(read_state(self.run)['delivery'])
-                if self.mode == 'race':
-                    self.mode = 'idle'
-                    error = {'code': -32600, 'message': 'No active turn to steer'}
-                elif self.mode == 'reject':
-                    error = {'code': -32602, 'message': 'Invalid input'}
-                else:
-                    item = {'id': str(uuid.uuid4()), 'type': 'userMessage',
-                            'clientId': params['clientUserMessageId'], 'content': params['input']}
-                    if self.mode == 'unstyled':
-                        item['content'] = [{'type': 'text', 'text': params['input'][0]['text']}]
-                    self.history.insert(0, {'turnId': 'turn-1', 'item': item})
-                    # Include an identical answer with a different ID and enough
-                    # newer items to require paging during confirmation.
-                    self.history.insert(0, {'turnId': 'turn-1', 'item': {
-                        **item, 'id': 'other-message', 'clientId': str(uuid.uuid4())}})
-                    for n in range(101):
-                        self.history.insert(0, {'turnId': 'turn-1', 'item': {
-                            'id': str(uuid.uuid4()), 'type': 'agentMessage', 'text': 'Progress'}})
-                    if self.mode == 'lost':
-                        connection.close()
-                        return
-                    result = {'turnId': 'turn-1'} if method == 'turn/steer' else {'turn': {'id': 'turn-1'}}
-                    if self.mode == 'internal-error':
-                        error = {'code': -32603, 'message': 'Internal error after write'}
-            elif method != 'initialize':
-                error = {'code': -32601, 'message': 'Unknown method'}
+                item = {'id': str(uuid.uuid4()), 'type': 'userMessage',
+                        'clientId': params['clientUserMessageId'], 'content': params['input']}
+                # These cannot confirm the submitted response, even with identical text.
+                self.event(connection, {**item, 'id': 'other-client', 'clientId': str(uuid.uuid4())})
+                self.event(connection, {**item, 'id': 'tool-output', 'type': 'functionCallOutput'})
+                self.event(connection, {**item, 'id': 'other-text', 'content': [
+                    {'type': 'text', 'text': 'Different answer', 'text_elements': []}]})
+                if self.mode != 'unrecorded':
+                    self.record(item)
+                    if self.mode not in {'lost', 'rpc-invalid', 'rpc-internal'}:
+                        # The real completed item arrives before its RPC acknowledgement.
+                        self.event(connection, item)
+                if self.mode == 'lost':
+                    connection.close()
+                    return
+                if self.mode.startswith('rpc-'):
+                    error = {'code': -32602 if self.mode == 'rpc-invalid' else -32603,
+                             'message': 'RPC error after possible input admission'}
+                result = {'turn': {'id': 'turn-1', 'status': 'inProgress', 'items': []}}
+            else:
+                error = {'code': -32601, 'message': 'Unsupported method'}
             connection.send(json.dumps({'method': 'test/notification', 'params': {}}))
             connection.send(json.dumps({'id': request['id'], 'error': error} if error else
                                        {'id': request['id'], 'result': result}))
@@ -120,30 +166,32 @@ class UserDialogDeliveryTests(unittest.TestCase):
         save_state(self.run, state)
         return read_state(self.run)
 
-    def test_active_idle_and_turn_completion_during_submission(self):
-        for mode, expected in [('active', ['turn/steer']), ('idle', ['turn/start']),
-                               ('race', ['turn/steer', 'turn/start']), ('unstyled', ['turn/steer'])]:
+    def test_native_discovery_subscription_and_ordinary_active_or_idle_input(self):
+        for mode in ['active', 'idle']:
             with self.subTest(mode=mode):
                 self.mode, self.sends, self.persisted = mode, [], []
                 state = self.state()
+                self.assertEqual(state['origin']['socket'], str(self.socket))
+                self.assertEqual(state['origin']['rollout_path'], str(self.log))
                 deliver(self.run, state)
-                self.assertEqual([method for method, _ in self.sends], expected)
                 self.assertEqual(state['delivery']['observation']['status'], 'observed')
-                for (_, params), saved in zip(self.sends, self.persisted):
-                    self.assertEqual(saved['status'], 'sending')
-                    self.assertEqual(saved['client_message_id'], params['clientUserMessageId'])
-                    self.assertEqual(params['input'], [read_state(self.run)['message']])
-                    self.assertTrue(params['input'][0]['text_elements'])
-                    self.assertNotIn('toolOutput', params)
-                if mode == 'race':
-                    self.assertEqual(self.sends[0][1]['clientUserMessageId'], self.sends[1][1]['clientUserMessageId'])
-                count = len(self.sends)
+                self.assertEqual(len(self.sends), 1)
+                method, params = self.sends[0]
+                self.assertEqual(method, 'turn/start')
+                self.assertEqual(set(params), {'threadId', 'clientUserMessageId', 'input'})
+                self.assertEqual(params['input'], [state['message']])
+                self.assertTrue(params['input'][0]['text_elements'])
+                self.assertEqual(self.persisted[0]['status'], 'sending')
+                self.assertEqual(self.persisted[0]['client_message_id'], params['clientUserMessageId'])
+                self.assertNotIn('toolOutput', params)
                 deliver(self.run, state)
                 confirm_delivery(self.run, state)
-                self.assertEqual(len(self.sends), count)
+                self.assertEqual(len(self.sends), 1)
+        self.assertFalse({'thread/items/list', 'thread/turns/list', 'turn/steer'} &
+                         {method for method, _ in self.calls})
 
-    def test_lost_ack_and_interrupted_sending_confirm_without_replay(self):
-        for mode in ['lost', 'internal-error']:
+    def test_uncertain_sends_recover_offline_without_replay_and_parallel_stale_send_is_skipped(self):
+        for mode in ['lost', 'rpc-invalid', 'rpc-internal']:
             with self.subTest(mode=mode):
                 self.mode, self.sends = mode, []
                 state = self.state()
@@ -155,29 +203,99 @@ class UserDialogDeliveryTests(unittest.TestCase):
                     save_state(self.run, state)
                     recovered = read_state(self.run)
                     deliver(self.run, recovered)
-                    confirm_delivery(self.run, recovered)
+                    with patch.object(dialog_cli.subprocess, 'run', side_effect=AssertionError(
+                            'Confirmation must not require a running daemon')):
+                        confirm_delivery(self.run, recovered)
                     self.assertEqual(recovered['delivery']['observation']['status'], 'observed')
                     self.assertEqual(len(self.sends), 1)
+        self.mode, self.sends = 'active', []
+        state = self.state()
+        copies = [copy.deepcopy(state), copy.deepcopy(state)]
+        errors = []
+        def submit(snapshot):
+            try:
+                deliver(self.run, snapshot)
+            except Exception as error:
+                errors.append(error)
+        workers = [threading.Thread(target=submit, args=(snapshot,)) for snapshot in copies]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=3)
+        self.assertFalse(any(worker.is_alive() for worker in workers))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(self.sends), 1)
+        self.assertEqual(read_state(self.run)['delivery']['observation']['status'], 'observed')
+        # Saved uncertain input without a bound path cannot be recovered by
+        # opening or resuming a connection to reconstruct its origin.
+        missing_path = read_state(self.run)
+        missing_path['delivery'].update(status='unknown', observation={})
+        missing_path['origin'].pop('rollout_path')
+        save_state(self.run, missing_path)
+        with patch('dialog_cli.connection', side_effect=AssertionError('No attachment')):
+            confirm_delivery(self.run, missing_path)
+        self.assertEqual(missing_path['delivery']['observation']['status'], 'unconfirmed')
+        self.assertEqual(len(self.sends), 1)
 
-    def test_rejected_submission_can_retry_and_connection_failure_preserves_answer(self):
-        self.mode = 'reject'
+    def test_preflight_binding_rejects_unloaded_changed_home_or_endpoint_and_never_falls_back(self):
         state = self.state()
-        deliver(self.run, state)
-        self.assertEqual(state['delivery']['status'], 'failed')
-        message_id = state['delivery']['client_message_id']
-        self.mode = 'active'
-        deliver(self.run, state)
-        self.assertEqual(state['delivery']['client_message_id'], message_id)
-        self.assertEqual(state['delivery']['observation']['status'], 'observed')
-        state = self.state()
+        count = len([method for method, _ in self.calls if method == 'thread/resume'])
         self.loaded = False
         deliver(self.run, state)
         self.assertEqual(state['delivery']['status'], 'failed')
         self.assertEqual(read_state(self.run)['draft'], {'notes': 'Retain me'})
-        self.assertEqual(len(self.sends), 2)
-        self.assertNotIn('thread/resume', self.calls)
+        self.assertEqual(len([method for method, _ in self.calls if method == 'thread/resume']), count)
+        self.loaded = True
+        self.server_home = str(self.root / 'different-home')
+        with self.assertRaisesRegex(ValueError, 'different Codex home'):
+            with open_connection(state['origin']):
+                pass
+        self.server_home = str(self.root)
+        different_path = copy.deepcopy(state['origin'])
+        different_path['rollout_path'] = str(self.root / 'different.jsonl')
+        with self.assertRaisesRegex(ValueError, 'conversation log changed'):
+            with open_connection(different_path):
+                pass
+        with patch.object(dialog_cli.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                [], 0, json.dumps({'status': 'running', 'socketPath': str(self.root / 'other.sock')}), '')):
+            require_owner(state['origin'])  # Pure identity checks remain available offline.
+            with self.assertRaisesRegex(ValueError, 'endpoint changed'):
+                with open_connection(state['origin']):
+                    pass
+        before = self.locator.call_count
+        with patch.dict(os.environ, {'CODEX_APP_TOOLS_PIPE_PATH': ''}), \
+             patch('dialog_desktop.DesktopIpc', side_effect=ValueError('Desktop owner unavailable')):
+            with self.assertRaisesRegex(ValueError, 'Desktop owner unavailable'):
+                capture_origin()
+        self.assertEqual(self.locator.call_count, before)
+        self.assertEqual(self.sends, [])
 
-    def test_drafts_resume_in_place_and_accept_updates(self):
+    def test_wrong_role_identity_text_and_nonordinary_local_inputs_cannot_confirm_or_send(self):
+        self.mode = 'unrecorded'
+        state = self.state()
+        deliver(self.run, state)
+        self.assertEqual(state['delivery']['status'], 'accepted')
+        self.assertEqual(state['delivery']['observation']['status'], 'unconfirmed')
+        with open_connection(state['origin']) as server:
+            for message, client_id in [({'type': 'toolOutput', 'text': 'Wrong role'}, str(uuid.uuid4())),
+                                       (state['message'], 'invalid-identity'),
+                                       ([state['message']], str(uuid.uuid4()))]:
+                with self.assertRaises(ValueError):
+                    server.submit_user_message(message, client_id)
+        self.assertEqual(len(self.sends), 1)
+
+        # Live CLI receipts do not depend on canonical logfile persistence.
+        self.log.write_text(json.dumps({'type': 'session_meta', 'payload': {
+            'id': self.thread_id, 'history_mode': 'legacy'}}) + '\n')
+        self.mode = 'active'
+        legacy = self.state()
+        deliver(self.run, legacy)
+        self.assertEqual(legacy['delivery']['observation']['status'], 'observed')
+        confirmed = copy.deepcopy(legacy['delivery'])
+        confirm_delivery(self.run, legacy)
+        self.assertEqual(legacy['delivery'], confirmed)
+
+    def test_drafts_resume_in_place_updates_require_origin_and_preserve_invalid_draft(self):
         state = self.state()
         state.update(status='dismissed', base=str(self.root), response={}, revision=0,
                      spec={'title': 'Draft', 'body': {'type': 'input', 'id': 'notes', 'label': 'Notes'}})
@@ -192,38 +310,23 @@ class UserDialogDeliveryTests(unittest.TestCase):
              patch.object(user_dialog.subprocess, 'Popen', side_effect=launch), redirect_stdout(io.StringIO()):
             user_dialog.run_dialog(argparse.Namespace(command='resume', run_dir=str(self.run), python=None))
         resumed = read_state(self.run)
-        self.assertEqual(resumed['origin']['transport'], 'app-server')
         self.assertEqual(resumed['draft'], state['draft'])
         self.assertEqual(resumed['base'], str(self.root))
-        update = send_update(self.run, resumed['spec'], timeout=0)
-        self.assertEqual(update['status'], 'queued')
-        self.assertEqual(self.sends, [])
-
-    def test_owner_and_endpoint_checks_apply_to_updates_and_recovery(self):
-        state = self.state()
-        state.update(status='open', base=str(self.root), revision=0)
-        save_state(self.run, state)
+        self.assertEqual(send_update(self.run, resumed['spec'], timeout=0)['status'], 'queued')
         for overrides in [{'CODEX_THREAD_ID': str(uuid.uuid4())},
-                          {'USER_DIALOG_SOCKET': str(self.root / 'other.sock')}]:
+                          {'CODEX_SESSION_ID': str(uuid.uuid4())},
+                          {'CODEX_HOME': str(self.root / 'other-home')},
+                          {'CODEX_APP_TOOLS_PIPE_PATH': 'different-host'}]:
             with self.subTest(overrides=overrides), patch.dict(os.environ, overrides):
                 with self.assertRaises(ValueError):
-                    require_owner(state['origin'])
+                    require_owner(resumed['origin'])
                 with self.assertRaises(ValueError):
                     send_update(self.run, {}, timeout=0)
-                submitted = copy.deepcopy(state)
-                submitted['status'] = 'submitted'
-                deliver(self.run, submitted)
-                self.assertEqual(submitted['delivery']['status'], 'failed')
-        self.assertEqual(self.sends, [])
-
-    def test_unsafe_legacy_conditions_preserve_the_draft_without_opening_a_window(self):
-        state = self.state()
-        state.update(status='dismissed', base=str(self.root), response={}, revision=0,
-                     draft={'n': '-'}, spec={'title': 'Count', 'body': {
-                         'type': 'group', 'enabled_when': {'not': {'ref': 'n', 'equals': 0}},
-                         'children': [{'type': 'input', 'id': 'n', 'label': 'Count',
-                                       'format': 'number', 'required': True, 'value': 1}]}})
-        save_state(self.run, state)
+        resumed.update(status='dismissed', draft={'n': '-'}, spec={'title': 'Count', 'body': {
+            'type': 'group', 'enabled_when': {'not': {'ref': 'n', 'equals': 0}},
+            'children': [{'type': 'input', 'id': 'n', 'label': 'Count',
+                          'format': 'number', 'required': True, 'value': 1}]}})
+        save_state(self.run, resumed)
         original = (self.run / 'state.json').read_bytes()
         with patch.object(user_dialog, 'find_python') as renderer:
             with self.assertRaisesRegex(ValueError, 'own field or descendant'):

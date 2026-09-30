@@ -23,6 +23,7 @@ from dialog_style import DialogStyle
 from dialog_layout import DialogLayout
 from dialog_presentation import Presentation
 from dialog_delivery import UNCERTAIN, deliver, confirm_delivery
+from dialog_lifecycle import watch_origin
 
 
 STYLE = """
@@ -49,7 +50,7 @@ STYLE = """
 
 
 class Dialog:
-    def __init__(self, app, directory, state):
+    def __init__(self, app, directory, state, origin_ended=None):
         self.app, self.run_dir, self.state = app, directory, state
         self.view_dir = Path(state["base"])
         self._submitting = False
@@ -59,6 +60,7 @@ class Dialog:
         self._layout_source = 0
         self._layout_last = None
         self._delivery_cancel = threading.Event()
+        self._origin_ended = origin_ended if origin_ended is not None else threading.Event()
         self.request_id = state["request_id"]
         self.Gtk, self.Adw, self.GLib, self.Gdk, self.Gio = Gtk, Adw, GLib, Gdk, Gio
         self.style = DialogStyle(STYLE)
@@ -240,6 +242,9 @@ class Dialog:
     def submit(self, values=None, *, action="submit", include_values=True, button=None):
         if self._finished or self._submitting or self.state["status"] == "submitted":
             return
+        if self._origin_ended.is_set():
+            self.origin_released()
+            return
         draft = self.collect() if values is None else editable_values(self.state['spec'], values)
         self.checkpoint(draft)
         collected = normalize_values(self.state['spec'], draft, self.state['base']) if include_values else {}
@@ -266,6 +271,9 @@ class Dialog:
     def start_delivery(self, *, confirm_only=False):
         if self._finished or self._submitting:
             return
+        if not confirm_only and self._origin_ended.is_set():
+            self.origin_released()
+            return
         self._submitting = True
         self._delivery_cancel.clear()
         self._retry_available = False
@@ -274,8 +282,11 @@ class Dialog:
         self.set_sending(True)
         def send():
             try:
-                operation = confirm_delivery if confirm_only else deliver
-                operation(self.run_dir, self.state, self._delivery_cancel)
+                if confirm_only:
+                    confirm_delivery(self.run_dir, self.state, self._delivery_cancel)
+                else:
+                    deliver(self.run_dir, self.state, self._delivery_cancel,
+                            origin_cancel=self._origin_ended)
             except Exception as error:
                 self.state["delivery"]["observation"] = {"status": "unconfirmed", "error": str(error)}
                 save_state(self.run_dir, self.state)
@@ -291,7 +302,7 @@ class Dialog:
             self.finish_delivery()
         else:
             self._retry_available = (delivery["status"] in UNCERTAIN
-                                     and "boundary_item_id" in delivery)
+                                     and bool(delivery.get("client_message_id")))
             self.set_sending(False)
             if self._submit_button:
                 self._submit_button.set_sensitive(self._retry_available)
@@ -313,6 +324,19 @@ class Dialog:
 
     def defer(self):
         self._finish("deferred", None)
+
+    def origin_released(self):
+        self._origin_ended.set()
+        # A settled wire attempt can need Core to finish this tool before it
+        # commits the message. Its frozen renderer remains confirmation-only.
+        if not self._finished:
+            if self.state["status"] == "submitted":
+                if self.state.get("delivery", {}).get("status") in UNCERTAIN:
+                    return GLib.SOURCE_REMOVE
+                self.close()
+            else:
+                self.defer()
+        return GLib.SOURCE_REMOVE
 
     def close(self):
         if self.live:
@@ -430,6 +454,7 @@ def main():
     state = read_state(directory)
     app = Adw.Application(application_id="local.codex.UserDialog", flags=Gio.ApplicationFlags.NON_UNIQUE)
     dialog = None
+    origin_ended = threading.Event()
 
     def fail(exc_type, error, tb):
         traceback.print_exception(exc_type, error, tb, file=sys.stderr)
@@ -450,8 +475,17 @@ def main():
         if dialog:
             dialog.window.present()
             return
-        dialog = Dialog(application, directory, state)
+        dialog = Dialog(application, directory, state, origin_ended)
         dialog.open()
+        if origin_ended.is_set():
+            dialog.origin_released()
+
+    def released():
+        origin_ended.set()
+        GLib.idle_add(lambda: dialog.origin_released() if dialog else GLib.SOURCE_REMOVE)
+
+    if "--await-origin" in sys.argv[2:]:
+        watch_origin(sys.stdin.buffer, released)
 
     import signal
     def interrupted(signum, frame):

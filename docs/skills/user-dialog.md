@@ -15,15 +15,34 @@ Use $skill-installer to install skills/user-dialog from https://github.com/smtur
 The launcher uses uv to manage its Python dependencies. Markdown and standalone code surfaces additionally require the native WebKitGTK 6.0
 runtime; on Debian/Ubuntu, install the `gir1.2-webkit-6.0` package alongside the GTK and libadwaita runtime packages.
 
-Response delivery connects to the existing local Codex app-server that has the originating task loaded.
-It supports CLI, IDE, and app sessions with an accessible Unix control socket; it does not launch a
-replacement server. The default is `$CODEX_HOME/app-server-control/app-server-control.sock` with
-`~/.codex` as the default home. Set `USER_DIALOG_SOCKET` for a custom local socket.
-Run `doctor --delivery` through the skill launcher to check the connection without sending a message.
+Response delivery supports CLI tasks attached to an existing managed shared daemon
+and local desktop tasks. CLI delivery discovers `socketPath` through
+`codex app-server daemon version`, verifies the originating thread is loaded, and
+joins it for native item notifications. Desktop delivery uses
+`$CODEX_HOME/ipc/ipc.sock` to discover the exact owner and its canonical log path.
+`CODEX_HOME` defaults to `~/.codex`. The connection is saved with the draft and
+verified automatically; no manual endpoint selection, app launch changes, or
+new server is needed. Remote and embedded CLI servers are unsupported.
+Run `doctor --delivery` through the skill launcher to check native connection
+discovery and receipt prerequisites without delivering a response.
 
-Submitting adds a user message to the active turn, or starts a turn if the task is idle. The popup
-closes after confirming the exact message in the conversation. If delivery is uncertain, the answer
-stays saved and confirmation can be retried without sending it again.
+State and response formatting are shared; each client owns its native connection,
+delivery, receipt checks, and recovery. CLI popups remain detached and use Core's
+`turn/start`. Desktop keeps the originating turn active while the popup accepts
+input and uses only the owner's native steering path. The agent waits the same
+running exec session or cell in bounded intervals and does not finalize while
+the popup is writable. A detached renderer alone does not keep the turn active.
+Cancellation closes the writable popup and retains its draft or saved answer;
+there is no Desktop start fallback.
+
+After submission, Desktop freezes the popup and releases the launcher on admission
+acknowledgement or an uncertain attempted-write outcome, before canonical
+confirmation. The renderer then confirms independently. Automatic closing requires
+the saved UUID and exact text in CLI `item/completed` or a completed `UserMessage`
+in the Desktop owner's log. Post-send errors and lost acknowledgements never
+trigger another send; recovery checks the client's saved native records.
+A writable Desktop popup cannot outlive its originating turn's normal completion.
+A legacy log without native user-message UUIDs cannot confirm uncertain delivery.
 
 Response titles, field labels, and the submitted button receive the CLI theme's accent color
 automatically. Use the existing popup JSON; no emphasis ranges or extra styling options are needed.

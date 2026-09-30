@@ -16,8 +16,9 @@ import uuid
 
 from dialog_state import encode, read_state, run_lock, save_state
 from dialog_spec import compile_request, read_json, parse_json, validate_dependencies, TYPES, walk
-from dialog_connection import capture_origin, require_owner
+from dialog_connection import backend_for, capture_origin, require_owner
 from dialog_delivery import deliver, confirm_delivery
+from dialog_lifecycle import wait_for_renderer
 from dialog_updates import send_update
 
 
@@ -151,8 +152,6 @@ def run_dialog(args):
     else:
         directory = Path(args.run_dir).expanduser().resolve()
     with run_lock(directory):
-        with run_lock(directory, ".window-lock"):
-            pass
         if args.command == "show":
             if (directory / "state.json").exists():
                 raise ValueError("Run already exists; use resume or a new directory")
@@ -180,25 +179,23 @@ def run_dialog(args):
             validate_dependencies(state['spec'])
             runtime = find_python(args.python, has_documents(state['spec']))
             state.update(status="pending", response={})
+        with run_lock(directory, ".window-lock"):
+            pass
         save_state(directory, state)
+        await_response = bool(state.get("origin") and backend_for(state["origin"]).awaits_response)
         command = [runtime["python"], str(Path(__file__).with_name("dialog_runtime.py")), str(directory)]
+        if await_response:
+            command.append("--await-origin")
         with (directory / "renderer.log").open("a", encoding="utf-8") as log:
             process = subprocess.Popen(command, env=python_environment(runtime["python"]),
-                                       stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                       stdin=subprocess.PIPE if await_response else subprocess.DEVNULL,
+                                       stdout=log, stderr=log,
                                        start_new_session=True)
-        # Wait for readiness, not the user's answer. Renderer owns the run lock
-        # after startup; detached lifetime survives the originating tool call.
-        import time
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            current = read_state(directory)
-            if current["status"] != "pending" or process.poll() is not None:
-                break
-            time.sleep(0.05)
-        current = read_state(directory)
-        if current["status"] == "pending" and process.poll() is not None:
-            from dialog_state import finish_state
-            finish_state(directory, current, "error", None, error=f"Renderer exited during startup ({process.returncode}); see renderer.log")
+        try:
+            current = wait_for_renderer(directory, process, await_response=await_response)
+        finally:
+            if process.stdin is not None:
+                process.stdin.close()
         print(encode(summary(directory, current)))
         return 1 if current["status"] == "error" else 0
 
@@ -211,7 +208,7 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     doctor = commands.add_parser("doctor", help="Locate Python with GTK and libadwaita")
     doctor.add_argument("--python")
-    doctor.add_argument("--delivery", action="store_true", help="Read-only check of the originating app-server and history APIs")
+    doctor.add_argument("--delivery", action="store_true", help="Check the originating native connection and receipt source without sending input")
     show = commands.add_parser("show", help="Open a composed JSON view")
     show.add_argument("request", help="JSON file or - for stdin")
     show.add_argument("--preview", action="store_true", help="Render without Codex delivery; save message.txt")
@@ -256,6 +253,9 @@ def main():
             print(encode(summary(directory, read_state(directory))))
             return 0
         return run_dialog(args)
+    except KeyboardInterrupt:
+        print(encode({"status": "cancelled", "error": "Dialog wait interrupted; saved answers retained"}))
+        return 130
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(encode({"status": "error", "error": str(error)}))
         return 1

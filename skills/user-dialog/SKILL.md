@@ -26,6 +26,14 @@ When creating the default workspace in a Git project, ensure `/.codex-skills/` i
 uv run --script "$SKILL_DIR/scripts/user_dialog.py" show <request.json|-> --run-dir <run-dir>
 ```
 
+For Desktop delivery, keep the originating turn active while the popup accepts input.
+If `show` or `resume` yields a running exec session or cell, wait on that same ID
+in bounded waits of at most 60 seconds. Continue independent work if useful, but
+do not send a final response while the writable popup is pending. A detached
+renderer or running cell alone does not keep the turn active. Cancellation or
+interruption closes the writable popup and preserves its draft or saved answer.
+CLI popups retain their detached lifetime.
+
 While a dialog is open, update it with `update <run-dir> <request.json|-> [--revision N]`
 using the same JSON format and stable element IDs. Paths resolve from the original
 working directory; use `status <run-dir>` to inspect pending updates.
@@ -33,13 +41,26 @@ working directory; use `status <run-dir>` to inspect pending updates.
 Read the [view contract](references/view-contract.md) for JSON syntax when needed,
 or its [runtime section](references/view-contract.md#runtime) for validation, preview, and recovery.
 
-The runtime preserves submitted answers and delivers them as one user message to
-the originating task through its existing local app-server. It adds input to an
-active turn or starts a turn when the task is idle. No agent polling or manual
-reposting is needed. Continue independent work while awaiting input; retain the
-run if delivery fails. Clean up expendable
-files only after delivery is confirmed and the window has closed; preserve any
-draft or state still needed for recovery. Save requested exports at their output destination.
+The runtime preserves submitted answers and delivers one ordinary user message
+to the originating task. State and response formatting are shared; native
+connection, submission, receipt checks, and recovery are separate for each client.
+CLI discovers its existing managed shared daemon and uses Core's `turn/start`.
+Desktop discovers the existing local owner through native IPC and uses only its
+steering path. An inactive turn leaves the answer saved; it never triggers start.
+Remote and embedded CLI servers are unsupported.
+
+Desktop freezes the submitted popup and releases the launcher after admission
+acknowledgement or an uncertain attempted-write outcome, before waiting for a
+canonical receipt. Let that exec session or cell return so Core can record the
+user input. The renderer independently confirms the saved UUID and exact text;
+automatic closing waits for confirmation. A writable Desktop popup cannot outlive
+normal completion of its originating turn.
+
+Once input may have been admitted, errors or lost acknowledgements never trigger
+another send. Confirmation uses the client's saved native records without replay.
+Retain unconfirmed runs; clean up expendable files after confirmation and window
+closure, preserving drafts and recovery state. Save requested exports at their
+output destination.
 
 Response titles, field labels, and the submitted button are emphasized automatically
 using the client's theme where supported. Compose the usual request JSON; no
