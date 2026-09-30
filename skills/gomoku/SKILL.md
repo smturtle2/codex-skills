@@ -29,22 +29,23 @@ Repeat the turn loop:
    uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --run-dir <run-dir> --wait-for-codex-turn
    ```
 
-2. Read the returned status and `ascii_board`. If the game ended, report the winner or draw.
+2. Read the returned status and `ascii_board`. If the game ended, report the winner or draw. If `session_status` is `closed`, finish the session; the board remains available to resume.
 3. Before choosing a move, read [references/tactics.md](references/tactics.md) if not already in context, then inspect tactical facts:
 
    ```bash
    uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --run-dir <run-dir> --threat-view
    ```
 
-4. Choose a legal move from the visible board and those facts, then apply it:
+4. Choose a legal move from that threat view's visible board and facts, then apply it with the `game_id` and `revision` returned in that same view:
 
    ```bash
-   uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --run-dir <run-dir> --codex-move <row> <col>
+   uv run --script "$SKILL_DIR/scripts/gomoku_gui.py" --run-dir <run-dir> --codex-move <row> <col> --game-id <game_id> --revision <revision>
    ```
 
 5. Immediately start the next wait.
 
 Coordinates are always 1-based `row col`. In `ascii_board`, `B/W` are stones, `b/w` mark the last move, and `.` is empty.
+Views include the game generation and revision. Both are required for a Codex move; a reset or other intervening change rejects an old selection without changing the board. Refresh the threat view and reconsider the move after such a rejection.
 
 ## Maintain the Session
 
@@ -52,7 +53,7 @@ Keep the waiter attached during the user's turn, including after GUI launch and 
 
 Use commentary for operational updates and chosen moves. Do not send a final response while the game is active; finish after game end, GUI closure, or explicit user stop. Address intervening control messages and resume the existing wait when play continues.
 
-If a move is rejected, refresh the Codex view and select a legal move from the current state. Do not bypass validation. If the GUI or helper cannot run, report its error rather than claim the board is ready.
+If a move is rejected, refresh the threat view and select a legal move from the current state. Do not bypass validation. The GUI and CLI serialize state transitions; closure wakes the existing waiter, and reopening the same workspace preserves the game. If the GUI or helper cannot run, report its error rather than claim the board is ready.
 
 ## Other Operations
 

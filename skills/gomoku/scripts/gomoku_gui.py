@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # /// script
+# requires-python = ">=3.11"
 # dependencies = ["pygame>=2.6"]
 # ///
 from __future__ import annotations
@@ -9,282 +10,20 @@ import json
 import os
 import pathlib
 import sys
-from copy import deepcopy
 from typing import Any
 
-EMPTY = 0
-BLACK = 1
-WHITE = 2
+from gomoku_rules import BLACK, EMPTY, WHITE, RuleEvaluator, existing_lines, freeze
+from gomoku_session import (
+    GomokuError, MAX_BOARD_SIZE, MIN_BOARD_SIZE, NEXT_PLAYER, PLAYER_TO_VALUE,
+    adjust_settings, apply_move, codex_move, gui_session, is_codex_wait_ready,
+    load_state, mutate_state, new_state, normalized_state, position_token,
+    require_position, reset_game, save_state, settings_editable, start_game,
+    validate_state_shape, wait_for_codex_turn,
+)
 
-PLAYER_TO_VALUE = {"black": BLACK, "white": WHITE}
-NEXT_PLAYER = {"black": "white", "white": "black"}
-DIRECTIONS = ((1, 0), (0, 1), (1, 1), (1, -1))
-MIN_BOARD_SIZE = 5
-MAX_BOARD_SIZE = 25
 MIN_WINDOW_WIDTH = 560
 MIN_WINDOW_HEIGHT = 620
 DEFAULT_STATE_PATH = pathlib.Path(".codex-skills/gomoku/default/state.json")
-
-
-class GomokuError(ValueError):
-    pass
-
-
-def new_state(
-    size: int = 15,
-    human_player: str = "black",
-    renju_rules: bool = False,
-) -> dict[str, Any]:
-    if size < MIN_BOARD_SIZE:
-        raise GomokuError("board size must be at least 5")
-    if human_player not in PLAYER_TO_VALUE:
-        raise GomokuError("human player must be black or white")
-    codex_player = NEXT_PLAYER[human_player]
-    return {
-        "version": 1,
-        "size": size,
-        "renju_rules": renju_rules,
-        "human_player": human_player,
-        "codex_player": codex_player,
-        "board": [[EMPTY for _ in range(size)] for _ in range(size)],
-        "next_player": "black",
-        "setup_complete": False,
-        "game_event_id": 0,
-        "moves": [],
-        "last_move": None,
-        "winner": None,
-        "winning_line": [],
-        "draw": False,
-    }
-
-
-def load_state(
-    path: pathlib.Path,
-    size: int = 15,
-    human_player: str = "black",
-    renju_rules: bool = False,
-) -> dict[str, Any]:
-    if not path.exists():
-        state = new_state(size=size, human_player=human_player, renju_rules=renju_rules)
-        save_state(path, state)
-        return state
-    with path.open("r", encoding="utf-8") as handle:
-        state = json.load(handle)
-    validate_state_shape(state)
-    return state
-
-
-def save_state(path: pathlib.Path, state: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_suffix(path.suffix + ".tmp")
-    with temp_path.open("w", encoding="utf-8") as handle:
-        json.dump(state, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    temp_path.replace(path)
-
-
-def validate_state_shape(state: dict[str, Any]) -> None:
-    size = state.get("size")
-    board = state.get("board")
-    if not isinstance(size, int) or not isinstance(board, list):
-        raise GomokuError("invalid state: missing size or board")
-    if len(board) != size or any(not isinstance(row, list) or len(row) != size for row in board):
-        raise GomokuError("invalid state: board must be a square matrix matching size")
-    if any(cell not in {EMPTY, BLACK, WHITE} for row in board for cell in row):
-        raise GomokuError("invalid state: board cells must be 0, 1, or 2")
-    if state.get("next_player") not in PLAYER_TO_VALUE:
-        raise GomokuError("invalid state: next_player must be black or white")
-    human_player = state.get("human_player", "black")
-    codex_player = state.get("codex_player", NEXT_PLAYER.get(human_player))
-    if human_player not in PLAYER_TO_VALUE:
-        raise GomokuError("invalid state: human_player must be black or white")
-    if codex_player != NEXT_PLAYER[human_player]:
-        raise GomokuError("invalid state: codex_player must be the opposite of human_player")
-    state.setdefault("renju_rules", False)
-    state.setdefault("setup_complete", bool(state.get("moves") or state.get("winner") or state.get("draw")))
-    state.setdefault("game_event_id", len(state.get("moves", [])))
-    state.pop("win_length", None)
-    state.pop("overline_wins", None)
-
-
-def next_game_event_id(state: dict[str, Any]) -> int:
-    return int(state.get("game_event_id", 0)) + 1
-
-
-def start_game(state: dict[str, Any]) -> dict[str, Any]:
-    validate_state_shape(state)
-    next_state = deepcopy(state)
-    if next_state.get("setup_complete", False):
-        return next_state
-    next_state["setup_complete"] = True
-    next_state["game_event_id"] = next_game_event_id(state)
-    return next_state
-
-
-def apply_move(state: dict[str, Any], row: int, col: int, player: str | None = None) -> dict[str, Any]:
-    validate_state_shape(state)
-    next_state = deepcopy(state)
-    size = next_state["size"]
-    player = player or next_state["next_player"]
-    if player not in PLAYER_TO_VALUE:
-        raise GomokuError("player must be black or white")
-    if next_state.get("winner"):
-        raise GomokuError("game is already finished")
-    if next_state.get("draw"):
-        raise GomokuError("game is already a draw")
-    if not next_state.get("setup_complete", False):
-        raise GomokuError("game has not started")
-    if player != next_state["next_player"]:
-        raise GomokuError(f"it is {next_state['next_player']}'s turn")
-    if row < 1 or row > size or col < 1 or col > size:
-        raise GomokuError(f"move must be between 1 and {size}")
-
-    row_index = row - 1
-    col_index = col - 1
-    if next_state["board"][row_index][col_index] != EMPTY:
-        raise GomokuError(f"cell {row},{col} is already occupied")
-
-    value = PLAYER_TO_VALUE[player]
-    next_state["board"][row_index][col_index] = value
-    if player == "black" and next_state.get("renju_rules", False):
-        validate_renju_black_move(next_state["board"], row_index, col_index)
-    move = {"row": row, "col": col, "player": player}
-    next_state["moves"].append(move)
-    next_state["last_move"] = move
-    next_state["game_event_id"] = next_game_event_id(state)
-
-    winning_line = find_winning_line(
-        next_state["board"],
-        row_index,
-        col_index,
-        value,
-        5,
-        player == "white" or not next_state.get("renju_rules", False),
-    )
-    if winning_line:
-        next_state["winner"] = player
-        next_state["winning_line"] = [{"row": r + 1, "col": c + 1} for r, c in winning_line]
-    elif all(cell != EMPTY for board_row in next_state["board"] for cell in board_row):
-        next_state["draw"] = True
-    else:
-        next_state["next_player"] = NEXT_PLAYER[player]
-
-    return next_state
-
-
-def validate_renju_black_move(board: list[list[int]], row: int, col: int) -> None:
-    if has_overline(board, row, col, BLACK):
-        raise GomokuError("renju forbidden move: black overline")
-    if find_winning_line(board, row, col, BLACK, 5, False):
-        return
-    if count_open_threes(board, row, col, BLACK) >= 2:
-        raise GomokuError("renju forbidden move: black double-three")
-    if count_fours(board, row, col, BLACK) >= 2:
-        raise GomokuError("renju forbidden move: black double-four")
-
-
-def has_overline(board: list[list[int]], row: int, col: int, value: int) -> bool:
-    return any(len(collect_line(board, row, col, value, dr, dc, len(board))) > 5 for dr, dc in DIRECTIONS)
-
-
-def count_fours(board: list[list[int]], row: int, col: int, value: int) -> int:
-    count = 0
-    for row_delta, col_delta in DIRECTIONS:
-        cells = directional_window(board, row, col, row_delta, col_delta)
-        if line_has_exact_pattern(cells, [value, value, value, value, EMPTY]) or line_has_exact_pattern(
-            cells, [EMPTY, value, value, value, value]
-        ):
-            count += 1
-        elif line_has_exact_pattern(cells, [value, value, value, EMPTY, value]) or line_has_exact_pattern(
-            cells, [value, EMPTY, value, value, value]
-        ):
-            count += 1
-    return count
-
-
-def count_open_threes(board: list[list[int]], row: int, col: int, value: int) -> int:
-    count = 0
-    for row_delta, col_delta in DIRECTIONS:
-        cells = directional_window(board, row, col, row_delta, col_delta)
-        if any(
-            line_has_exact_pattern(cells, pattern)
-            for pattern in (
-                [EMPTY, value, value, value, EMPTY],
-                [EMPTY, value, value, EMPTY, value, EMPTY],
-                [EMPTY, value, EMPTY, value, value, EMPTY],
-            )
-        ):
-            count += 1
-    return count
-
-
-def directional_window(
-    board: list[list[int]],
-    row: int,
-    col: int,
-    row_delta: int,
-    col_delta: int,
-    radius: int = 5,
-) -> list[int | None]:
-    size = len(board)
-    cells: list[int | None] = []
-    for offset in range(-radius, radius + 1):
-        r = row + offset * row_delta
-        c = col + offset * col_delta
-        cells.append(board[r][c] if 0 <= r < size and 0 <= c < size else None)
-    return cells
-
-
-def line_has_exact_pattern(cells: list[int | None], pattern: list[int]) -> bool:
-    width = len(pattern)
-    for start in range(0, len(cells) - width + 1):
-        if cells[start : start + width] == pattern:
-            return True
-    return False
-
-
-def find_winning_line(
-    board: list[list[int]],
-    row: int,
-    col: int,
-    value: int,
-    win_length: int,
-    overline_wins: bool,
-) -> list[tuple[int, int]]:
-    size = len(board)
-    for row_delta, col_delta in DIRECTIONS:
-        line = collect_line(board, row, col, value, row_delta, col_delta, size)
-        if len(line) >= win_length and overline_wins:
-            return line
-        if len(line) == win_length:
-            return line
-    return []
-
-
-def collect_line(
-    board: list[list[int]],
-    row: int,
-    col: int,
-    value: int,
-    row_delta: int,
-    col_delta: int,
-    size: int,
-) -> list[tuple[int, int]]:
-    before: list[tuple[int, int]] = []
-    r, c = row - row_delta, col - col_delta
-    while 0 <= r < size and 0 <= c < size and board[r][c] == value:
-        before.append((r, c))
-        r -= row_delta
-        c -= col_delta
-
-    after: list[tuple[int, int]] = []
-    r, c = row + row_delta, col + col_delta
-    while 0 <= r < size and 0 <= c < size and board[r][c] == value:
-        after.append((r, c))
-        r += row_delta
-        c += col_delta
-
-    return list(reversed(before)) + [(row, col)] + after
 
 
 def ascii_board(state: dict[str, Any]) -> str:
@@ -316,8 +55,11 @@ def ascii_board(state: dict[str, Any]) -> str:
 
 
 def codex_view_payload(state: dict[str, Any]) -> dict[str, Any]:
-    validate_state_shape(state)
+    state = normalized_state(state)
     return {
+        "game_id": state["game_id"],
+        "revision": state["revision"],
+        "session_status": state["session_status"],
         "size": state["size"],
         "next_player": state["next_player"],
         "codex_player": state["codex_player"],
@@ -332,286 +74,51 @@ def codex_view_payload(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def threat_view_payload(state: dict[str, Any]) -> dict[str, Any]:
-    validate_state_shape(state)
-    return {
-        "size": state["size"],
-        "next_player": state["next_player"],
-        "codex_player": state["codex_player"],
-        "human_player": state["human_player"],
-        "renju_rules": state.get("renju_rules", False),
-        "setup_complete": state.get("setup_complete", False),
-        "game_event_id": state.get("game_event_id", 0),
-        "ascii_board": ascii_board(state),
-        "winner": state.get("winner"),
-        "winning_line": [[item["row"], item["col"]] for item in state.get("winning_line", [])],
-        "draw": state.get("draw", False),
-        "tactical_facts": {
-            "black": tactical_facts_for_player(state, "black"),
-            "white": tactical_facts_for_player(state, "white"),
-        },
-    }
-
-
-def tactical_facts_for_player(state: dict[str, Any], player: str) -> dict[str, list[dict[str, Any]]]:
-    value = PLAYER_TO_VALUE[player]
-    return {
-        "completion_points": completion_points_for_player(state, player, value),
-        "lines": tactical_lines_for_player(state["board"], value),
-    }
-
-
-def completion_points_for_player(state: dict[str, Any], player: str, value: int) -> list[dict[str, Any]]:
-    board = state["board"]
-    size = state["size"]
-    facts: list[dict[str, Any]] = []
-    for row in range(size):
-        for col in range(size):
-            if board[row][col] != EMPTY:
-                continue
-            board[row][col] = value
-            try:
-                forbidden_reason = renju_forbidden_reason(state, player, row, col)
-                winning_line = find_winning_line(
-                    board,
-                    row,
-                    col,
-                    value,
-                    5,
-                    player == "white" or not state.get("renju_rules", False),
-                )
-                overline = player == "black" and state.get("renju_rules", False) and has_overline(board, row, col, value)
-                if winning_line or overline:
-                    fact: dict[str, Any] = {
-                        "row": row + 1,
-                        "col": col + 1,
-                        "kind": "five_completion",
-                    }
-                    if forbidden_reason:
-                        fact["forbidden"] = True
-                        fact["reason"] = forbidden_reason
-                    if winning_line:
-                        fact["line"] = coords_payload(winning_line)
-                    facts.append(fact)
-            finally:
-                board[row][col] = EMPTY
-    return sorted(facts, key=lambda item: (item["row"], item["col"], item.get("reason", "")))
-
-
-def renju_forbidden_reason(state: dict[str, Any], player: str, row: int, col: int) -> str | None:
-    if player != "black" or not state.get("renju_rules", False):
-        return None
-    try:
-        validate_renju_black_move(state["board"], row, col)
-    except GomokuError as exc:
-        message = str(exc)
-        if "overline" in message:
-            return "black_overline"
-        if "double-three" in message:
-            return "black_double_three"
-        if "double-four" in message:
-            return "black_double_four"
-        return "renju_forbidden"
-    return None
-
-
-def tactical_lines_for_player(board: list[list[int]], value: int) -> list[dict[str, Any]]:
-    lines: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for row_delta, col_delta in DIRECTIONS:
-        for line in board_lines(board, row_delta, col_delta):
-            add_contiguous_line_facts(lines, line, value, row_delta, col_delta)
-            add_broken_four_facts(lines, line, value, row_delta, col_delta)
-    return sorted(lines.values(), key=line_fact_sort_key)
-
-
-def board_lines(board: list[list[int]], row_delta: int, col_delta: int) -> list[list[tuple[int, int, int]]]:
-    size = len(board)
-    lines: list[list[tuple[int, int, int]]] = []
-    for row in range(size):
-        for col in range(size):
-            previous_row = row - row_delta
-            previous_col = col - col_delta
-            if 0 <= previous_row < size and 0 <= previous_col < size:
-                continue
-            line: list[tuple[int, int, int]] = []
-            next_row = row
-            next_col = col
-            while 0 <= next_row < size and 0 <= next_col < size:
-                line.append((next_row, next_col, board[next_row][next_col]))
-                next_row += row_delta
-                next_col += col_delta
-            if len(line) >= 5:
-                lines.append(line)
-    return lines
-
-
-def add_contiguous_line_facts(
-    facts: dict[tuple[Any, ...], dict[str, Any]],
-    line: list[tuple[int, int, int]],
-    value: int,
-    row_delta: int,
-    col_delta: int,
-) -> None:
-    index = 0
-    while index < len(line):
-        row, col, cell_value = line[index]
-        if cell_value != value:
-            index += 1
-            continue
-        start = index
-        while index < len(line) and line[index][2] == value:
-            index += 1
-        run = line[start:index]
-        open_ends = line_open_ends(line, start, index)
-        kind = contiguous_line_kind(len(run), len(open_ends))
-        if kind:
-            add_line_fact(facts, kind, run, open_ends, [], row_delta, col_delta)
-
-
-def contiguous_line_kind(run_length: int, open_end_count: int) -> str | None:
-    if run_length >= 5:
-        return "existing_five"
-    if run_length == 4:
-        if open_end_count == 2:
-            return "open_four"
-        if open_end_count == 1:
-            return "half_open_four"
-        return "closed_four"
-    if run_length == 3 and open_end_count == 2:
-        return "open_three"
-    return None
-
-
-def line_open_ends(line: list[tuple[int, int, int]], start: int, end: int) -> list[tuple[int, int]]:
-    open_ends: list[tuple[int, int]] = []
-    if start > 0 and line[start - 1][2] == EMPTY:
-        open_ends.append((line[start - 1][0], line[start - 1][1]))
-    if end < len(line) and line[end][2] == EMPTY:
-        open_ends.append((line[end][0], line[end][1]))
-    return open_ends
-
-
-def add_broken_four_facts(
-    facts: dict[tuple[Any, ...], dict[str, Any]],
-    line: list[tuple[int, int, int]],
-    value: int,
-    row_delta: int,
-    col_delta: int,
-) -> None:
-    for start in range(0, len(line) - 4):
-        window = line[start : start + 5]
-        values = [cell[2] for cell in window]
-        if values.count(value) != 4 or values.count(EMPTY) != 1:
-            continue
-        if any(cell_value not in {value, EMPTY} for cell_value in values):
-            continue
-        if values.index(EMPTY) in {0, 4}:
-            continue
-        stones = [(row, col) for row, col, cell_value in window if cell_value == value]
-        completion = [(row, col) for row, col, cell_value in window if cell_value == EMPTY]
-        add_line_fact(facts, "broken_four", stones, [], completion, row_delta, col_delta)
-
-
-def add_line_fact(
-    facts: dict[tuple[Any, ...], dict[str, Any]],
-    kind: str,
-    stones: list[tuple[int, int, int]] | list[tuple[int, int]],
-    open_ends: list[tuple[int, int]],
-    completion_points: list[tuple[int, int]],
-    row_delta: int,
-    col_delta: int,
-) -> None:
-    stone_coords = [(stone[0], stone[1]) for stone in stones]
-    key = (
-        kind,
-        tuple(stone_coords),
-        tuple(open_ends),
-        tuple(completion_points),
-        row_delta,
-        col_delta,
-    )
-    if key in facts:
-        return
-    fact: dict[str, Any] = {
-        "kind": kind,
-        "stones": coords_payload(stone_coords),
-        "direction": [row_delta, col_delta],
-    }
-    if open_ends:
-        fact["open_ends"] = coords_payload(open_ends)
-    if completion_points:
-        fact["completion_points"] = coords_payload(completion_points)
-    facts[key] = fact
-
-
-def line_fact_sort_key(fact: dict[str, Any]) -> tuple[Any, ...]:
-    kind_order = {
-        "existing_five": 0,
-        "open_four": 1,
-        "broken_four": 2,
-        "half_open_four": 3,
-        "open_three": 4,
-        "closed_four": 5,
-    }
-    first_stone = fact["stones"][0] if fact.get("stones") else [0, 0]
-    return (kind_order.get(fact["kind"], 99), first_stone[0], first_stone[1], fact["direction"])
-
-
-def coords_payload(coords: list[tuple[int, int]]) -> list[list[int]]:
+def coords_payload(coords):
     return [[row + 1, col + 1] for row, col in coords]
 
 
-def is_codex_wait_ready(state: dict[str, Any]) -> bool:
-    return bool(
-        state.get("winner")
-        or state.get("draw")
-        or (state.get("setup_complete", False) and state["next_player"] == state["codex_player"])
-    )
+def threat_view_payload(state: dict[str, Any]) -> dict[str, Any]:
+    state = normalized_state(state)
+    payload = codex_view_payload(state)
+    evaluator = RuleEvaluator(state["renju_rules"])
+    payload["tactical_facts"] = {
+        player: tactical_facts_for_player(state, player, evaluator)
+        for player in ("black", "white")
+    }
+    return payload
 
 
-def wait_for_codex_turn(
-    state_path: pathlib.Path,
-    size: int,
-    human_player: str,
-    renju_rules: bool,
-    poll_interval: float,
-    timeout: float | None,
-) -> dict[str, Any]:
-    start = time_monotonic()
-    initial_state = load_state(
-        state_path,
-        size=size,
-        human_player=human_player,
-        renju_rules=renju_rules,
-    )
-    baseline_event_id = int(initial_state.get("game_event_id", 0))
-    if is_codex_wait_ready(initial_state):
-        return initial_state
-    while True:
-        state = load_state(
-            state_path,
-            size=size,
-            human_player=human_player,
-            renju_rules=renju_rules,
-        )
-        event_advanced = int(state.get("game_event_id", 0)) > baseline_event_id
-        if event_advanced and is_codex_wait_ready(state):
-            return state
-        if timeout is not None and time_monotonic() - start >= timeout:
-            raise GomokuError("timed out waiting for Codex turn")
-        sleep(poll_interval)
-
-
-def time_monotonic() -> float:
-    import time
-
-    return time.monotonic()
-
-
-def sleep(seconds: float) -> None:
-    import time
-
-    time.sleep(seconds)
+def tactical_facts_for_player(state, player, evaluator=None):
+    evaluator = evaluator or RuleEvaluator(state["renju_rules"])
+    board, value = freeze(state["board"]), PLAYER_TO_VALUE[player]
+    completions = []
+    for (row, col), assessment in evaluator.completions(board, value):
+        fact = {"row": row + 1, "col": col + 1, "kind": "five_completion"}
+        if not assessment.legal:
+            fact.update(forbidden=True, reason=assessment.violation)
+        if assessment.winning_line:
+            fact["line"] = coords_payload(assessment.winning_line)
+        completions.append(fact)
+    fours, threes = evaluator.threats(board, value)
+    lines = []
+    for four in fours:
+        contiguous = all((b[0] - a[0], b[1] - a[1]) == four.direction
+                         for a, b in zip(four.stones, four.stones[1:]))
+        kind = ("open_four" if four.straight else "half_open_four") if contiguous else "broken_four"
+        fact = {"kind": kind, "stones": coords_payload(four.stones),
+                "direction": list(four.direction), "completion_points": coords_payload(four.completions)}
+        if contiguous:
+            fact["open_ends"] = coords_payload(four.completions)
+        lines.append(fact)
+    for three in threes:
+        lines.append({"kind": "open_three", "stones": coords_payload(three.stones),
+                      "direction": list(three.direction), "extension_points": coords_payload(three.extensions)})
+    for direction, stones in existing_lines(board, value, state["renju_rules"]):
+        lines.append({"kind": "existing_five", "stones": coords_payload(stones), "direction": list(direction)})
+    ordering = {"existing_five": 0, "open_four": 1, "broken_four": 2, "half_open_four": 3, "open_three": 4}
+    lines.sort(key=lambda fact: (ordering[fact["kind"]], fact["stones"], fact["direction"]))
+    return {"completion_points": completions, "lines": lines}
 
 
 def run_gui(state_path: pathlib.Path, size: int, human_player: str, renju_rules: bool) -> None:
@@ -621,98 +128,70 @@ def run_gui(state_path: pathlib.Path, size: int, human_player: str, renju_rules:
         raise SystemExit("pygame is required for the GUI. Install pygame in the active Python environment.") from exc
 
     pygame.init()
-    state = load_state(
-        state_path,
-        size=size,
-        human_player=human_player,
-        renju_rules=renju_rules,
-    )
-    board_size = state["size"]
-    cell = 38
-    margin = 48
-    status_height = 78
-    width, height = window_size(board_size, cell, margin, status_height)
-    screen = pygame.display.set_mode((width, height))
+    try:
+        with gui_session(state_path, size, human_player, renju_rules) as state:
+            run_window(pygame, state_path, state)
+    finally:
+        pygame.quit()
+
+
+def run_window(pygame, state_path, state):
+    """UI events express transitions against the latest locked state."""
+    cell, margin, status_height = 38, 48, 78
+    screen = pygame.display.set_mode(window_size(state["size"], cell, margin, status_height))
     pygame.display.set_caption("Gomoku")
     font = pygame.font.SysFont("arial", 18)
     small_font = pygame.font.SysFont("arial", 14)
     title_font = pygame.font.SysFont("arial", 28)
     clock = pygame.time.Clock()
-    last_mtime = state_path.stat().st_mtime if state_path.exists() else 0.0
-    screen_mode = screen_mode_for_state(state)
-
+    notice = None
     running = True
     while running:
+        state = load_state(state_path)
+        board_size = state["size"]
+        desired = window_size(board_size, cell, margin, status_height)
+        if desired != screen.get_size():
+            screen = pygame.display.set_mode(desired)
+        screen_mode = screen_mode_for_state(state)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                state = new_state(
-                    size=board_size,
-                    human_player=state["human_player"],
-                    renju_rules=state["renju_rules"],
-                )
-                screen_mode = "settings"
-                save_state(state_path, state)
-                last_mtime = state_path.stat().st_mtime
+                break
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
+                state = mutate_state(state_path, reset_game)
+                notice = None
             elif event.type == pygame.KEYDOWN and settings_editable(state):
-                state = handle_settings_key(event.key, state)
-                screen_mode = screen_mode_for_state(state)
-                board_size = state["size"]
-                save_state(state_path, state)
-                width, height = window_size(board_size, cell, margin, status_height)
-                screen = pygame.display.set_mode((width, height))
-                last_mtime = state_path.stat().st_mtime
+                state = mutate_state(state_path, lambda current: handle_settings_key(event.key, current))
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                width, height = screen.get_size()
                 if screen_mode == "settings":
-                    action = settings_screen_action_at(event.pos, width, height)
-                    if action and settings_editable(state):
-                        state = adjust_settings(state, action)
-                        if action == "start-game":
-                            screen_mode = "game"
-                        board_size = state["size"]
-                        save_state(state_path, state)
-                        width, height = window_size(board_size, cell, margin, status_height)
-                        screen = pygame.display.set_mode((width, height))
-                        last_mtime = state_path.stat().st_mtime
+                    action = settings_screen_action_at(event.pos, *screen.get_size())
+                    if action:
+                        state = mutate_state(state_path, lambda current: adjust_settings(current, action))
                     continue
                 move = pixel_to_move(event.pos, board_size, cell, margin)
-                if (
-                    move
-                    and state.get("setup_complete", False)
-                    and state["next_player"] == state["human_player"]
-                    and not state.get("winner")
-                    and not state.get("draw")
-                ):
+                if (move and state["setup_complete"] and state["next_player"] == state["human_player"]
+                        and not state["winner"] and not state["draw"]):
+                    expected = position_token(state)
+                    def human_move(current):
+                        require_position(current, *expected)
+                        return apply_move(current, *move, current["human_player"])
                     try:
-                        state = apply_move(state, move[0], move[1], state["human_player"])
-                        save_state(state_path, state)
-                        last_mtime = state_path.stat().st_mtime
-                    except GomokuError:
-                        pass
-
-        if state_path.exists():
-            mtime = state_path.stat().st_mtime
-            if mtime > last_mtime:
-                state = load_state(
-                    state_path,
-                    size=size,
-                    human_player=human_player,
-                    renju_rules=renju_rules,
-                )
-                board_size = state["size"]
-                screen_mode = screen_mode_for_state(state)
-                last_mtime = mtime
-
-        if screen_mode == "settings":
+                        state = mutate_state(state_path, human_move)
+                        notice = None
+                    except GomokuError as error:
+                        notice = str(error)
+                        state = load_state(state_path)
+        if not running:
+            break
+        desired = window_size(state["size"], cell, margin, status_height)
+        if desired != screen.get_size():
+            screen = pygame.display.set_mode(desired)
+        if screen_mode_for_state(state) == "settings":
             draw_settings_screen(screen, state, title_font, font, small_font)
         else:
-            draw(screen, state, cell, margin, status_height, font, small_font)
+            draw(screen, state, cell, margin, status_height, font, small_font, notice)
         pygame.display.flip()
         clock.tick(30)
-
-    pygame.quit()
 
 
 def screen_mode_for_state(state: dict[str, Any]) -> str:
@@ -738,36 +217,6 @@ def handle_settings_key(key: int, state: dict[str, Any]) -> dict[str, Any]:
     elif key == pygame.K_s:
         return adjust_settings(state, "start-game")
     return state
-
-
-def settings_editable(state: dict[str, Any]) -> bool:
-    return not state.get("setup_complete", False) and not state.get("moves")
-
-
-def adjust_settings(state: dict[str, Any], action: str) -> dict[str, Any]:
-    if action == "start-game":
-        return start_game(state)
-    if not settings_editable(state):
-        return state
-
-    size = state["size"]
-    human_player = state["human_player"]
-    renju_rules = state.get("renju_rules", False)
-
-    if action == "toggle-human":
-        human_player = NEXT_PLAYER[human_player]
-    elif action == "size-up":
-        size = min(MAX_BOARD_SIZE, size + 1)
-    elif action == "size-down":
-        size = max(MIN_BOARD_SIZE, size - 1)
-    elif action == "toggle-renju":
-        renju_rules = not renju_rules
-        if renju_rules:
-            size = 15
-    else:
-        return state
-
-    return new_state(size=size, human_player=human_player, renju_rules=renju_rules)
 
 
 def settings_screen_action_at(pos: tuple[int, int], width: int, height: int) -> str | None:
@@ -822,7 +271,7 @@ def pixel_to_move(pos: tuple[int, int], size: int, cell: int, margin: int) -> tu
     return row + 1, col + 1
 
 
-def draw(screen: Any, state: dict[str, Any], cell: int, margin: int, status_height: int, font: Any, small_font: Any) -> None:
+def draw(screen: Any, state: dict[str, Any], cell: int, margin: int, status_height: int, font: Any, small_font: Any, notice: str | None = None) -> None:
     import pygame
 
     board_size = state["size"]
@@ -867,7 +316,7 @@ def draw(screen: Any, state: dict[str, Any], cell: int, margin: int, status_heig
 
     status = status_text(state)
     draw_text_clipped(screen, status, font, (250, 250, 250), (20, board_bottom + 12), width - 40)
-    draw_text_clipped(screen, hint_text(state), small_font, (210, 210, 210), (20, board_bottom + 40), width - 40)
+    draw_text_clipped(screen, notice or hint_text(state), small_font, (210, 210, 210), (20, board_bottom + 40), width - 40)
 
 
 def draw_text_clipped(
@@ -996,18 +445,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--reset", action="store_true", help="Reset the game and exit.")
     parser.add_argument("--start-game", action="store_true", help="Mark setup complete and start the current game.")
     parser.add_argument("--codex-move", nargs=2, type=int, metavar=("ROW", "COL"), help="Apply Codex's configured move using 1-based coordinates.")
+    parser.add_argument("--game-id", help="For --codex-move, the game_id from the view used to select the move.")
+    parser.add_argument("--revision", type=int, help="For --codex-move, the revision from that same view.")
     parser.add_argument(
         "--wait-for-codex-turn",
         action="store_true",
-        help="Block until setup is complete and the state reaches Codex's turn, then print Codex view JSON.",
+        help="Wait for Codex's turn, game end, or GUI closure, then print Codex view JSON.",
     )
     parser.add_argument("--poll-interval", type=float, default=0.5)
     parser.add_argument("--timeout", type=float, default=None)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.codex_move and (not args.game_id or args.revision is None):
+        parser.error("--codex-move requires --game-id and --revision from its selection view")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     state_path = (
         args.run_dir / "state.json"
         if args.run_dir is not None
@@ -1015,7 +469,8 @@ def main(argv: list[str] | None = None) -> int:
     ).expanduser()
     try:
         if args.reset:
-            save_state(state_path, new_state(args.size, args.human, args.renju))
+            mutate_state(state_path, lambda state: reset_game(state, args.size, args.human, args.renju),
+                         args.size, args.human, args.renju)
             print("reset")
             return 0
 
@@ -1031,18 +486,14 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(codex_view_payload(payload), indent=2, sort_keys=True))
             return 0
 
-        state = load_state(state_path, args.size, args.human, args.renju)
-
         if args.start_game:
-            state = start_game(state)
-            save_state(state_path, state)
+            state = mutate_state(state_path, start_game, args.size, args.human, args.renju)
             print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
             return 0
 
         if args.codex_move:
             row, col = args.codex_move
-            state = apply_move(state, row, col, state["codex_player"])
-            save_state(state_path, state)
+            state = codex_move(state_path, row, col, args.game_id, args.revision)
             print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
             return 0
 
@@ -1050,13 +501,14 @@ def main(argv: list[str] | None = None) -> int:
             run_gui(state_path, args.size, args.human, args.renju)
             return 0
 
+        state = load_state(state_path, args.size, args.human, args.renju)
         if args.threat_view:
             print(json.dumps(threat_view_payload(state), indent=2, sort_keys=True))
             return 0
 
         print(json.dumps(codex_view_payload(state), indent=2, sort_keys=True))
         return 0
-    except GomokuError as exc:
+    except (GomokuError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
