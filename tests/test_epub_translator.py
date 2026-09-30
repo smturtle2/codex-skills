@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import pathlib
 import re
 import subprocess
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from xml.etree import ElementTree as ET
 
 from PIL import Image
 
@@ -97,8 +99,10 @@ class EpubTranslatorTests(unittest.TestCase):
             archive.writestr("item/xhtml/nav.xhtml", nav)
             archive.writestr("item/xhtml/p1.xhtml", page)
             archive.writestr("item/style/book.css", ".vrtl { writing-mode: vertical-rl; } .start-10em{margin-inline-start:10em}")
-            archive.writestr("item/image/cover.jpg", b"placeholder-cover")
-            archive.writestr("item/image/photo", b"placeholder-photo")
+            image_bytes = io.BytesIO()
+            Image.new("RGB", (4, 4), "#c04020").save(image_bytes, format="JPEG")
+            archive.writestr("item/image/cover.jpg", image_bytes.getvalue())
+            archive.writestr("item/image/photo", image_bytes.getvalue())
             archive.writestr("item/image/diagram.svg", b"<svg xmlns='http://www.w3.org/2000/svg'/>")
 
     def make_malicious_epub(self, path: pathlib.Path, href: str) -> None:
@@ -128,6 +132,7 @@ class EpubTranslatorTests(unittest.TestCase):
             archive.writestr("item/volume.opf", opf)
 
     def _write_all_translations(self, run_dir: pathlib.Path, *, divergent: bool = False) -> None:
+        self._set_edition(run_dir)
         translations_dir = run_dir / "translations"
         translations_dir.mkdir(parents=True, exist_ok=True)
         mapping = {
@@ -179,8 +184,7 @@ class EpubTranslatorTests(unittest.TestCase):
                     tr = source
                     for k, v in ordered:
                         if k in source:
-                            tr = v
-                            break
+                            tr = tr.replace(k, v)
                 if divergent and source == "追加メモ":
                     seen[source] = seen.get(source, 0) + 1
                     if seen[source] == 2:
@@ -188,7 +192,7 @@ class EpubTranslatorTests(unittest.TestCase):
                 rows.append({"id": item["id"], "translation": tr})
             (translations_dir / chunk_path.name).write_text(
                 json.dumps(
-                    {"schema_version": 3, "chunk_index": chunk["chunk_index"], "translations": rows},
+                    {"schema_version": chunk["schema_version"], "chunk_index": chunk["chunk_index"], "translations": rows},
                     ensure_ascii=False,
                     indent=2,
                 ),
@@ -199,6 +203,25 @@ class EpubTranslatorTests(unittest.TestCase):
         with zipfile.ZipFile(output) as z:
             xhtml_names = [n for n in z.namelist() if n.endswith(".xhtml")]
             return "\n".join(z.read(n).decode("utf-8") for n in xhtml_names)
+
+    def _set_edition(self, run_dir: pathlib.Path) -> None:
+        path = run_dir / "edition.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data.update(target_language="ko", language_tag="ko", text_direction="ltr")
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    def _package_paths(self, archive) -> tuple[str, dict]:
+        container = ET.fromstring(archive.read("META-INF/container.xml"))
+        rootfile = next(el.get("full-path") for el in container.iter() if el.tag.endswith("}rootfile"))
+        opf = ET.fromstring(archive.read(rootfile))
+        base = pathlib.PurePosixPath(rootfile).parent
+        paths = {el.get("id"): str(base / el.get("href")) for el in opf.iter() if el.tag.endswith("}item")}
+        for element in opf.iter():
+            if element.tag.endswith("}item") and "nav" in element.get("properties", "").split():
+                paths["nav"] = str(base / element.get("href"))
+            if element.tag.endswith("}item") and element.get("id", "").startswith("translation-css"):
+                paths["css"] = str(base / element.get("href"))
+        return rootfile, paths
 
     def test_ingest_build_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -218,8 +241,8 @@ class EpubTranslatorTests(unittest.TestCase):
             ingested = self.run_script("ingest", "--epub", str(epub), "--workdir", str(run_dir), cwd=root)
             self.assertEqual(ingested.returncode, 0, ingested.stderr)
             manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["flow_schema_version"], 2)
-            self.assertEqual(manifest["text_schema_version"], 3)
+            self.assertEqual(manifest["flow_schema_version"], 3)
+            self.assertEqual(manifest["text_schema_version"], 4)
             self.assertGreater(manifest["block_count"], 0)
             self.assertGreater(manifest["slot_count"], 0)
             flow = json.loads((run_dir / "flow" / "book.flow.json").read_text(encoding="utf-8"))
@@ -231,7 +254,7 @@ class EpubTranslatorTests(unittest.TestCase):
             # slim item shape only
             for p in (run_dir / "chunks").glob("chunk-*.json"):
                 for item in json.loads(p.read_text(encoding="utf-8"))["items"]:
-                    self.assertTrue(set(item.keys()) <= {"id", "source", "block_id", "block_type", "href", "inline"}, item)
+                    self.assertTrue(set(item.keys()) <= {"id", "source", "block_id", "block_type", "href", "markers"}, item)
             kinds = {json.loads(p.read_text(encoding="utf-8"))["kind"] for p in (run_dir / "chunks").glob("chunk-*.json")}
             self.assertIn("prose", kinds)
             self.assertIn("peripheral", kinds)
@@ -304,12 +327,13 @@ class EpubTranslatorTests(unittest.TestCase):
                 # images still there
                 self.assertTrue(any("cover" in n for n in names))
                 self.assertTrue(any("photo" in n for n in names))
-                opf_text = z.read("OEBPS/content.opf").decode("utf-8")
+                rootfile, package_paths = self._package_paths(z)
+                opf_text = z.read(rootfile).decode("utf-8")
                 self.assertIn('page-progression-direction="ltr"', opf_text)
-                css_text = z.read("OEBPS/style/target.css").decode("utf-8")
+                css_text = z.read(package_paths["css"]).decode("utf-8")
                 self.assertIn("horizontal-tb", css_text)
                 # nav regenerated from translated headings
-                nav_text = z.read("OEBPS/xhtml/nav.xhtml").decode("utf-8")
+                nav_text = z.read(package_paths["nav"]).decode("utf-8")
                 self.assertIn("제1장", nav_text)
 
     def test_build_fails_when_translation_missing(self) -> None:
@@ -358,14 +382,14 @@ class EpubTranslatorTests(unittest.TestCase):
             first = json.loads(chunk_paths[0].read_text(encoding="utf-8"))
             rows = [{"id": it["id"], "translation": it["source"] + "-ko"} for it in first["items"]]
             (run_dir / "translations" / chunk_paths[0].name).write_text(
-                json.dumps({"schema_version": 3, "chunk_index": first["chunk_index"], "translations": rows}, ensure_ascii=False),
+                json.dumps({"schema_version": first["schema_version"], "chunk_index": first["chunk_index"], "translations": rows}, ensure_ascii=False),
                 encoding="utf-8",
             )
             status = self.run_script("status", "--workdir", str(run_dir), cwd=root)
             self.assertEqual(status.returncode, 0, status.stderr)
             info = json.loads(status.stdout)
             self.assertEqual(info["last_finished_chunk"], first["chunk_index"])
-            self.assertTrue(info["seam_tail"])
+            self.assertEqual(info["seam_tail"], "")  # Peripheral labels are not a narrative seam.
             self.assertEqual(info["next_chunk"], chunk_paths[1] and json.loads(chunk_paths[1].read_text(encoding="utf-8"))["chunk_index"])
 
     def test_path_traversal_read_guarded(self) -> None:
@@ -375,11 +399,12 @@ class EpubTranslatorTests(unittest.TestCase):
             run_dir = root / "run"
             self.make_malicious_epub(epub, "/etc/passwd")
             ingested = self.run_script("ingest", "--epub", str(epub), "--workdir", str(run_dir), cwd=root)
-            # no crash; the hostile doc is skipped and never parsed off the unpacked sandbox
-            self.assertEqual(ingested.returncode, 0, ingested.stderr)
+            # Reject the hostile path without reading outside the extracted book.
+            self.assertNotEqual(ingested.returncode, 0)
+            self.assertIn("unsafe EPUB path", ingested.stderr)
             flow = json.loads((run_dir / "flow" / "book.flow.json").read_text(encoding="utf-8"))
             self.assertEqual(flow["blocks"], [])
-            self.assertTrue(all(d.get("unsafe") or d.get("missing") for d in flow["documents"]))
+            self.assertTrue(all(d.get("source_error") for d in flow["documents"]))
 
     def test_path_traversal_write_guarded(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -393,7 +418,7 @@ class EpubTranslatorTests(unittest.TestCase):
             self._write_all_translations(run_dir)
             built = self.run_script("build", "--workdir", str(run_dir), "--output", str(output), cwd=root)
             self.assertNotEqual(built.returncode, 0)
-            self.assertIn("unsafe document href", (built.stderr + built.stdout).lower())
+            self.assertIn("requires recovery", (built.stderr + built.stdout).lower())
             for candidate in (root / "evil.xhtml", run_dir / "evil.xhtml"):
                 self.assertFalse(candidate.exists())
 
@@ -460,7 +485,8 @@ class EpubTranslatorTests(unittest.TestCase):
             built = self.run_script("build", "--workdir", str(run_dir), "--output", str(output), cwd=root)
             self.assertEqual(built.returncode, 0, built.stderr)
             with zipfile.ZipFile(output) as z:
-                nav_text = z.read("OEBPS/xhtml/nav.xhtml").decode("utf-8")
+                _, package_paths = self._package_paths(z)
+                nav_text = z.read(package_paths["nav"]).decode("utf-8")
             self.assertIn("제1장", nav_text)
             self.assertNotIn("古い目次", nav_text)
 
@@ -522,16 +548,19 @@ class EpubTranslatorTests(unittest.TestCase):
             archive.writestr("OEBPS/xhtml/p1.xhtml", page)
             archive.writestr("OEBPS/xhtml/nav.xhtml", nav)
             if not missing_image:
-                archive.writestr("OEBPS/image/cover.jpg", b"placeholder-cover")
+                image_bytes = io.BytesIO()
+                Image.new("RGB", (4, 4), "#c04020").save(image_bytes, format="JPEG")
+                archive.writestr("OEBPS/image/cover.jpg", image_bytes.getvalue())
 
     def _translate_every_item(self, run_dir: pathlib.Path) -> None:
+        self._set_edition(run_dir)
         tdir = run_dir / "translations"
         tdir.mkdir(parents=True, exist_ok=True)
         for chunk_path in sorted((run_dir / "chunks").glob("chunk-*.json")):
             chunk = json.loads(chunk_path.read_text(encoding="utf-8"))
             rows = [{"id": it["id"], "translation": it["source"] + "-ko"} for it in chunk["items"]]
             (tdir / chunk_path.name).write_text(
-                json.dumps({"schema_version": 3, "chunk_index": chunk["chunk_index"], "translations": rows}, ensure_ascii=False),
+                json.dumps({"schema_version": chunk["schema_version"], "chunk_index": chunk["chunk_index"], "translations": rows}, ensure_ascii=False),
                 encoding="utf-8",
             )
 
@@ -567,12 +596,13 @@ class EpubTranslatorTests(unittest.TestCase):
             ingested = self.run_script("ingest", "--epub", str(epub), "--workdir", str(run_dir), cwd=root)
             self.assertEqual(ingested.returncode, 0, ingested.stderr)
             flow = json.loads((run_dir / "flow" / "book.flow.json").read_text(encoding="utf-8"))
-            self.assertTrue(flow["documents"] and flow["documents"][0].get("no_body"))
+            self.assertTrue(flow["documents"] and flow["documents"][0].get("source_error"))
             self._translate_every_item(run_dir)
             for j in json.loads((run_dir / "image-jobs.json").read_text(encoding="utf-8"))["jobs"]:
                 self.run_script("record-image", "--workdir", str(run_dir), "--image-id", j["id"], "--skip-no-text", cwd=root)
             built = self.run_script("build", "--workdir", str(run_dir), "--output", str(output), cwd=root)
-            self.assertEqual(built.returncode, 0, built.stderr)
+            self.assertNotEqual(built.returncode, 0)
+            self.assertIn("no body", built.stderr)
 
     def test_missing_image_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

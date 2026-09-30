@@ -31,23 +31,23 @@ uv run --script "$SKILL_DIR/scripts/epub_translate.py" inspect --epub <book.epub
 uv run --script "$SKILL_DIR/scripts/epub_translate.py" ingest --epub <book.epub> --workdir <run-dir>
 ```
 
-For an existing run, reuse its extracted flow and chunks rather than ingesting again:
+`ingest` requires an empty workdir and refuses to overwrite an existing run. For an existing run, reuse its extracted flow and chunks:
 
 ```bash
 uv run --script "$SKILL_DIR/scripts/epub_translate.py" status --workdir <run-dir>
 ```
 
-Use `status` and `translation-notes.md` to recover progress. Fix actual run-data errors at their owning files; routine edition choices do not require rewriting the helper.
+Use `status` and `translation-notes.md` to resume. `valid`, `text_complete`, and `build_ready` describe different states; inspect `errors` and `build_blockers`, not just the exit code. For a flow-v2/chunk-v3 run with omitted source, follow the explicit `recover` procedure in [translation-data.md](references/translation-data.md); preserve completed rows. Fix actual run-data errors at their owning files; routine edition choices do not require rewriting the helper.
 
 ## Work Through the Book
 
-1. Read early prose and relevant flow context, then set `edition.json` for the target language and reading direction. Keep prose and glossary notes out of this configuration.
+1. Read early prose and relevant flow context, then set edition-v2 language tags, page progression, and text direction explicitly in `edition.json`. Keep prose and glossary notes out of this configuration.
 2. Before each chunk, read `status`, its seam tail, and `translation-notes.md`. Read nearby flow context when block boundaries, headings, or links affect interpretation.
-3. Write one translation per input item, preserving every ID. Do not re-split items, rewrite source chunks, or create intermediate conversion scripts.
+3. Write one translation per input item, preserving every ID. New flow-v3/chunk-v4 prose items contain whole paragraphs or reading units with protected markers for emphasis, links, images, and other retained content. Preserve paired and atomic marker syntax and nesting while translating the surrounding prose. Do not re-split items, rewrite source chunks or marker metadata, or create intermediate conversion scripts.
 4. Re-read the target prose for natural dialogue, consistent voice, scene mood, and typography before accepting the chunk.
 5. Keep `translation-notes.md` compact: a rolling narrative summary and reusable name, term, honorific, and style decisions. Preserve unresolved context without inventing book-level facts.
 6. Inspect `image-jobs.json`. When it contains editable raster jobs, read [references/image-jobs.md](references/image-jobs.md) and resolve each through main-agent visual triage and a dedicated image subagent when editing is needed. Do not use OCR or bulk image-text extraction.
-7. Build and validate only after all text and editable image jobs are complete.
+7. Build when `build_ready` is true, then validate the published artifact against the current run.
 
 Peripheral metadata and image attributes should read as concise labels or descriptions; narrative chunks should retain literary voice. Judge the actual content instead of treating chunk size as a quality target.
 
@@ -59,6 +59,8 @@ uv run --script "$SKILL_DIR/scripts/epub_translate.py" validate --workdir <run-d
 ```
 
 Review `build-report.json`, including `untranslated_candidates` and `divergences`. Proper names and context-sensitive translations may be valid; resolve findings through source review. Mechanical validation does not prove translation quality.
+
+The helper rebuilds horizontal target XHTML, CSS, and navigation while retaining source reading order, auxiliary spine status, resource locations, and protected content. It checks the final ZIP's package graph and selected payloads before atomically replacing the output. SVG and opaque media are preserved and reported when their text is outside the raster-editing workflow; do not claim that text was translated.
 
 If interrupted, retain real completed rows and notes, then resume from `status`; never fabricate missing translations. A blocked image job remains unresolved even if text work can continue. Preserve translation state and notes for further work; after validation, remove only disposable build intermediates from this run.
 
