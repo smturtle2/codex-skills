@@ -63,7 +63,7 @@ closure, preserving drafts and recovery state. Save requested exports at their
 output destination.
 
 Response titles, field labels, and the submitted button are emphasized automatically
-using the client's theme where supported. Compose the usual request JSON; no
+with CLI theme accents or Desktop Markdown bold. Compose the usual request JSON; no
 emphasis ranges or additional styling fields are needed. Answer text stays verbatim.
 
 Drafts retain incomplete number/date edits for resume and compatible updates. Submission

@@ -1,15 +1,30 @@
-"""Compose one user message with automatic emphasis, preserving answer text."""
+"""Compose client-specific response emphasis, preserving answer text."""
 
 from pathlib import Path
+from string import punctuation
 
 from dialog_values import active_fields, validate_values
+
+MARKDOWN_ESCAPES = str.maketrans({character: "\\" + character for character in punctuation})
 
 
 def _label(value):
     return str(value).replace("\r", " ").replace("\n", " ")
 
 
-def format_response(spec, values, button_label=None, *, include_values=True):
+def _bold_label(text):
+    content = text.strip()
+    if not content:
+        return text
+    leading = text[:len(text) - len(text.lstrip())]
+    trailing = text[len(text.rstrip()):]
+    # Literal padding must not turn a generated label into indented code.
+    leading = "".join(f"&#{ord(character)};" for character in leading)
+    trailing = "".join(f"&#{ord(character)};" for character in trailing)
+    return leading + "**" + content.translate(MARKDOWN_ESCAPES) + "**" + trailing
+
+
+def format_response(spec, values, button_label=None, *, include_values=True, markdown=False):
     if include_values:
         values = validate_values(spec, values)
     parts, elements = [], []
@@ -17,8 +32,10 @@ def format_response(spec, values, button_label=None, *, include_values=True):
 
     def append(text, *, emphasis=False):
         nonlocal offset
+        if emphasis and markdown:
+            text = _bold_label(text)
         end = offset + len(text.encode("utf-8"))
-        if emphasis and end > offset:
+        if emphasis and not markdown and end > offset:
             elements.append({"byteRange": {"start": offset, "end": end}})
         parts.append(text)
         offset = end

@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from markdown_it import MarkdownIt
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills/user-dialog/scripts'))
 from dialog_response import format_response
 from dialog_spec import compile_request
@@ -175,6 +177,25 @@ class UserDialogResponseTests(unittest.TestCase):
             state = {'version': 3, 'message': message}
             save_state(root, state)
             self.assertEqual(read_state(root)['message'], message)
+
+    def test_desktop_markdown_emphasizes_literal_labels_and_preserves_answer_text(self):
+        spec = {'title': '검토 **제목**', 'body': {
+            'type': 'input', 'id': 'notes', 'label': '\t    의견_[원문] <b> `코드`  ', 'multiline': True}}
+        answer = '  **사용자가 쓴 Markdown**\r\n의견_[원문]\n한글 🧑🏽‍💻\n'
+        desktop = format_response(spec, {'notes': answer}, '확인_[제출]', markdown=True)
+        self.assertEqual(desktop['text_elements'], [])
+        self.assertIn('\n' + answer + '\n', desktop['text'])
+        html = MarkdownIt().render(desktop['text'])
+        self.assertIn('<strong>[💬 Popup response · 검토 **제목**]</strong>', html)
+        self.assertIn('<strong>의견_[원문] &lt;b&gt; `코드`</strong>', html)
+        self.assertIn('<strong>→ 확인_[제출]</strong>', html)
+        self.assertIn('<strong>사용자가 쓴 Markdown</strong>', html)
+        native = format_response(spec, {'notes': answer}, '확인_[제출]')
+        self.assertEqual(emphasized(native), [
+            '[💬 Popup response · 검토 **제목**]', spec['body']['label'], '→ 확인_[제출]'])
+        button_only = format_response(spec, {}, '확인_[제출]', include_values=False, markdown=True)
+        self.assertNotIn('의견', button_only['text'])
+        self.assertIn('<strong>→ 확인_[제출]</strong>', MarkdownIt().render(button_only['text']))
 
     def test_button_only_submission_does_not_validate_or_include_fields(self):
         spec = {'title': 'Review', 'body': {'type': 'input', 'id': 'required', 'label': 'Required', 'required': True}}

@@ -250,7 +250,9 @@ class Dialog:
             if message is not None:
                 self.message(message, error=True)
                 return
-        message = format_response(self.state["spec"], collected, action, include_values=include_values)
+        markdown = (self.state.get("origin") or {}).get("transport") == "desktop-ipc"
+        message = format_response(self.state["spec"], collected, action,
+                                  include_values=include_values, markdown=markdown)
         submitted = ({node['id']: collected.values.get(node['id'])
                       for node, _ in active_fields(self.state['spec'], collected)} if include_values else {})
         if self.live:

@@ -19,6 +19,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'skills/user-dialog/scripts'
 sys.path.insert(0, str(SCRIPTS))
 from dialog_connection import capture_origin, open_connection
 from dialog_delivery import DeliveryAttempt, confirm_delivery, deliver
+from dialog_journal import SubmissionJournal
 from dialog_observer import ResponseReader, RolloutToolResponseReader
 from dialog_response import format_response
 from dialog_state import read_state, save_state
@@ -358,9 +359,9 @@ class UserDialogDesktopTests(unittest.TestCase):
         self.broker.close()
         self.assertEqual(self.owner.errors + self.broker.errors + self.gateway.errors, [])
 
-    def state(self):
+    def state(self, *, markdown=True):
         message = format_response({'title': '검토', 'body': {'type': 'input', 'id': 'notes', 'label': '의견'}},
-            {'notes': '  Original <answer> & **body**\r\n한글 🧑🏽‍💻\n'}, '확인')
+            {'notes': '  Original <answer> & **body**\r\n한글 🧑🏽‍💻\n'}, '확인', markdown=markdown)
         state = {'version': 3, 'request_id': str(uuid.uuid4()), 'status': 'submitted',
             'origin': capture_origin(), 'message': message, 'delivery': {'status': 'pending'},
             'draft': {'notes': 'Retain the editable answer'}}
@@ -369,6 +370,7 @@ class UserDialogDesktopTests(unittest.TestCase):
 
     def test_native_metadata_and_public_bridge_preserve_origin_and_exact_body(self):
         state = self.state()
+        message = copy.deepcopy(state['message'])
         self.assertEqual(state['origin']['source_turn_id'], self.source_turn)
         self.assertEqual(self.gateway.sends, [])
         deliver(self.run, state)
@@ -380,6 +382,9 @@ class UserDialogDesktopTests(unittest.TestCase):
                          (self.thread_id, 'local', self.source_turn))
         self.assertEqual(params['arguments'], {'threadId': self.thread_id, 'hostId': 'local',
                                               'prompt': state['message']['text']})
+        self.assertEqual(read_state(self.run)['message'], message)
+        snapshot = SubmissionJournal(state['origin']).load(state['delivery']['response_id'])[1]
+        self.assertEqual(snapshot['message'], message)
         self.assertEqual(params['callId'], state['delivery']['client_message_id'])
         uuid.UUID(request['id'])
         self.assertEqual(self.gateway.persisted[0]['status'], 'sending')
@@ -428,7 +433,9 @@ class UserDialogDesktopTests(unittest.TestCase):
 
     def test_ack_is_not_receipt_and_offline_recovery_does_not_replay(self):
         self.gateway.mode = 'ack-before-commit'
-        state = self.state()
+        # Already submitted Desktop messages retain the earlier native format.
+        state = self.state(markdown=False)
+        message = copy.deepcopy(state['message'])
         deliver(self.run, state)
         self.assertTrue(self.gateway.ack_ready.wait(1))
         self.assertEqual(state['delivery']['status'], 'accepted')
@@ -444,6 +451,7 @@ class UserDialogDesktopTests(unittest.TestCase):
             deliver(self.run, state)
             confirm_delivery(self.run, state)
         self.assertEqual(state['delivery']['observation']['status'], 'observed')
+        self.assertEqual(state['message'], message)
         self.assertEqual(len(self.gateway.sends), 1)
         # A pre-bridge uncertain USER attempt keeps its original correlation
         # even after the app is unavailable; it must not become a tool send.
@@ -461,6 +469,7 @@ class UserDialogDesktopTests(unittest.TestCase):
         with patch('dialog_desktop.Bridge', side_effect=AssertionError('No replay')):
             confirm_delivery(legacy_run, legacy)
         self.assertEqual(legacy['delivery']['observation']['item_id'], 'legacy-user-item')
+        self.assertEqual(legacy['message'], message)
         self.assertEqual(len(self.gateway.sends), 1)
 
     def test_saved_boundary_excludes_existing_partial_and_unrelated_inputs(self):

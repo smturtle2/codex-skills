@@ -115,17 +115,19 @@ Footer buttons require `label` and `action`; `primary: true` selects the keyboar
 ## Response
 
 The runtime produces a `[💬 Popup response · TITLE]` header, labeled answers, and a `→ BUTTON_LABEL` final line.
-It automatically marks the header, field labels, and button line with `text_elements` UTF-8 byte ranges.
-The CLI displays these in its theme's accent color; clients without this styling still show readable plain text.
-Request authors do not specify ranges or add formatting options. Generated labels have no Markdown delimiters
-or escaping; Markdown typed by the user remains verbatim. This is client emphasis, not Markdown bold.
+CLI responses mark the header, field labels, and button line with `text_elements` UTF-8 byte ranges
+for the theme's accent color. Desktop responses wrap those segments in Markdown `**` bold,
+escaping their literal punctuation and preserving surrounding whitespace as entities outside the delimiters
+so label padding cannot become an indented code block.
+Request authors do not specify ranges or add formatting options. Answer text, including any
+Markdown typed by the user, remains verbatim. Preview responses retain the CLI text format.
 CLI records one ordinary user message; Desktop records a delegated tool output
 that the app displays as a user-style message in the originating conversation.
 The source text is fixed English; titles, field labels, and button text come from the popup, with optional `message.title` and `response_label` overrides. Typed text and line breaks remain verbatim.
 Choices use option labels; attachments show the filename and absolute path on separate lines;
 empty/inactive fields and display-only content are omitted.
 Submission first saves the editable draft, converts it, validates active fields, formats the response, and persists the submitted record before delivery.
-`state.json` keeps the editable draft, typed active answers, and complete text input object; `message.txt` holds the plain-text preview.
+`state.json` keeps the editable draft, typed active answers, and complete text input object; `message.txt` holds the exact outgoing text, including Desktop Markdown.
 Button-only submission still saves the draft while skipping field validation and answers. Legacy numeric drafts reopen as editable text; already submitted messages remain unchanged during recovery.
 Any allowed retry reuses the saved submission. Receipt matching belongs to the
 selected adapter, as described below; presentation differences do not permit

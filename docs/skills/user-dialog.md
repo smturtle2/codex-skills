@@ -53,10 +53,10 @@ the saved pre-send boundary, source conversation, exact body, and native item ID
 This distinguishes this skill's coordinated submissions; an independent sender
 using the same source and body can leave confirmation ambiguous.
 
-Response titles, field labels, and the submitted button receive the CLI theme's accent color
-automatically. Use the existing popup JSON; no emphasis ranges or extra styling options are needed.
-Answers retain their exact text, including any Markdown the user typed. Other clients may show
-plain text. New submissions save a text preview in `message.txt` and the complete message in `state.json`.
+Response titles, field labels, and the submitted button use CLI theme accents or Desktop
+Markdown bold automatically. Use the existing popup JSON; no emphasis ranges or extra styling
+options are needed. Answers retain their exact text, including any Markdown the user typed.
+New submissions save the exact outgoing text in `message.txt` and the complete message in `state.json`.
 
 ## Use
 
