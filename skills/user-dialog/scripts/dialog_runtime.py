@@ -276,7 +276,7 @@ class Dialog:
         if self._submit_button:
             self._submit_button.set_sensitive(False)
         self.set_sending(True)
-        self.message("Checking delivery…" if confirm_only else "Sending…")
+        self.message(None)
         if not self._delivery_watch:
             self._delivery_watch = GLib.timeout_add(200, self.delivery_progress)
         def send():
@@ -306,10 +306,6 @@ class Dialog:
         if admitted(saved):
             self.finish_delivery()
             return GLib.SOURCE_REMOVE
-        phase = saved.get("delivery", {}).get("phase")
-        self.message({"waiting_origin": "Waiting for the previous submission…",
-                      "awaiting_receipt": "Checking delivery…",
-                      "uncertain": "Checking delivery…"}.get(phase, "Sending…"))
         return GLib.SOURCE_CONTINUE
 
     def retry_delivery(self):
