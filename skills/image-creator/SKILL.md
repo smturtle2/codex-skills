@@ -14,15 +14,25 @@ When creating the default workspace in a Git project, ensure `/.codex-skills/` i
 ## Prepare the Request
 
 - Separate creative instructions from input paths, destination, and overwrite permission.
-- For ordinary requests, write concise English preserving the subject, action, composition, style, exclusions, and exact rendered text. Leave unspecified details open; do not add quality claims, camera settings, negative prompts, or aspect-ratio hints.
+- For ordinary requests, write concise English preserving the subject, action, composition, style, exclusions, and exact rendered text. Leave unspecified details open; do not add quality claims, camera settings, unrelated exclusions, or aspect-ratio hints.
 - Pass text explicitly designated as an authoritative or final prompt unchanged. If it conflicts with the requested background or mixes in execution details, request a corrected final prompt.
 - Show the final prompt before generation for information, without adding an approval step. Use the destination defaults below when none was supplied.
+
+For ordinary prompts, include this surface default where it is compatible with the requested medium and references:
+
+> No speckled dot artifacts, tiling textures, repetitive grime patterns, noisy grain, or stippled texture; preserve intentional material detail.
+
+Intentional grain, stippling, patterns, and material texture take precedence; adapt or omit conflicting clauses. Do not append it to authoritative or final prompts. For edits, apply it only to requested new or changed visual content, preserve untouched source texture, and omit it for text-only or otherwise unrelated changes.
 
 ## Inputs and Generation
 
 Resolve edit targets and reference images to absolute local paths, relative to the project root when necessary. If an input has no local path, ask for the missing path. Identify each input by filename and its user-given role in ordinary prompts.
 
 Inspect local inputs when required by the current tool instructions; do not turn input inspection into permission to invent creative details or text overrides.
+
+For requested style imitation, inspect suitable references from supplied images, local assets, or online sources as needed, and pass selected images to the tool. Ordinary edits or original artwork alone need no extra style research.
+
+In ordinary prompts, identify the style reference and the visual traits to borrow, such as linework or shading. Keep style instructions separate from the subject or edit target, preserve requested content, and do not rely on the style name alone.
 
 - New image: pass `prompt`.
 - Edit or reference image: also pass every input in `referenced_image_paths`, in the order of its prompt role.

@@ -14,6 +14,10 @@ Use $skill-installer to install skills/image-creator from https://github.com/smt
 
 Requires the built-in image generation tool.
 
+Ordinary prompts discourage unrequested grain, speckling, and repetitive microtexture while preserving intentional material detail. Requested texture and authoritative prompts take precedence; edits preserve texture outside the requested changes.
+
+When you request style imitation, the skill uses suitable visual references and describes the traits to borrow in the prompt. Ordinary edits or original artwork alone do not require extra style research.
+
 ## Example
 
 ```text
