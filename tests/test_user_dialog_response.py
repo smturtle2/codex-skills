@@ -180,14 +180,16 @@ class UserDialogResponseTests(unittest.TestCase):
 
     def test_desktop_markdown_emphasizes_literal_labels_and_preserves_answer_text(self):
         spec = {'title': '검토 **제목**', 'body': {
-            'type': 'input', 'id': 'notes', 'label': '\t    의견_[원문] <b> `코드`  ', 'multiline': True}}
+            'type': 'input', 'id': 'notes', 'label': '\t    의견_[원문] <b> `코드` (선택) $$금액$$  ', 'multiline': True}}
         answer = '  **사용자가 쓴 Markdown**\r\n의견_[원문]\n한글 🧑🏽‍💻\n'
         desktop = format_response(spec, {'notes': answer}, '확인_[제출]', markdown=True)
         self.assertEqual(desktop['text_elements'], [])
         self.assertIn('\n' + answer + '\n', desktop['text'])
         html = MarkdownIt().render(desktop['text'])
         self.assertIn('<strong>[💬 Popup response · 검토 **제목**]</strong>', html)
-        self.assertIn('<strong>의견_[원문] &lt;b&gt; `코드`</strong>', html)
+        self.assertIn('<strong>의견_[원문] &lt;b&gt; `코드` (선택) $$금액$$</strong>', html)
+        # Desktop tokenizes these as math before normal Markdown rendering.
+        self.assertNotRegex(desktop['text'], r'\\(?:\[|\]|\(|\))|\${2,}')
         self.assertIn('<strong>→ 확인_[제출]</strong>', html)
         self.assertIn('<strong>사용자가 쓴 Markdown</strong>', html)
         native = format_response(spec, {'notes': answer}, '확인_[제출]')

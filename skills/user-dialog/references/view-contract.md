@@ -117,7 +117,7 @@ Footer buttons require `label` and `action`; `primary: true` selects the keyboar
 The runtime produces a `[💬 Popup response · TITLE]` header, labeled answers, and a `→ BUTTON_LABEL` final line.
 CLI responses mark the header, field labels, and button line with `text_elements` UTF-8 byte ranges
 for the theme's accent color. Desktop responses wrap those segments in Markdown `**` bold,
-escaping their literal punctuation and preserving surrounding whitespace as entities outside the delimiters
+encoding literal punctuation as entities to avoid Desktop math delimiters, and preserving surrounding whitespace as entities outside the delimiters
 so label padding cannot become an indented code block.
 Request authors do not specify ranges or add formatting options. Answer text, including any
 Markdown typed by the user, remains verbatim. Preview responses retain the CLI text format.

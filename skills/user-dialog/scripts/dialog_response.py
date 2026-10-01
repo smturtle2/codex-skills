@@ -5,7 +5,8 @@ from string import punctuation
 
 from dialog_values import active_fields, validate_values
 
-MARKDOWN_ESCAPES = str.maketrans({character: "\\" + character for character in punctuation})
+# Backslash escapes such as \[ and \( trigger Desktop's math tokenizer.
+MARKDOWN_ESCAPES = str.maketrans({character: f"&#{ord(character)};" for character in punctuation})
 
 
 def _label(value):
