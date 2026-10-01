@@ -22,8 +22,8 @@ from dialog_view import View
 from dialog_style import DialogStyle
 from dialog_layout import DialogLayout
 from dialog_presentation import Presentation
-from dialog_delivery import UNCERTAIN, deliver, confirm_delivery
-from dialog_lifecycle import watch_origin
+from dialog_delivery import UNCERTAIN, deliver, confirm_delivery, response_identity
+from dialog_journal import admitted
 
 
 STYLE = """
@@ -50,7 +50,7 @@ STYLE = """
 
 
 class Dialog:
-    def __init__(self, app, directory, state, origin_ended=None):
+    def __init__(self, app, directory, state):
         self.app, self.run_dir, self.state = app, directory, state
         self.view_dir = Path(state["base"])
         self._submitting = False
@@ -60,7 +60,7 @@ class Dialog:
         self._layout_source = 0
         self._layout_last = None
         self._delivery_cancel = threading.Event()
-        self._origin_ended = origin_ended if origin_ended is not None else threading.Event()
+        self._delivery_watch = 0
         self.request_id = state["request_id"]
         self.Gtk, self.Adw, self.GLib, self.Gdk, self.Gio = Gtk, Adw, GLib, Gdk, Gio
         self.style = DialogStyle(STYLE)
@@ -242,9 +242,6 @@ class Dialog:
     def submit(self, values=None, *, action="submit", include_values=True, button=None):
         if self._finished or self._submitting or self.state["status"] == "submitted":
             return
-        if self._origin_ended.is_set():
-            self.origin_released()
-            return
         draft = self.collect() if values is None else editable_values(self.state['spec'], values)
         self.checkpoint(draft)
         collected = normalize_values(self.state['spec'], draft, self.state['base']) if include_values else {}
@@ -259,6 +256,8 @@ class Dialog:
         if self.live:
             self.live.close()
         self.state["message"] = message
+        if self.state.get("origin"):
+            response_identity(self.state)
         (self.run_dir / "message.txt").write_text(self.state["message"]["text"], encoding="utf-8")
         finish_state(self.run_dir, self.state, "submitted", submitted, action)
         if not self.state.get("origin"):
@@ -271,48 +270,74 @@ class Dialog:
     def start_delivery(self, *, confirm_only=False):
         if self._finished or self._submitting:
             return
-        if not confirm_only and self._origin_ended.is_set():
-            self.origin_released()
-            return
         self._submitting = True
         self._delivery_cancel.clear()
         self._retry_available = False
         if self._submit_button:
             self._submit_button.set_sensitive(False)
         self.set_sending(True)
+        self.message("Checking delivery…" if confirm_only else "Sending…")
+        if not self._delivery_watch:
+            self._delivery_watch = GLib.timeout_add(200, self.delivery_progress)
         def send():
             try:
                 if confirm_only:
                     confirm_delivery(self.run_dir, self.state, self._delivery_cancel)
                 else:
-                    deliver(self.run_dir, self.state, self._delivery_cancel,
-                            origin_cancel=self._origin_ended)
+                    deliver(self.run_dir, self.state, self._delivery_cancel)
+                delay = 1
+                while (not self._delivery_cancel.is_set() and not admitted(self.state)
+                       and self.state["delivery"].get("status") in UNCERTAIN):
+                    if self._delivery_cancel.wait(delay):
+                        break
+                    confirm_delivery(self.run_dir, self.state, self._delivery_cancel)
+                    delay = min(delay * 2, 5)
             except Exception as error:
-                self.state["delivery"]["observation"] = {"status": "unconfirmed", "error": str(error)}
-                save_state(self.run_dir, self.state)
+                if not admitted(self.state):
+                    self.state["delivery"]["observation"] = {"status": "unconfirmed", "error": str(error)}
+                    save_state(self.run_dir, self.state)
             GLib.idle_add(self.delivery_finished)
         threading.Thread(target=send, daemon=False).start()
+
+    def delivery_progress(self):
+        if self._finished:
+            return GLib.SOURCE_REMOVE
+        saved = read_state(self.run_dir)
+        if admitted(saved):
+            self.finish_delivery()
+            return GLib.SOURCE_REMOVE
+        phase = saved.get("delivery", {}).get("phase")
+        self.message({"waiting_origin": "Waiting for the previous submission…",
+                      "awaiting_receipt": "Checking delivery…",
+                      "uncertain": "Checking delivery…"}.get(phase, "Sending…"))
+        return GLib.SOURCE_CONTINUE
+
+    def retry_delivery(self):
+        self.start_delivery(confirm_only=self.state["delivery"].get("status") in UNCERTAIN)
 
     def delivery_finished(self):
         if self._finished:
             return GLib.SOURCE_REMOVE
         self._submitting = False
+        if self._delivery_watch:
+            GLib.source_remove(self._delivery_watch)
+            self._delivery_watch = 0
         delivery = self.state["delivery"]
         if delivery.get("observation", {}).get("status") == "observed":
             self.finish_delivery()
         else:
-            self._retry_available = (delivery["status"] in UNCERTAIN
-                                     and bool(delivery.get("client_message_id")))
+            self._retry_available = (delivery["status"] in UNCERTAIN | {"failed", "pending"}
+                                     and bool(delivery.get("response_id")))
             self.set_sending(False)
             if self._submit_button:
                 self._submit_button.set_sensitive(self._retry_available)
                 self._submit_button.set_tooltip_text(
                     "Response not confirmed. Click to check again without resending."
-                    if self._retry_available else "Delivery failed. Your answer is saved.")
+                    if delivery["status"] in UNCERTAIN else "Retry the saved answer.")
                 if not self._retry_available:
                     self._submit_overlay.get_child().set_opacity(1)
-            toast = Adw.Toast.new("Response not confirmed. Your answer is saved.")
-            self.toast_overlay.add_toast(toast)
+            self.message(delivery.get("error") or "Your answer is saved. Retry when the connection is available.",
+                         error=delivery.get("status") == "failed")
         return GLib.SOURCE_REMOVE
 
     def finish_delivery(self):
@@ -325,25 +350,15 @@ class Dialog:
     def defer(self):
         self._finish("deferred", None)
 
-    def origin_released(self):
-        self._origin_ended.set()
-        # A settled wire attempt can need Core to finish this tool before it
-        # commits the message. Its frozen renderer remains confirmation-only.
-        if not self._finished:
-            if self.state["status"] == "submitted":
-                if self.state.get("delivery", {}).get("status") in UNCERTAIN:
-                    return GLib.SOURCE_REMOVE
-                self.close()
-            else:
-                self.defer()
-        return GLib.SOURCE_REMOVE
-
     def close(self):
         if self.live:
             self.live.close()
         self._delivery_cancel.set()
         self._finished = True
         self.set_sending(False)
+        if self._delivery_watch:
+            GLib.source_remove(self._delivery_watch)
+            self._delivery_watch = 0
         if self._checkpoint_source:
             GLib.source_remove(self._checkpoint_source)
         if self._layout_source:
@@ -375,6 +390,7 @@ class Dialog:
         return self.layout.fit(width)
 
     def open(self):
+        submitted = self.state["status"] == "submitted"
         self.view = View(self, self.state["spec"])
         self.set_content(self.view.build())
         self._built = True
@@ -382,11 +398,27 @@ class Dialog:
         self.refit()
         self.presentation.initial()
         self.window.present()
-        self.state["status"] = "open"
+        self.state["status"] = "submitted" if submitted else "open"
+        self.state["renderer_ready"] = True
         from dialog_state import save_state
         save_state(self.run_dir, self.state)
         from dialog_live import LiveUpdates
-        self.live = LiveUpdates(self)
+        if submitted:
+            self.view.freeze_inputs()
+            label = "Retry" if self.state["delivery"].get("status") == "failed" else "Check delivery"
+            button = self.action("recover", label, primary=True,
+                                 callback=lambda button: self.retry_delivery())
+            self.prepare_sending(button)
+            if admitted(self.state):
+                GLib.idle_add(self.finish_delivery)
+            elif self.state["delivery"].get("status") in UNCERTAIN:
+                GLib.idle_add(lambda: self.start_delivery(confirm_only=True))
+            elif self.state["delivery"].get("status") == "failed":
+                self.delivery_finished()
+            else:
+                GLib.idle_add(lambda: self.start_delivery())
+        else:
+            self.live = LiveUpdates(self)
         if os.environ.get('USER_DIALOG_DEBUG_LAYOUT') == '1':
             self._layout_source = GLib.timeout_add(50, self.trace_layout)
         GLib.idle_add(self.refit)
@@ -454,7 +486,6 @@ def main():
     state = read_state(directory)
     app = Adw.Application(application_id="local.codex.UserDialog", flags=Gio.ApplicationFlags.NON_UNIQUE)
     dialog = None
-    origin_ended = threading.Event()
 
     def fail(exc_type, error, tb):
         traceback.print_exception(exc_type, error, tb, file=sys.stderr)
@@ -475,23 +506,11 @@ def main():
         if dialog:
             dialog.window.present()
             return
-        dialog = Dialog(application, directory, state, origin_ended)
+        dialog = Dialog(application, directory, state)
         dialog.open()
-        if origin_ended.is_set():
-            dialog.origin_released()
-
-    def released():
-        origin_ended.set()
-        GLib.idle_add(lambda: dialog.origin_released() if dialog else GLib.SOURCE_REMOVE)
-
-    if "--await-origin" in sys.argv[2:]:
-        watch_origin(sys.stdin.buffer, released)
 
     import signal
     def interrupted(signum, frame):
-        if dialog and dialog._submitting:
-            # Delivery may already have reached Codex. Preserve uncertain state.
-            return
         current = read_state(directory)
         if current["status"] != "submitted":
             finish_state(directory, current, "error", None, error="Renderer interrupted; draft retained")

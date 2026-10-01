@@ -1,7 +1,6 @@
 """Coordinate the popup's lifetime with its launcher, independently of delivery."""
 
 import subprocess
-import threading
 import time
 
 from dialog_state import finish_state, read_state, save_state
@@ -25,20 +24,17 @@ def renderer_stopped(directory, error):
     return state
 
 
-def wait_for_renderer(directory, process, *, await_response=False):
-    """Release an awaited call at the wire outcome, before canonical confirmation."""
+def wait_for_renderer(directory, process):
+    """Return after GUI readiness; the popup owns its independent lifetime."""
     startup_deadline = time.monotonic() + 15
     ready = False
     while True:
         state = read_state(directory)
         status = state["status"]
-        ready = ready or status != "pending"
+        ready = ready or state.get("renderer_ready", status == "open")
         if status in {"dismissed", "deferred", "error"}:
             return state
-        if not await_response and ready:
-            return state
-        if (status == "submitted"
-                and state.get("delivery", {}).get("status") in {"accepted", "unknown", "failed"}):
+        if ready:
             return state
         if process.poll() is not None:
             # The renderer may have saved its final state between our read and
@@ -46,7 +42,7 @@ def wait_for_renderer(directory, process, *, await_response=False):
             error = f"Renderer exited before completing the dialog ({process.returncode}); see renderer.log"
             return renderer_stopped(directory, error)
         if not ready and time.monotonic() >= startup_deadline:
-            if read_state(directory)["status"] != "pending":
+            if read_state(directory).get("renderer_ready"):
                 continue
             process.terminate()
             try:
@@ -56,18 +52,3 @@ def wait_for_renderer(directory, process, *, await_response=False):
                 process.wait(timeout=2)
             return renderer_stopped(directory, "Renderer did not become ready; saved answers retained; see renderer.log")
         time.sleep(0.05)
-
-
-def watch_origin(stream, on_release):
-    """An inherited lifetime pipe closes on normal return, interruption or death."""
-    def watch():
-        try:
-            while stream.read(1):
-                pass
-        except OSError:
-            pass
-        finally:
-            on_release()
-    thread = threading.Thread(target=watch, daemon=True)
-    thread.start()
-    return thread

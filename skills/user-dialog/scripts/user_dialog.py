@@ -16,8 +16,9 @@ import uuid
 
 from dialog_state import encode, read_state, run_lock, save_state
 from dialog_spec import compile_request, read_json, parse_json, validate_dependencies, TYPES, walk
-from dialog_connection import backend_for, capture_origin, require_owner
-from dialog_delivery import deliver, confirm_delivery
+from dialog_connection import capture_origin, require_owner
+from dialog_delivery import deliver, confirm_delivery, restore_submission
+from dialog_journal import admitted
 from dialog_lifecycle import wait_for_renderer
 from dialog_updates import send_update
 
@@ -120,6 +121,7 @@ def has_documents(spec):
 def summary(directory, state):
     result = {"request_id": state["request_id"], "status": state["status"],
               "run_dir": str(directory), "delivery": state.get("delivery", {}).get("status"),
+              "phase": state.get("delivery", {}).get("phase"),
               "revision": state.get("revision", 0)}
     if "update" in state:
         result["update"] = state["update"]
@@ -174,28 +176,26 @@ def run_dialog(args):
                 print(encode(summary(directory, state)))
                 return 0 if state["delivery"].get("observation", {}).get("status") == "observed" else 1
             if state["status"] == "submitted":
-                print(encode(summary(directory, state)))
-                return 0
+                if state.get("origin"):
+                    restore_submission(directory, state)
+                if not state.get("origin") or admitted(state):
+                    print(encode(summary(directory, state)))
+                    return 0
             validate_dependencies(state['spec'])
             runtime = find_python(args.python, has_documents(state['spec']))
-            state.update(status="pending", response={})
+            if state["status"] != "submitted":
+                state.update(status="pending", response={})
+            state["renderer_ready"] = False
         with run_lock(directory, ".window-lock"):
             pass
         save_state(directory, state)
-        await_response = bool(state.get("origin") and backend_for(state["origin"]).awaits_response)
         command = [runtime["python"], str(Path(__file__).with_name("dialog_runtime.py")), str(directory)]
-        if await_response:
-            command.append("--await-origin")
         with (directory / "renderer.log").open("a", encoding="utf-8") as log:
             process = subprocess.Popen(command, env=python_environment(runtime["python"]),
-                                       stdin=subprocess.PIPE if await_response else subprocess.DEVNULL,
+                                       stdin=subprocess.DEVNULL,
                                        stdout=log, stderr=log,
                                        start_new_session=True)
-        try:
-            current = wait_for_renderer(directory, process, await_response=await_response)
-        finally:
-            if process.stdin is not None:
-                process.stdin.close()
+        current = wait_for_renderer(directory, process)
         print(encode(summary(directory, current)))
         return 1 if current["status"] == "error" else 0
 
@@ -215,7 +215,7 @@ def main():
     show.add_argument("--render-image", help="With --preview, export the rendered widget to PNG and close")
     show.add_argument("--run-dir", help="Workspace (default: .codex-skills/user-dialog/<unique-id> from the project working directory)")
     show.add_argument("--python")
-    resume = commands.add_parser("resume", help="Reopen a saved draft or return its submitted result")
+    resume = commands.add_parser("resume", help="Reopen a saved draft or frozen unconfirmed submission")
     resume.add_argument("run_dir")
     resume.add_argument("--python")
     status = commands.add_parser("status", help="Read state without opening a window")

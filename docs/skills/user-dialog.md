@@ -1,6 +1,6 @@
 # user-dialog
 
-Compose popups freely with inputs plus Markdown documents and image or document file paths, then receive the response as a user message in the originating Codex task.
+Compose popups freely with inputs plus Markdown documents and image or document file paths, then receive the response in the originating Codex conversation.
 
 [All skills](../../README.md#skills) · [한국어](user-dialog.ko.md)
 
@@ -16,33 +16,42 @@ The launcher uses uv to manage its Python dependencies. Markdown and standalone 
 runtime; on Debian/Ubuntu, install the `gir1.2-webkit-6.0` package alongside the GTK and libadwaita runtime packages.
 
 Response delivery supports CLI tasks attached to an existing managed shared daemon
-and local desktop tasks. CLI delivery discovers `socketPath` through
+and local Desktop tasks. The calling environment selects the backend automatically.
+CLI delivery discovers `socketPath` through
 `codex app-server daemon version`, verifies the originating thread is loaded, and
-joins it for native item notifications. Desktop delivery uses
-`$CODEX_HOME/ipc/ipc.sock` to discover the exact owner and its canonical log path.
-`CODEX_HOME` defaults to `~/.codex`. The connection is saved with the draft and
-verified automatically; no manual endpoint selection, app launch changes, or
-new server is needed. Remote and embedded CLI servers are unsupported.
+joins it for native item notifications. Desktop delivery uses the app-provided
+`CODEX_APP_TOOLS_PIPE_PATH` and `codex_app.send_message_to_thread`; native IPC
+provides the bound owner's canonical log for input confirmation.
+Each client uses its own existing server and binary. The originating conversation
+and connection are saved with the draft and verified automatically; no manual
+endpoint selection, app launch changes, or new server is needed.
+Remote and embedded CLI servers are unsupported.
 Run `doctor --delivery` through the skill launcher to check native connection
 discovery and receipt prerequisites without delivering a response.
 
-State and response formatting are shared; each client owns its native connection,
-delivery, receipt checks, and recovery. CLI popups remain detached and use Core's
-`turn/start`. Desktop keeps the originating turn active while the popup accepts
-input and uses only the owner's native steering path. The agent waits the same
-running exec session or cell in bounded intervals and does not finalize while
-the popup is writable. A detached renderer alone does not keep the turn active.
-Cancellation closes the writable popup and retains its draft or saved answer;
-there is no Desktop start fallback.
+Both launchers return when the popup is ready. Popups run independently of the
+calling tool and stay open after the source turn completes or the focused
+conversation changes. Active CLI delivery uses `turn/steer` with `expectedTurnId`;
+idle delivery uses `turn/start`. The Desktop bridge makes the equivalent choice
+inside the app. CLI records an ordinary user message; Desktop records a delegated
+tool output that the app displays as a user-style message from another task.
 
-After submission, Desktop freezes the popup and releases the launcher on admission
-acknowledgement or an uncertain attempted-write outcome, before canonical
-confirmation. The renderer then confirms independently. Automatic closing requires
-the saved UUID and exact text in CLI `item/completed` or a completed `UserMessage`
-in the Desktop owner's log. Post-send errors and lost acknowledgements never
-trigger another send; recovery checks the client's saved native records.
-A writable Desktop popup cannot outlive its originating turn's normal completion.
-A legacy log without native user-message UUIDs cannot confirm uncertain delivery.
+Submission saves the exact answer and freezes input. Automatic closing requires
+the actual native input item: CLI matches its saved response UUID and text in
+`item/completed`, while Desktop matches a new delegated tool-output item in the
+original conversation's canonical log. An acknowledgement or model completion
+does not close the popup. Different conversations can receive responses concurrently.
+Desktop serializes this skill's submissions to the same conversation through
+canonical confirmation. Durable coordination in the shared Codex home covers
+popups launched from different projects and survives a sender process ending.
+
+Post-send errors and lost acknowledgements never trigger another send. Recovery
+checks the saved native records; `resume <run-dir>` can reopen an unconfirmed
+submitted popup with its answer locked and continue confirmation. Desktop's
+public bridge does not preserve the response UUID in the native item, so it uses
+the saved pre-send boundary, source conversation, exact body, and native item ID.
+This distinguishes this skill's coordinated submissions; an independent sender
+using the same source and body can leave confirmation ambiguous.
 
 Response titles, field labels, and the submitted button receive the CLI theme's accent color
 automatically. Use the existing popup JSON; no emphasis ranges or extra styling options are needed.

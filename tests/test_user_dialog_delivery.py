@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 import uuid
@@ -50,6 +51,8 @@ class UserDialogDeliveryTests(unittest.TestCase):
         self.locator = discovery.start()
         self.addCleanup(discovery.stop)
         self.mode = 'active'
+        self.active_turn = 'turn-1'
+        self.guard_errors = []
         self.loaded = True
         self.server_home = str(self.root)
         self.calls, self.sends, self.persisted = [], [], []
@@ -84,11 +87,12 @@ class UserDialogDeliveryTests(unittest.TestCase):
 
     def metadata(self):
         return {'id': self.thread_id, 'name': 'Test', 'path': str(self.log),
-                'status': {'type': 'active' if self.mode == 'active' else 'idle'}}
+                'historyMode': 'paginated',
+                'status': {'type': 'idle' if self.mode == 'idle' else 'active'}}
 
-    def event(self, connection, item):
+    def event(self, connection, item, thread_id=None):
         connection.send(json.dumps({'method': 'item/completed', 'params': {
-            'threadId': self.thread_id, 'turnId': 'turn-1', 'item': item}}))
+            'threadId': thread_id or self.thread_id, 'turnId': 'turn-1', 'item': item}}))
 
     def record(self, item):
         content = copy.deepcopy(item['content'])
@@ -125,31 +129,50 @@ class UserDialogDeliveryTests(unittest.TestCase):
                 self.assertTrue(self.loaded)
                 subscribed = True
                 result = {'thread': self.metadata()}
-            elif method in {'thread/turns/list', 'thread/items/list'}:
+            elif method == 'thread/turns/list':
+                self.assertEqual(params, {'threadId': self.thread_id, 'limit': 1,
+                                          'sortDirection': 'desc'})
+                result = {'data': [{'id': self.active_turn, 'status': 'inProgress'}]}
+            elif method == 'thread/items/list':
                 error = {'code': -32601, 'message': 'Current history store does not support paging'}
-            elif method == 'turn/start':
+            elif method in {'turn/start', 'turn/steer'}:
                 self.assertTrue(subscribed)
                 self.sends.append((method, params))
                 self.persisted.append(read_state(self.run)['delivery'])
+                if self.guard_errors:
+                    error, mode, active_turn = self.guard_errors.pop(0)
+                    self.mode, self.active_turn = mode, active_turn
+                    connection.send(json.dumps({'id': request['id'], 'error': error}))
+                    continue
                 item = {'id': str(uuid.uuid4()), 'type': 'userMessage',
                         'clientId': params['clientUserMessageId'], 'content': params['input']}
                 # These cannot confirm the submitted response, even with identical text.
+                self.event(connection, {**item, 'id': 'other-thread'}, str(uuid.uuid4()))
                 self.event(connection, {**item, 'id': 'other-client', 'clientId': str(uuid.uuid4())})
                 self.event(connection, {**item, 'id': 'tool-output', 'type': 'functionCallOutput'})
                 self.event(connection, {**item, 'id': 'other-text', 'content': [
                     {'type': 'text', 'text': 'Different answer', 'text_elements': []}]})
-                if self.mode != 'unrecorded':
+                if self.mode not in {'unrecorded', 'lost-unrecorded', 'rpc-unrecorded'}:
                     self.record(item)
-                    if self.mode not in {'lost', 'rpc-invalid', 'rpc-internal'}:
+                    if self.mode not in {'lost', 'rpc-invalid', 'rpc-internal', 'canonical-delayed-ack'}:
                         # The real completed item arrives before its RPC acknowledgement.
                         self.event(connection, item)
-                if self.mode == 'lost':
+                    if self.mode in {'delayed-ack', 'canonical-delayed-ack'}:
+                        deadline = time.monotonic() + 2
+                        while time.monotonic() < deadline:
+                            observed = read_state(self.run)['delivery'].get('observation', {})
+                            if observed.get('status') == 'observed':
+                                break
+                            time.sleep(.01)
+                        self.assertEqual(observed.get('status'), 'observed')
+                if self.mode in {'lost', 'lost-unrecorded'}:
                     connection.close()
                     return
                 if self.mode.startswith('rpc-'):
                     error = {'code': -32602 if self.mode == 'rpc-invalid' else -32603,
                              'message': 'RPC error after possible input admission'}
-                result = {'turn': {'id': 'turn-1', 'status': 'inProgress', 'items': []}}
+                result = ({'turnId': self.active_turn} if method == 'turn/steer' else
+                          {'turn': {'id': 'turn-1', 'status': 'inProgress', 'items': []}})
             else:
                 error = {'code': -32601, 'message': 'Unsupported method'}
             connection.send(json.dumps({'method': 'test/notification', 'params': {}}))
@@ -177,8 +200,11 @@ class UserDialogDeliveryTests(unittest.TestCase):
                 self.assertEqual(state['delivery']['observation']['status'], 'observed')
                 self.assertEqual(len(self.sends), 1)
                 method, params = self.sends[0]
-                self.assertEqual(method, 'turn/start')
-                self.assertEqual(set(params), {'threadId', 'clientUserMessageId', 'input'})
+                self.assertEqual(method, 'turn/steer' if mode == 'active' else 'turn/start')
+                self.assertEqual(set(params), {'threadId', 'clientUserMessageId', 'input'} |
+                                 ({'expectedTurnId'} if mode == 'active' else set()))
+                if mode == 'active':
+                    self.assertEqual(params['expectedTurnId'], self.active_turn)
                 self.assertEqual(params['input'], [state['message']])
                 self.assertTrue(params['input'][0]['text_elements'])
                 self.assertEqual(self.persisted[0]['status'], 'sending')
@@ -187,7 +213,7 @@ class UserDialogDeliveryTests(unittest.TestCase):
                 deliver(self.run, state)
                 confirm_delivery(self.run, state)
                 self.assertEqual(len(self.sends), 1)
-        self.assertFalse({'thread/items/list', 'thread/turns/list', 'turn/steer'} &
+        self.assertFalse({'thread/items/list'} &
                          {method for method, _ in self.calls})
 
     def test_uncertain_sends_recover_offline_without_replay_and_parallel_stale_send_is_skipped(self):
@@ -196,7 +222,7 @@ class UserDialogDeliveryTests(unittest.TestCase):
                 self.mode, self.sends = mode, []
                 state = self.state()
                 deliver(self.run, state)
-                self.assertEqual(state['delivery']['status'], 'unknown')
+                self.assertEqual(state['delivery']['observation']['status'], 'observed')
                 self.assertEqual(len(self.sends), 1)
                 for status in ['unknown', 'sending', 'accepted']:
                     state['delivery']['status'] = status
@@ -208,6 +234,23 @@ class UserDialogDeliveryTests(unittest.TestCase):
                         confirm_delivery(self.run, recovered)
                     self.assertEqual(recovered['delivery']['observation']['status'], 'observed')
                     self.assertEqual(len(self.sends), 1)
+        for mode in ['lost-unrecorded', 'rpc-unrecorded']:
+            with self.subTest(mode=mode):
+                self.mode, self.sends = mode, []
+                state = self.state()
+                deliver(self.run, state)
+                self.assertEqual(state['delivery']['status'], 'unknown')
+                self.assertEqual(state['delivery']['observation']['status'], 'unconfirmed')
+                deliver(self.run, state)
+                confirm_delivery(self.run, state)
+                self.assertEqual(len(self.sends), 1)
+                self.record({'id': str(uuid.uuid4()), 'type': 'userMessage',
+                             'clientId': state['delivery']['client_message_id'],
+                             'content': [state['message']]})
+                with patch.object(dialog_cli.subprocess, 'run', side_effect=AssertionError('Offline only')):
+                    confirm_delivery(self.run, state)
+                self.assertEqual(state['delivery']['observation']['status'], 'observed')
+                self.assertEqual(len(self.sends), 1)
         self.mode, self.sends = 'active', []
         state = self.state()
         copies = [copy.deepcopy(state), copy.deepcopy(state)]
@@ -226,16 +269,80 @@ class UserDialogDeliveryTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(len(self.sends), 1)
         self.assertEqual(read_state(self.run)['delivery']['observation']['status'], 'observed')
-        # Saved uncertain input without a bound path cannot be recovered by
-        # opening or resuming a connection to reconstruct its origin.
+        # A mutable popup mirror cannot erase the journal's admitted receipt or
+        # replace its bound log path, and recovery never reconnects to send.
         missing_path = read_state(self.run)
         missing_path['delivery'].update(status='unknown', observation={})
         missing_path['origin'].pop('rollout_path')
         save_state(self.run, missing_path)
         with patch('dialog_cli.connection', side_effect=AssertionError('No attachment')):
             confirm_delivery(self.run, missing_path)
-        self.assertEqual(missing_path['delivery']['observation']['status'], 'unconfirmed')
+        self.assertEqual(missing_path['delivery']['observation']['status'], 'observed')
+        self.assertEqual(missing_path['origin']['rollout_path'], str(self.log))
         self.assertEqual(len(self.sends), 1)
+
+    def test_canonical_item_is_persisted_before_delayed_acknowledgement(self):
+        for mode in ['delayed-ack', 'canonical-delayed-ack']:
+            with self.subTest(mode=mode):
+                self.mode, self.sends = mode, []
+                state = self.state()
+                deliver(self.run, state)
+                self.assertEqual(state['delivery']['observation']['status'], 'observed')
+                self.assertEqual(state['delivery']['observation']['kind'], dialog_cli.kind)
+                self.assertEqual(len(self.sends), 1)
+
+    def test_steer_guards_refresh_same_origin_and_uuid_but_unknown_never_retries(self):
+        for error, next_mode, next_turn in [
+            ({'code': -32600, 'message': 'no active turn to steer'}, 'idle', 'turn-1'),
+            ({'code': -32600, 'message': 'expected active turn id `turn-1` but found `turn-2`'},
+             'active', 'turn-2'),
+        ]:
+            with self.subTest(error=error):
+                self.mode, self.active_turn, self.sends = 'active', 'turn-1', []
+                self.guard_errors = [(error, next_mode, next_turn)]
+                state = self.state()
+                deliver(self.run, state)
+                self.assertEqual(state['delivery']['observation']['status'], 'observed')
+                self.assertEqual([method for method, _ in self.sends],
+                                 ['turn/steer', 'turn/start' if next_mode == 'idle' else 'turn/steer'])
+                self.assertEqual(len({params['clientUserMessageId'] for _, params in self.sends}), 1)
+                self.assertEqual({params['threadId'] for _, params in self.sends}, {self.thread_id})
+                if next_mode == 'active':
+                    self.assertEqual(self.sends[-1][1]['expectedTurnId'], 'turn-2')
+        self.mode, self.active_turn, self.sends = 'active', 'turn-1', []
+        guard = {'code': -32600, 'message': 'no active turn to steer'}
+        self.guard_errors = [(guard, 'active', 'turn-1')] * 4
+        state = self.state()
+        deliver(self.run, state)
+        self.assertEqual(state['delivery']['status'], 'failed')
+        self.assertEqual(len(self.sends), 3)
+        self.assertEqual(len(self.guard_errors), 1)
+
+    def test_definite_guard_is_saved_before_interrupted_refresh_and_can_resume(self):
+        self.guard_errors = [({'code': -32600, 'message': 'no active turn to steer'},
+                              'idle', 'turn-1')]
+        state = self.state()
+        active_turn = dialog_cli.AppServer._active_turn
+        reads = []
+        def interrupted_refresh(server):
+            reads.append(True)
+            if len(reads) == 2:
+                saved = read_state(self.run)['delivery']
+                self.assertEqual((saved['status'], saved['phase']), ('pending', 'prepared'))
+                raise KeyboardInterrupt('Sender stopped during metadata refresh')
+            return active_turn(server)
+        with patch.object(dialog_cli.AppServer, '_active_turn', interrupted_refresh):
+            with self.assertRaisesRegex(KeyboardInterrupt, 'metadata refresh'):
+                deliver(self.run, state)
+        saved = read_state(self.run)
+        self.assertEqual((saved['delivery']['status'], saved['delivery']['phase']),
+                         ('pending', 'prepared'))
+        self.assertEqual(len(self.sends), 1)
+        original_id = self.sends[0][1]['clientUserMessageId']
+        deliver(self.run, saved)
+        self.assertEqual([method for method, _ in self.sends], ['turn/steer', 'turn/start'])
+        self.assertEqual(self.sends[1][1]['clientUserMessageId'], original_id)
+        self.assertEqual(saved['delivery']['observation']['status'], 'observed')
 
     def test_preflight_binding_rejects_unloaded_changed_home_or_endpoint_and_never_falls_back(self):
         state = self.state()
@@ -265,7 +372,7 @@ class UserDialogDeliveryTests(unittest.TestCase):
         before = self.locator.call_count
         with patch.dict(os.environ, {'CODEX_APP_TOOLS_PIPE_PATH': ''}), \
              patch('dialog_desktop.DesktopIpc', side_effect=ValueError('Desktop owner unavailable')):
-            with self.assertRaisesRegex(ValueError, 'Desktop owner unavailable'):
+            with self.assertRaisesRegex(ValueError, 'Missing inherited Desktop tools connection'):
                 capture_origin()
         self.assertEqual(self.locator.call_count, before)
         self.assertEqual(self.sends, [])
@@ -302,7 +409,7 @@ class UserDialogDeliveryTests(unittest.TestCase):
         save_state(self.run, state)
         def launch(command, **kwargs):
             current = read_state(self.run)
-            current['status'] = 'open'
+            current.update(status='open', renderer_ready=True)
             save_state(self.run, current)
             return Mock(poll=lambda: None)
         with patch.object(user_dialog, 'find_python', return_value={'python': sys.executable}), \

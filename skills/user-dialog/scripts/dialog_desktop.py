@@ -1,7 +1,7 @@
-"""Submit ordinary input through the original desktop conversation owner."""
+"""Deliver delegated tool input through the original Desktop app bridge."""
 
-import copy
 import json
+import os
 from pathlib import Path
 import socket
 import stat
@@ -11,7 +11,7 @@ import time
 import uuid
 
 from dialog_connection import RpcError, codex_home, require_owner, validate_user_message
-from dialog_observer import RolloutResponseReader
+from dialog_observer import RolloutResponseReader, RolloutToolResponseReader
 
 
 REQUEST_TIMEOUT = 15
@@ -19,10 +19,9 @@ MAX_FRAME_BYTES = 256 * 1024 * 1024
 METHOD_VERSIONS = {
     "initialize": 0,
     "thread-owner-discovery": 1,
-    "thread-follower-steer-turn": 1,
 }
 
-awaits_response = True
+kind = "desktop_tool_output"
 
 
 def require_desktop_owner(origin):
@@ -36,12 +35,9 @@ def require_desktop_owner(origin):
 class DesktopIpc:
     """Bind one native owner; canonical receipt reading belongs to the observer."""
 
-    def __init__(self, origin, cancel=None, origin_cancel=None):
+    def __init__(self, origin, cancel=None):
         self.origin = origin
         self.cancel = cancel if cancel is not None else threading.Event()
-        self.origin_cancel = origin_cancel
-        self.wire_settled = False
-        self.message_attempted = False
         self.connection = None
         self.client_id = "initializing-client"
         self.owner_client_id = origin.get("owner_client_id")
@@ -77,9 +73,6 @@ class DesktopIpc:
     def check(self):
         if self.cancel.is_set():
             raise InterruptedError("Response delivery cancelled")
-        if (not self.wire_settled and self.origin_cancel is not None
-                and self.origin_cancel.is_set()):
-            raise InterruptedError("The originating turn is no longer waiting for this dialog")
 
     def _send(self, packet, before_send=None):
         self.check()
@@ -89,8 +82,6 @@ class DesktopIpc:
         if before_send is not None:
             before_send()
         self.check()
-        if packet.get("method") == "thread-follower-steer-turn":
-            self.message_attempted = True
         self.connection.sendall(struct.pack("<I", len(encoded)) + encoded)
 
     def _receive(self, deadline):
@@ -161,7 +152,7 @@ class DesktopIpc:
         owner = response.get("handledByClientId")
         if (not isinstance(owner, str) or not owner
                 or response.get("result", {}).get("supportsUntrustedAppInput") is not True):
-            raise ValueError("Desktop IPC did not identify an ordinary-input conversation owner")
+            raise ValueError("Desktop IPC did not identify the native conversation owner")
         self.owner_client_id = owner
         self.origin["owner_client_id"] = owner
 
@@ -201,40 +192,159 @@ class DesktopIpc:
             self.thread = {"id": state["id"], "name": state.get("title") or "", "cwd": cwd}
             return
 
-    def submit_user_message(self, message, client_id, before_send=None):
-        """Steer the active originating turn; this backend never starts a turn."""
-        try:
-            validate_user_message(message, client_id)
+
+def connection(origin, cancel=None):
+    return DesktopIpc(origin, cancel)
+
+
+class Bridge:
+    """Call only the inherited, pinned app-tools socket with genuine provenance."""
+
+    def __init__(self, origin, cancel=None):
+        self.origin = origin
+        self.cancel = cancel if cancel is not None else threading.Event()
+        self.message_attempted = False
+        self.tool = None
+
+    def check(self):
+        if self.cancel.is_set():
+            raise InterruptedError("Response delivery cancelled")
+        require_desktop_owner(self.origin)
+        inherited = os.environ.get("CODEX_APP_TOOLS_PIPE_PATH")
+        if not inherited or str(Path(inherited).resolve()) != self.origin.get("pipe"):
+            raise ValueError("This dialog belongs to a different Desktop tools connection")
+        info = Path(self.origin["pipe"]).stat()
+        if (not stat.S_ISSOCK(info.st_mode)
+                or [info.st_dev, info.st_ino] != self.origin.get("pipe_identity")):
+            raise ValueError("The originating Desktop tools connection changed")
+
+    def request(self, method, params, before_send=None, on_wait=None):
+        self.check()
+        request_id = str(uuid.uuid4())
+        data = json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method,
+                           "params": params}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if not 0 < len(data) <= MAX_FRAME_BYTES:
+            raise ValueError("Desktop tool request is too large")
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+            peer.settimeout(REQUEST_TIMEOUT)
+            peer.connect(self.origin["pipe"])
             self.check()
-            inputs = [copy.deepcopy(message)]
-            cwd = self.thread["cwd"]
-            response = self._request("thread-follower-steer-turn", {
-                "conversationId": self.origin["thread_id"], "clientUserMessageId": client_id,
-                "input": inputs, "attachments": [], "restoreMessage": {
-                    "id": client_id, "text": message["text"], "cwd": cwd,
-                    "createdAt": int(time.time() * 1000), "context": {
-                        "prompt": message["text"], "workspaceRoots": [cwd], "commentAttachments": []}}},
-                before_send)
-            return response["result"]["result"]
-        finally:
-            # The launcher may release the originating tool after this attempt
-            # settles. Its lifetime no longer constrains canonical observation.
-            self.wire_settled = True
+            if before_send is not None:
+                before_send()
+            self.check()
+            if method == "tools/call":
+                # Mark uncertainty before sendall: a failing write can be partial.
+                self.message_attempted = True
+            peer.sendall(struct.pack("<I", len(data)) + data)
+            peer.settimeout(0.1)
+            deadline, buffer = time.monotonic() + REQUEST_TIMEOUT, bytearray()
+            while True:
+                # Actual admission is sufficient; no acknowledgement is invented
+                # when the canonical item arrives before the RPC response.
+                if on_wait is not None and on_wait():
+                    return None
+                self.check()
+                if len(buffer) >= 4:
+                    length = struct.unpack_from("<I", buffer)[0]
+                    if not 0 < length <= MAX_FRAME_BYTES:
+                        raise ValueError("Invalid Desktop tools response frame length")
+                    if len(buffer) >= length + 4:
+                        response = json.loads(bytes(buffer[4:length + 4]))
+                        break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Desktop tool acknowledgement timed out")
+                try:
+                    block = peer.recv(65536)
+                except socket.timeout:
+                    continue
+                if not block:
+                    raise ConnectionError("Desktop tools connection closed before acknowledgement")
+                buffer.extend(block)
+        if (not isinstance(response, dict) or response.get("jsonrpc") != "2.0"
+                or response.get("id") != request_id):
+            raise ValueError("Desktop tool returned a different request acknowledgement")
+        if "error" in response:
+            raise RpcError(response["error"])
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("Desktop tool returned no structured result")
+        return result
 
+    def discover(self):
+        tools = self.request("tools/list", {"threadStartKind": "all"}).get("tools", [])
+        candidates = [tool for tool in tools if isinstance(tool, dict)
+                      and tool.get("namespace") == "codex_app"
+                      and tool.get("name") == "send_message_to_thread"]
+        if len(candidates) != 1:
+            raise ValueError("The original Desktop bridge does not provide send_message_to_thread")
+        self.tool = candidates[0]
 
-def connection(origin, cancel=None, origin_cancel=None):
-    return DesktopIpc(origin, cancel, origin_cancel)
+    def submit(self, message, client_id, before_send=None, on_wait=None):
+        validate_user_message(message, client_id)
+        if self.tool is None:
+            raise ValueError("The Desktop message tool has not been discovered")
+        source_turn = self.origin.get("source_turn_id")
+        if not isinstance(source_turn, str) or not source_turn:
+            raise ValueError("Missing captured native source turn")
+        result = self.request("tools/call", {
+            "callerSource": "codex", "hostId": self.origin["host_id"],
+            "namespace": self.tool["namespace"], "tool": self.tool["name"],
+            "threadId": self.origin["thread_id"], "turnId": source_turn,
+            # This identifies the invocation, not a native deduplication key.
+            "callId": client_id, "arguments": {"threadId": self.origin["thread_id"],
+                "hostId": self.origin["host_id"], "prompt": message["text"]}}, before_send, on_wait)
+        if result is None:
+            return None
+        if result.get("success") is not True:
+            raise ValueError("Desktop message tool did not confirm success")
+        values = []
+        for chunk in result.get("contentItems", []):
+            if not isinstance(chunk, dict) or chunk.get("type") != "inputText":
+                continue
+            try:
+                value = json.loads(chunk["text"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if isinstance(value, dict) and isinstance(value.get("content"), list):
+                if value.get("isError"):
+                    raise ValueError("Desktop message tool rejected its request")
+                for item in value["content"]:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        try:
+                            values.append(json.loads(item["text"]))
+                        except (KeyError, TypeError, ValueError):
+                            pass
+            else:
+                values.append(value)
+        for value in values:
+            if (isinstance(value, dict) and value.get("threadId") == self.origin["thread_id"]
+                    and not value.get("error") and not value.get("isError")
+                    and value.get("success") is not False):
+                return value
+        raise ValueError("Desktop message tool did not acknowledge the original conversation")
 
 
 def capture_origin(origin):
     origin.update(host_id="local", socket=str(Path(codex_home()) / "ipc/ipc.sock"))
+    inherited = os.environ.get("CODEX_APP_TOOLS_PIPE_PATH")
+    if not inherited:
+        raise ValueError("Missing inherited Desktop tools connection")
+    pipe = Path(inherited).resolve(strict=True)
+    info = pipe.stat()
+    if not stat.S_ISSOCK(info.st_mode):
+        raise ValueError("The inherited Desktop tools endpoint is not a Unix socket")
+    origin.update(pipe=str(pipe), pipe_identity=[info.st_dev, info.st_ino])
     with connection(origin) as server:
         origin["title"] = server.thread.get("name") or ""
-        RolloutResponseReader(origin, server.cancel).validate()
+        reader = RolloutToolResponseReader(origin, server.cancel)
+        origin["source_turn_id"] = reader.latest_turn_id()
+    Bridge(origin).discover()
     return origin
 
 
 def _observe(attempt, reader):
+    if attempt.delivery.get("observation", {}).get("status") == "observed":
+        return
     attempt.waiting()
     try:
         match = reader.wait(attempt.delivery, attempt.message["text"])
@@ -245,27 +355,45 @@ def _observe(attempt, reader):
 
 
 def deliver(attempt):
-    """Bind the owner and log before submitting one same-turn ordinary message."""
+    """Use the app-owned active/idle coordinator, then confirm canonical tool input."""
     validate_user_message(attempt.message, attempt.client_id)
-    with connection(attempt.origin, attempt.cancel, attempt.origin_cancel) as server:
-        reader = RolloutResponseReader(attempt.origin, attempt.cancel)
-        reader.validate()
+    with connection(attempt.origin, attempt.cancel) as server:
+        reader = RolloutToolResponseReader(attempt.origin, attempt.cancel)
         server.check()
+    bridge = Bridge(attempt.origin, attempt.cancel)
+    bridge.discover()
+    attempt.prepare(kind, fence=reader.capture_fence())
+
+    def canonical_admitted():
         try:
-            receipt = server.submit_user_message(attempt.message, attempt.client_id, attempt.sending)
-        except Exception as error:
-            if not server.message_attempted:
-                attempt.rejected(error)
-                return
-            # The native IPC error envelope loses admission information. Never
-            # infer replay permission from error text after a message write.
-            attempt.unknown(error)
-        else:
+            reader.validate()
+            match = reader.find_response(attempt.delivery, attempt.message["text"])
+        except (OSError, ValueError):
+            return False
+        if match:
+            attempt.observed(match)
+            return True
+        return False
+
+    try:
+        receipt = bridge.submit(attempt.message, attempt.client_id, attempt.sending, canonical_admitted)
+    except Exception as error:
+        if not bridge.message_attempted:
+            attempt.rejected(error)
+            return
+        # A public tools error cannot establish that admission was rolled back.
+        attempt.unknown(error)
+    else:
+        if receipt is not None:
             attempt.accepted(receipt)
-        _observe(attempt, reader)
+    _observe(attempt, reader)
 
 
 def confirm(attempt):
-    """Read the exact saved canonical log without connecting or sending."""
+    """Recover from the saved native log and boundary without reconnecting or replay."""
     require_desktop_owner(attempt.origin)
-    _observe(attempt, RolloutResponseReader(attempt.origin, attempt.cancel))
+    # Earlier saved Desktop attempts submitted ordinary USER input. Recover
+    # those through their native identity; never resend them as delegation.
+    reader_type = (RolloutToolResponseReader if attempt.delivery.get("kind") == kind
+                   or "fence" in attempt.delivery else RolloutResponseReader)
+    _observe(attempt, reader_type(attempt.origin, attempt.cancel))

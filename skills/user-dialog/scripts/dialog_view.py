@@ -156,7 +156,7 @@ class View:
         kind = action['type']
         if self.ui.state['status'] == 'submitted' and kind not in {'dismiss', 'defer', 'navigate'}:
             if (kind == 'submit' and button is self.ui._submit_button and self.ui._retry_available):
-                self.ui.start_delivery(confirm_only=True)
+                self.ui.retry_delivery()
             return
         if kind == 'submit':
             self.ui.submit(action=button_label, include_values=action.get('include_values', True), button=button)

@@ -3,15 +3,23 @@
 from collections import deque
 import json
 from pathlib import Path
+import re
 import stat
 import subprocess
 import threading
 import time
 
 from dialog_connection import RpcError, codex_home, require_owner, validate_user_message
-from dialog_observer import ResponseReader, RolloutResponseReader
+from dialog_observer import ResponseReader, RolloutResponseReader, matches_response
 
-awaits_response = False
+kind = "cli_user_message"
+
+
+def _guard_rejected(error):
+    """Recognize only native steer guards that prove input was not admitted."""
+    return (isinstance(error, RpcError) and error.code == -32600
+            and (str(error) == "no active turn to steer"
+                 or re.fullmatch(r"expected active turn id `[^`]+` but found `[^`]+`", str(error))))
 
 
 def discover():
@@ -45,6 +53,8 @@ class AppServer:
         self.thread = {}
         self.rollout_path = None
         self.message_attempted = False
+        self.receipt_callback = None
+        self.receipt_poll = None
 
     def __enter__(self):
         require_owner(self.origin)
@@ -82,8 +92,6 @@ class AppServer:
                 raise ValueError("The original conversation log changed")
             self.thread = resumed
             self.rollout_path = native_path or saved_path
-            if self.rollout_path:
-                self.origin["rollout_path"] = self.rollout_path
             return self
         except Exception as error:
             self.__exit__()
@@ -104,7 +112,10 @@ class AppServer:
             params = packet.get("params", {})
             if (params.get("threadId") == self.origin["thread_id"]
                     and isinstance(params.get("item"), dict) and params.get("turnId")):
-                self.items.append({key: params[key] for key in ("threadId", "turnId", "item")})
+                entry = {key: params[key] for key in ("threadId", "turnId", "item")}
+                self.items.append(entry)
+                if self.receipt_callback is not None:
+                    self.receipt_callback(entry)
         return packet
 
     def _request(self, method, params, before_send=None):
@@ -115,12 +126,14 @@ class AppServer:
         if before_send is not None:
             before_send()
         self.check()
-        if method == "turn/start":
+        if method in {"turn/start", "turn/steer"}:
             self.message_attempted = True
         self.connection.send(encoded)
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             self.check()
+            if self.receipt_poll is not None:
+                self.receipt_poll()
             try:
                 packet = self._receive(min(0.1, max(0, deadline - time.monotonic())))
             except TimeoutError:
@@ -151,13 +164,61 @@ class AppServer:
                 raise ValueError("The originating task is not loaded in this daemon")
             seen.add(cursor)
 
-    def submit_user_message(self, message, client_id, before_send=None):
-        """Use Core's native active/idle admission without a frontend placeholder."""
+    def submit_user_message(self, message, client_id, before_send=None, on_item=None,
+                            on_wait=None, on_not_submitted=None):
+        """Steer a verified active turn, or admit idle input in this same task."""
         validate_user_message(message, client_id)
-        return self._request("turn/start", {
-            "threadId": self.origin["thread_id"], "clientUserMessageId": client_id,
-            "input": [message],
-        }, before_send)
+        self.receipt_callback = on_item
+        self.receipt_poll = on_wait
+        # Refresh only after a proven zero-admission rejection. A UUID is a
+        # correlation ID, not native idempotency; unknown outcomes never retry.
+        for _ in range(3):
+            active_turn = self._active_turn()
+            params = {"threadId": self.origin["thread_id"],
+                      "clientUserMessageId": client_id, "input": [message]}
+            method = "turn/start"
+            if active_turn:
+                method = "turn/steer"
+                params["expectedTurnId"] = active_turn
+            try:
+                return self._request(method, params, before_send)
+            except RpcError as error:
+                if method != "turn/steer" or not _guard_rejected(error):
+                    raise
+                self.message_attempted = False
+                if on_not_submitted is not None:
+                    # Persist the native zero-admission result before another
+                    # read can block or the sender can stop during refresh.
+                    on_not_submitted()
+        raise ValueError("The active turn kept changing; no response was admitted")
+
+    def _active_turn(self):
+        """Read only the original task; expectedTurnId guards subsequent races."""
+        thread = self._request("thread/read", {
+            "threadId": self.origin["thread_id"], "includeTurns": False,
+        })["thread"]
+        if thread.get("id") != self.origin["thread_id"]:
+            raise ValueError("App-server returned a different task")
+        if thread.get("status", {}).get("type") == "idle":
+            return None
+        if thread.get("historyMode") == "paginated":
+            turns = self._request("thread/turns/list", {
+                "threadId": self.origin["thread_id"], "limit": 1,
+                "sortDirection": "desc",
+            })["data"]
+        else:
+            hydrated = self._request("thread/read", {
+                "threadId": self.origin["thread_id"], "includeTurns": True,
+            })["thread"]
+            if hydrated.get("id") != self.origin["thread_id"]:
+                raise ValueError("App-server returned a different task")
+            turns = list(reversed(hydrated.get("turns", [])))[:1]
+        if turns and turns[0].get("status") == "inProgress":
+            active_turn = turns[0].get("id")
+            if not isinstance(active_turn, str) or not active_turn:
+                raise ValueError("App-server returned an active turn without its identity")
+            return active_turn
+        return None
 
     def poll_items(self, timeout=0.25):
         self.check()
@@ -177,14 +238,39 @@ class AppServer:
 
 
 class CliReceiptReader(ResponseReader):
-    """Consume this helper's native subscription, including items before ACK."""
+    """Confirm live receipts and bound canonical items, including before ACK."""
 
     def __init__(self, server):
         super().__init__(server.origin, server.cancel)
         self.server = server
+        self.live_error = None
+        self.canonical_error = None
+        try:
+            self.canonical = RolloutResponseReader(server.origin, server.cancel)
+        except (OSError, ValueError):
+            # Legacy logs need live native events. Never reconstruct a path by
+            # searching other conversations or attaching a different server.
+            self.canonical = None
 
     def completed_items(self):
-        return self.server.poll_items(timeout=0.25)
+        entries = []
+        if self.live_error is None:
+            try:
+                entries = self.server.poll_items(timeout=0.25)
+            except Exception as error:
+                self.live_error = error
+        entries.extend(self.canonical_items())
+        if self.canonical is None and self.live_error is not None:
+            raise self.canonical_error or self.live_error
+        return entries
+
+    def canonical_items(self):
+        if self.canonical is not None:
+            try:
+                return self.canonical.completed_items()
+            except (OSError, ValueError) as error:
+                self.canonical_error, self.canonical = error, None
+        return []
 
 
 def connection(origin, cancel=None):
@@ -195,28 +281,44 @@ def capture_origin(origin):
     origin.update(discover())
     with connection(origin) as server:
         origin["title"] = server.thread.get("name") or server.thread.get("preview", "")
+        if server.rollout_path:
+            origin["rollout_path"] = server.rollout_path
     return origin
 
 
 def _observe(attempt, reader):
+    if attempt.delivery.get("observation", {}).get("status") == "observed":
+        return
     attempt.waiting()
     try:
         match = reader.wait(attempt.delivery, attempt.message["text"])
     except Exception as error:
         attempt.unconfirmed(error)
     else:
-        attempt.observed(match)
+        attempt.observed({"kind": kind, **match})
 
 
 def deliver(attempt):
     """Attach and subscribe before Core admits one ordinary user input."""
     validate_user_message(attempt.message, attempt.client_id)
+    attempt.prepare(kind)
     with connection(attempt.origin, attempt.cancel) as server:
         reader = CliReceiptReader(server)
         reader.validate()
         server.check()
+        def completed(entry):
+            item = entry["item"]
+            if (item.get("id") and entry.get("turnId")
+                    and matches_response(item, attempt.delivery, attempt.message["text"])):
+                attempt.observed({"item_id": item["id"], "turn_id": entry["turnId"], "kind": kind})
+        def check_canonical():
+            for entry in reader.canonical_items():
+                completed(entry)
         try:
-            receipt = server.submit_user_message(attempt.message, attempt.client_id, attempt.sending)
+            receipt = server.submit_user_message(
+                attempt.message, attempt.client_id, before_send=attempt.sending,
+                on_item=completed, on_wait=check_canonical,
+                on_not_submitted=lambda: attempt.prepare(kind))
         except Exception as error:
             if not server.message_attempted:
                 attempt.rejected(error)

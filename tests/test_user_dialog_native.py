@@ -9,9 +9,11 @@ from pathlib import Path
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import uuid
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'skills/user-dialog/scripts'
 sys.path.insert(0, str(SCRIPTS))
@@ -57,7 +59,7 @@ class UserDialogNativeTests(unittest.TestCase):
         deadline = time.monotonic() + seconds
         context = GLib.MainContext.default()
         while time.monotonic() < deadline:
-            while context.pending():
+            while context.pending() and time.monotonic() < deadline:
                 context.iteration(False)
             time.sleep(0.002)
 
@@ -71,7 +73,7 @@ class UserDialogNativeTests(unittest.TestCase):
                 return
         self.fail('Native preview did not reach its expected state')
 
-    def open(self, request, draft=None):
+    def open(self, request, draft=None, *, settle=True, **saved):
         directory = self.root / uuid.uuid4().hex
         directory.mkdir()
         spec = compile_request(request, self.root)
@@ -79,6 +81,7 @@ class UserDialogNativeTests(unittest.TestCase):
                  'spec': spec, 'base': str(self.root), 'origin': None, 'title': spec['title'],
                  'subtitle': '', 'draft': draft or {}, 'response': {}, 'revision': 0,
                  'delivery': {'status': 'preview'}}
+        state.update(saved)
         save_state(directory, state)
         app = Adw.Application(application_id='local.codex.UserDialogTests.a' + uuid.uuid4().hex,
                               flags=Gio.ApplicationFlags.NON_UNIQUE)
@@ -86,8 +89,9 @@ class UserDialogNativeTests(unittest.TestCase):
         ui = dialog_runtime.Dialog(app, directory, state)
         self.dialogs.append(ui)
         ui.open()
-        self.wait(lambda: not ui.presentation.busy and documents_ready(ui.content))
-        self.drain()
+        if settle:
+            self.wait(lambda: not ui.presentation.busy and documents_ready(ui.content))
+            self.drain()
         return ui
 
     def entry(self, ui, key):
@@ -204,6 +208,44 @@ class UserDialogNativeTests(unittest.TestCase):
                     self.assertEqual(second.get_text(), 'Keep my focus and draft')
                     self.assertTrue(second.has_focus() or ui.window.get_focus().is_ancestor(second))
                 ui.dismiss()
+
+    def test_submission_and_resume_freeze_inputs_and_close_only_after_actual_admission(self):
+        request = {'title': 'Receipt lifecycle', 'body': {
+            'type': 'input', 'id': 'notes', 'label': 'Notes'}}
+        ack, canonical = threading.Event(), threading.Event()
+        def send(directory, state, cancel):
+            state['delivery'].update(status='accepted', phase='awaiting_receipt')
+            save_state(directory, state)
+            ack.set()
+        def confirm(directory, state, cancel):
+            while not canonical.wait(.01):
+                if cancel.is_set():
+                    return
+            state['delivery'].update(status='accepted', phase='admitted',
+                observation={'status': 'observed', 'item_id': 'canonical', 'turn_id': 'turn'})
+            save_state(directory, state)
+        with patch.object(dialog_runtime, 'deliver', side_effect=send), \
+             patch.object(dialog_runtime, 'confirm_delivery', side_effect=confirm):
+            ui = self.open(request, {'notes': 'Saved answer'}, settle=False)
+            ui.state['origin'] = {'transport': 'app-server', 'home': str(self.root),
+                                  'thread_id': str(uuid.uuid4())}
+            ui.submit()
+            self.wait(ack.is_set)
+            self.assertFalse(ui._finished, 'ACK must not close the popup')
+            self.assertFalse(self.entry(ui, 'notes').is_sensitive())
+            ui.close()
+            # Closing a window retains the uncertain submitted answer.
+            saved = read_state(ui.run_dir)
+            ack.clear()
+            resumed = self.open(request, saved['draft'], settle=False, status='submitted',
+                                origin=saved['origin'], message=saved['message'],
+                                response=saved['response'], delivery=saved['delivery'])
+            self.assertEqual(self.entry(resumed, 'notes').get_text(), 'Saved answer')
+            self.assertFalse(self.entry(resumed, 'notes').is_sensitive())
+            self.assertFalse(resumed._finished)
+            canonical.set()
+            self.wait(lambda: resumed._finished)
+            self.assertEqual(read_state(resumed.run_dir)['delivery']['phase'], 'admitted')
 
 
 if __name__ == '__main__':
