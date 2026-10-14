@@ -15,7 +15,7 @@
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
 </p>
 
 ---
@@ -35,6 +35,24 @@ image-creator, animation-creator
 ```
 
 [사용 가이드](docs/skills/animation-creator.ko.md) · [지침](skills/animation-creator/SKILL.md)
+
+---
+
+<a id="claude"></a>
+
+<img src="docs/assets/catalog/claude.svg" width="960" alt="claude">
+
+이미 실행 중인 Claude Code 세션의 inbox에 업무를 전달하고, 해당 세션의 응답을 읽어 Codex의 서브에이전트로 활용합니다.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+claude
+```
+
+[사용 가이드](docs/skills/claude.ko.md) · [지침](skills/claude/SKILL.md)
 
 ---
 

@@ -15,7 +15,7 @@ Copy a skill’s install prompt below into Codex. Once installed, use `$skill-na
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
 </p>
 
 ---
@@ -35,6 +35,24 @@ image-creator, animation-creator
 ```
 
 [Guide](docs/skills/animation-creator.md) · [Instructions](skills/animation-creator/SKILL.md)
+
+---
+
+<a id="claude"></a>
+
+<img src="docs/assets/catalog/claude.svg" width="960" alt="claude">
+
+Send work to an already-running Claude Code session through its inbox and read that session's replies to use Claude as a Codex subagent.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+claude
+```
+
+[Guide](docs/skills/claude.md) · [Instructions](skills/claude/SKILL.md)
 
 ---
 
