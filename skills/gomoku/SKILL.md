@@ -44,8 +44,7 @@ Repeat the turn loop:
 
 5. Immediately start the next wait.
 
-Coordinates are always 1-based `row col`. In `ascii_board`, `B/W` are stones, `b/w` mark the last move, and `.` is empty.
-Views include the game generation and revision. Both are required for a Codex move; a reset or other intervening change rejects an old selection without changing the board. Refresh the threat view and reconsider the move after such a rejection.
+Coordinates are always 1-based `row col`. In `ascii_board`, `B/W` are stones, `b/w` mark the last move, and `.` is empty. Views include the game generation and revision. Both are required for a Codex move; a reset or other intervening change rejects an old selection without changing the board. Refresh the threat view and reconsider the move after such a rejection.
 
 ## Maintain the Session
 

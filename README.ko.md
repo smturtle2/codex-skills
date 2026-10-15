@@ -42,7 +42,7 @@ image-creator, animation-creator
 
 <img src="docs/assets/catalog/claude.svg" width="960" alt="claude">
 
-이미 실행 중인 Claude Code 세션의 inbox에 업무를 전달하고, 해당 세션의 응답을 읽어 Codex의 서브에이전트로 활용합니다.
+이미 열려 있는 로컬 Claude Code 세션과 메시지를 주고받으며 작업 위임·질문·협의에 활용합니다. 필요할 때 세션 기록을 별도로 조회합니다.
 
 ```text
 Use $skill-installer.

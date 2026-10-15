@@ -42,7 +42,7 @@ image-creator, animation-creator
 
 <img src="docs/assets/catalog/claude.svg" width="960" alt="claude">
 
-Send work to an already-running Claude Code session through its inbox and read that session's replies to use Claude as a Codex subagent.
+Exchange messages with an already-open local Claude Code session for delegated work, questions, and coordination. Inspect its history separately on demand.
 
 ```text
 Use $skill-installer.
