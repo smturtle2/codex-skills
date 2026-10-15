@@ -1,19 +1,16 @@
 # Inbox contract
 
-This reference describes the technical connection to an existing Claude Code
-session. The caller determines the work, instructions, and meaning of the
-returned response. No task types or task completion policy are added by the
-runtime.
+This runtime connects to an existing Claude Code session. It transports the
+caller's instructions and relays Claude's messages; the caller owns task
+assignment and interpretation. Inputs and outputs are independent streams.
 
-## Support and contract boundaries
+## Support and interfaces
 
-The initial implementation supports local Linux sessions owned by the calling
-operating-system user. Its compatibility baseline is Claude Code `2.1.299`,
-native peer protocol `1`, and `claude-agent-sdk==0.2.166`. Other versions may
-remain compatible, but an unsupported native layout is an explicit error, not a
-reason to guess an address or start a replacement session. macOS, Windows named
-pipes, remote machines, and cloud sessions are outside this implementation's
-support.
+Supports local Linux sessions owned by the calling operating-system user. The
+compatibility baseline is Claude Code `2.1.299`, native peer protocol `1`, and
+`claude-agent-sdk==0.2.166`. Unsupported native layouts are explicit errors.
+macOS, Windows named pipes, remote machines, and cloud sessions are outside this
+implementation's support.
 
 The public interfaces used are:
 
@@ -21,123 +18,234 @@ The public interfaces used are:
   for candidate discovery.
 - The target's [inbox address and authentication](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket).
 - [`get_session_messages`](https://code.claude.com/docs/en/agent-sdk/python#get_session_messages)
-  for reading the target's ordinary conversation messages.
+  for ordinary conversation history.
 
-Automatic native address lookup, registry layout, complete input frame, and raw
-input record interpretation are version-specific compatibility details, not a
-published stable API. Keep them together in `scripts/claude_native.py`.
+Registry layout, native frame fields, and direct peer reply addresses are
+version-specific compatibility details owned by `scripts/claude_native.py`.
+The helper uses its own Unix inbox as a reply address. It does not register a
+fake Claude session, install an MCP server, or start an SDK inference client.
 
-## Exact target binding
+## Connection ownership and lifetime
 
-Discovery starts with the public CLI list and verifies candidates against the
-native local registry, process evidence, and Unix socket. A finished background
-task can remain in the CLI list. Matching a label or directory alone therefore
-does not establish an available target.
+`sessions` lists verified candidates. `connect --session ID [--run-dir PATH]`
+starts one foreground helper bound to one exact live target. The host retains
+that process with writable stdin and reads its stdout. When a host requires a
+PTY for retained input, the helper disables echo and canonical input limits.
+This is process control, not reading Claude's terminal.
 
-Each saved request binds:
+The helper owns:
+
+- The exact target binding and its availability checks.
+- A local return inbox for native peer messages.
+- One receive cursor for ordinary assistant output.
+- Per-transmission UUID bookkeeping, independent of received messages.
+- Event output, local evidence, and cleanup.
+
+The target binding includes:
 
 ```text
-session ID
-target working directory
+session ID, working directory, and native registry start time
 PID, process start, native PID domain, and kernel boot ID
-provided inbox address and socket identity
+provided inbox address, socket device, and socket inode
 ```
 
-Before sending or reading history, revalidate this binding against the current
-live session. Use the registry's provided endpoint, never an endpoint constructed
-from the session's name. Socket and registry paths must belong to the same user
-and have the expected native file types. Authentication material is read only
-when needed and excluded from persisted requests and command output.
+Discovery verifies the public CLI candidate against the native registry,
+process, and Unix inbox. Registry/socket ownership and permissions must be
+valid. A nonwriting probe checks reachability and Linux `SO_PEERCRED`; the
+sending connection checks the listener's PID and user ID again before sending
+credentials or message bytes. The native PID domain contains machine ID and PID
+namespace; kernel boot ID is bound separately.
 
-Socket identity includes the device and inode, so replacing a socket at the
-same path changes the binding. Discovery connects without writing bytes to
-check reachability and the listener's Linux `SO_PEERCRED` PID and user ID. The
-actual sending connection checks that identity again before sending an
-authentication token or message.
+After discovery, validation checks the bound registry, process and inbox
+directly without repeatedly starting the CLI. It also rejects another live
+local process sharing the same session ID. Brief partial registry writes are
+retried with a bounded delay; changed identity or unsafe ownership is rejected.
+Revalidation continues throughout the connection and before target access. If
+the session, process, or inbox disappears or changes, emit the failure and close
+the helper. `/clear` and `/new` start a new session: the old connection ends even
+if its process and inbox remain. Process shutdown or restart also ends the old
+connection, even when a new process resumes the same session ID. Reconnecting
+requires explicitly selecting a live target and starting a new connection.
+Do not select another target or continue reading archived history.
 
-On the verified Linux version, the native PID domain contains `/etc/machine-id`
-and the PID namespace. The adapter separately binds the kernel boot UUID so a
-saved request cannot identify a process from a later boot as the original one.
+Explicit `disconnect`, stdin EOF, `SIGINT`/`SIGTERM`/`SIGHUP`, and exact target
+loss/change close the connection and remove the helper's own socket.
+An unusable stdout channel also ends the helper. Claude is not terminated.
+Signals are owned from startup through final cleanup; handlers only request
+shutdown, and ordinary execution checkpoints perform it. An unexpected worker
+failure closes the helper rather than leaving an incomplete connection open.
+Claude's turn ending, `idle`, `waiting`, and host output-poll timeouts do not
+close the connection. The lifetime signal from the caller is its actual process
+control channel; do not infer it from a chat turn or UI window.
 
-The target's `/status` presents its inbox as `Peer address`; Claude's child
-processes can receive `CLAUDE_CODE_MESSAGING_SOCKET` and
-`CLAUDE_CODE_MESSAGING_TOKEN`. An inbox token is a technical session credential.
-This skill does not use it to assert that it is the target's own child or to
-bypass the target's inbound controls.
+The first close reason is preserved independently of the final exit code:
 
-The adapter reads the target's scoped native peer-key record when present; it
-does not substitute a caller's messaging environment token.
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Normal explicit disconnect or owner-channel closure |
+| `3` | Selected target lost/changed, or unsupported target/environment |
+| `1` | Helper execution, recording, or cleanup failure; takes precedence over `3` |
 
-If the process exits, is replaced, changes session, or changes inbox, return
-`session_unavailable`. Keep already observed evidence, but do not continue
-against old history or select another session automatically. Listing sessions
-does not create one. Importing the SDK for history does not start an SDK client.
+Unexpected main-loop exceptions report `internal_error`. A genuine local
+failure during cleanup produces exit `1` even after normal disconnect or target
+loss. A late target-unavailable result after intentional disconnect does not
+turn that normal closure into failure. Errors are reported best effort when
+storage or output is no longer usable.
 
-## Wire delivery
+## Control and event streams
 
-The request is one UTF-8 JSON line terminated by `\n`:
+Stdin accepts UTF-8 JSONL. A control is one JSON object plus `\n`:
+
+```jsonl
+{"type":"send","message":"Inspect the implementation and report what you find."}
+{"type":"send","uuid":"53fb2a6e-2ae2-4568-80d5-8d519a15642a","message":"Also consider concurrent edits."}
+```
+
+`send.message` is the caller's text. `uuid` is optional; omission generates a
+fresh UUID. Within the connection, repeating an existing UUID with the same
+text returns its saved transmission outcome without sending again. Reusing it
+with different text is an error. There is no implicit retry or replay, including
+for an uncertain write. These UUIDs do not associate outputs with inputs.
+`send` controls must contain nonempty message text. Every control must fit within
+the 1 MB input limit. Close the connection separately when it is no longer needed:
+
+```jsonl
+{"type":"disconnect"}
+```
+
+Disconnect stops the connection, including queued messages not yet transmitted.
+
+Stdout contains asynchronous JSONL events:
+
+| Event | Meaning |
+| --- | --- |
+| `connected` | Exact target binding and the helper's return inbox are ready |
+| `message` | Native peer content or new/revised ordinary assistant text |
+| `sent` | Transmission UUID and observed transport outcome |
+| `delivery_status` | Verified native peer transport notice, separate from assistant output |
+| `error` | Command or connection failure; inspect the error and later stream events |
+| `history_gap` | The saved history boundary disappeared from the current SDK chain |
+| `closed` | The helper has ended the connection |
+
+`closed` ends normal message delivery. Final output or reader cleanup errors
+can follow it. Retain the host execution session and collect until the helper
+exits; its exit code reports the final outcome.
+
+Invalid controls or rejected peer frames report errors without closing an
+otherwise usable connection. Target, return-listener, and record failures close
+the helper. A history gap is reported once when the cursor first detects it and
+remains recorded; it does not close the connection.
+
+Events carry `seq`, `connection_id`, and the selected `session_id`. Each
+`message` also carries `source` (`peer` or `assistant`), `uuid`, and `content`.
+Assistant messages additionally carry `message_id` and `revision`. A revised
+assistant event updates the same output group; an empty
+revision clears its previously observed text. Preserve message content and
+revisions when presenting or consuming output.
+
+The event journal spools output while the host pauses collection. A full stdout
+pipe does not block stdin controls or connection shutdown. Unread output stays
+in `events.jsonl`; shutdown makes only a bounded attempt to flush stdout.
+The last stdout line can therefore be incomplete at shutdown. Ignore that
+partial line and use the journal for output not collected from stdout.
+
+The stream does not label answers as matched, unmatched, ambiguous, or complete.
+Progress, questions, intermediate results, and final reports can all arrive.
+Additional instructions can be sent while Claude works. One instruction need
+not produce one output, and the helper does not impose a response format.
+
+The native peer and assistant-history sources remain distinguishable. Content
+that appears in both sources is not collapsed by textual similarity: repetition
+alone does not establish that two messages are the same event.
+
+## Native delivery and return inbox
+
+The sender builds one complete UTF-8 JSON line before transmission:
 
 ```json
 {
+  "msgV": 1,
+  "msg_id": "<transmission-uuid>",
   "type": "user",
   "session_id": "<target-session-id>",
-  "uuid": "<request-id>",
-  "from": "Codex",
+  "uuid": "<transmission-uuid>",
+  "priority": "next",
+  "from": "<helper-return-inbox-address>",
   "message": {
     "role": "user",
-    "content": "<cross-session-message from-name=\"Codex\">\n<task text>\n</cross-session-message>"
+    "content": "<cross-session-message from=\"<helper-return-inbox-address>\" from-name=\"Codex\">\n<unchanged caller message>\n</cross-session-message>"
   }
 }
 ```
 
-The caller's task text is preserved within the transport wrapper. An
-`--expect-reply` request also carries a separate technical instruction to put the
-answer in the session's normal assistant reply using this marker:
+The return address is the helper's actual `uds:` inbox address. Claude can use
+its native `SendMessage` reply path to reach that inbox. Ordinary assistant
+text is also received through the SDK history reader; the helper does not ask
+Claude to choose a prescribed reply channel or wrap its reply in a marker.
+The adapter creates a unique `codex-<id>.sock` in the target's validated inbox
+directory with mode `0600`. It removes that socket at shutdown only while its
+identity still belongs to this helper; the run directory holds records only.
 
-```xml
-<codex-reply request-id="<request-id>">
-The response text
-</codex-reply>
-```
-
-There is no Codex peer inbox to reply to with Claude's `SendMessage`. The answer
-must be in the target conversation so the SDK history reader can observe it.
-The marker associates a response with a request; it is not a fixed result schema
-and does not establish that the requested work succeeded.
-
-An authenticated connection, where required, starts with:
+If required, authentication precedes the user frame:
 
 ```json
 {"type":"auth","token":"<target-session-token>"}
 ```
 
-Linux Unix sockets permit same-user connections without this line. The script
-builds the complete request before connecting; it does not wait for model output
-while keeping a partially written input connection open.
+Same-user Linux Unix socket connections can omit that line. Authentication
+material is read from the selected target's scoped native peer-key record when
+present and is excluded from persisted state and output. A caller's messaging
+environment token is not substituted.
 
-Save the target binding, task text, request UUID, and pre-send history boundary
-before transmission. Persist the possible-write boundary before a user-frame write
-can occur. An ordinary input frame has no ACK in the verified native protocol.
-Socket success therefore records a transport fact, not receiver admission.
+Claude's `/status` exposes its inbox as `Peer address`; child processes may
+receive `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_CODE_MESSAGING_TOKEN`. These
+are session credentials, not a reason to bypass the target's inbound controls.
+The helper's return inbox checks its incoming native peer against the bound
+Claude process before accepting message bytes.
 
-When a write may have occurred, errors or interrupted calls never cause automatic
-replay. Repeating `send` with the same run directory checks the saved request and
-observes it; it does not deliver it again. Incompatible request arguments do not
-replace the saved request. To issue a new message, use a new run directory.
+Persist each outbound message and the `not_sent` state before transmission.
+Persist `write_started` before the user frame can be written. The resulting
+transport state is `written` or, when bytes may have been sent without a known
+outcome, `delivery_unknown`. A `sent` event carries `uuid` and `transport`.
+`written` means socket-write success, not admission by Claude. The helper does
+not read raw transcripts to certify input receipt.
+At shutdown, an unfinished `write_started` transmission is frozen as
+`delivery_unknown`. Workers cannot update transmission records after closure.
 
-Transmission or observation errors for a valid loaded request include its
-`run_dir`, `request_id`, and latest transport, input, and response states. Use that saved path to observe
-the request even when the initial command did not succeed.
+The return inbox accepts the bound Claude process only and retains its
+post-read binding check. It recognizes native `control` frames with
+`action: "peer_message_status"` and relays allowlisted, type-checked fields as
+`delivery_status` events. Authentication and unrelated control traffic are not
+exposed. A public notice has the common event fields plus:
 
-## Input and response observations
+```json
+{
+  "type": "delivery_status",
+  "source": "peer",
+  "uuid": "<native-receipt-msg_id>",
+  "status": "expired",
+  "status_detail": "refused",
+  "orig_msg_id": "<transmission-uuid>",
+  "reason": "<native reason>"
+}
+```
 
-Claude persists incoming inbox user messages as `isMeta` native records. The
-verified Python SDK [history implementation](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/_internal/sessions.py)
-filters these out. The native adapter reads only the relevant raw record needed
-to observe the saved input UUID. Absence means unobserved, not proof that Claude
-refused it.
+Known `status` values are `held`, `denied`, `expired`, `delivered`, `refused`,
+and `dropped`. Optional native fields are `status_detail`, `reason`,
+`orig_msg_id`, `drop_reason`, and `dropped_msg_ids`; the helper preserves allowed
+values without synthesizing a receipt. Claude Code `2.1.299` reports refusal as
+`status: "expired"` with `status_detail: "refused"`. `delivered` means a held
+message was released to the receiving Claude, not that it was read or its work
+completed. There is no positive receipt for every initially accepted message.
+Missing notices prove nothing about admission.
 
-The history adapter uses only:
+`orig_msg_id` and dropped-message IDs identify the transmissions described by
+native notices. They do not pair Claude's output with an input, establish task
+completion, trigger automatic retries, or change the saved socket-write state.
+
+## Assistant history stream
+
+History reading uses only:
 
 ```python
 from claude_agent_sdk import get_session_messages
@@ -145,71 +253,53 @@ from claude_agent_sdk import get_session_messages
 messages = get_session_messages(session_id, directory=target_cwd)
 ```
 
-SDK message UUIDs and content fingerprints form the observation boundary.
-Preserve newly observed messages and their revisions, and combine text blocks
-belonging to the same native `message.id` before
-matching the expected response. Thinking blocks and unrelated assistant messages
-are not substitutes for matching assistant text. A shared Claude session may
-handle several inputs in the same turn. A marker can identify the answer text;
-it cannot make the session's turn boundaries exclusive to this request.
+Capture the initial history boundary once when connecting. Assistant output
+returned by that initial read is the baseline. Track SDK UUIDs,
+content fingerprints, and native `message.id` groups to emit new or revised
+assistant text. Thinking and tool blocks are not assistant text. Sending a
+follow-up neither resets the cursor nor consumes received output.
+Each observation validates the bound target, reads SDK history, and validates
+the target again before enqueuing the result or advancing the worker cursor.
+Only observations passing that post-read check are published. Already accepted
+queued output can drain during closure; if the session switches or the process
+ends during a read, that last observation may be lost. The SDK returns
+session-level history and does not identify the writer PID of every record.
+Journal an entire accepted observation batch before committing its new receive
+cursor.
+An SDK empty result is an empty observation, including when its history file
+has not appeared yet. Records first exposed later are newly observed; the API
+cannot establish from an empty result whether they predated the connection.
 
-The current revision of every observed response group is considered when
-matching. Two matching groups make the response `ambiguous`; editing a group
-can remove its earlier match. Previously observed evidence remains saved when
-the SDK's current conversation chain no longer contains it.
+If compaction removes the observation boundary, preserve previously observed
+events and report a history gap. A gap does not authorize rereading all old
+output as new. The helper does not infer which instructions any assistant text
+answers or infer task completion from session status.
 
-The command output keeps these evidence dimensions separate:
+## Evidence and inbound controls
 
-| Dimension | What it establishes |
+Each connection gets a new run directory, defaulting to
+`.codex-skills/claude/<unique-id>/`:
+
+| File | Responsibility |
 | --- | --- |
-| Session | Whether the exact bound process and inbox remain available |
-| Transport | What the sender observed while writing; no native input ACK |
-| Input | Whether the saved UUID appeared in the target's native input record |
-| Response | Which normal assistant text matches the request, or why it remains unmatched or ambiguous |
+| `connection.json` | Exact target, helper metadata, receive cursor, sequence, connection state and close reason |
+| `events.jsonl` | Persisted stream events, including the closing event |
+| `outbox.json` | Outbound text and transport state keyed by transmission UUID |
 
-If no marker was requested, newly observed assistant output is available without
-being promoted to a corresponding answer. If an expected marker is absent,
-incomplete, or has conflicting matches, report the observed output and match
-state. Do not equate `idle`, a later timestamp, a final-looking answer, or a
-successful socket write with a matching result.
+Any existing directory, including an empty one, cannot start a connection. The
+records remain evidence after shutdown; they are not a queue to resume or replay.
+After an uncatchable process termination such as `SIGKILL`, cleanup cannot run:
+`connected` may remain on disk and `write_started` must be treated as an unknown
+transmission. Check the saved server PID before interpreting connection state;
+never restart that directory or replay its outbox. A leftover helper socket can
+be removed only after confirming its owning process is gone and its identity.
+Old request directories are untouched, and old request-based commands and reply
+contracts are removed. Keep records needed by the caller, and remove only
+expendable files belonging to this work. Do not alter Claude's native history.
 
-If history compaction removes the saved observation boundary, report
-`history_gap` and retain prior evidence. The polling timeout accepts 0–60 seconds;
-an in-flight discovery or history read can finish after that deadline. Waiting
-returns early for a matched reply, ambiguous matches, or a target
-waiting for input. Without `--expect-reply`, newly observed readable output also
-ends the wait. `timed_out: false` describes the wait, not task completion.
-Timeout records the latest evidence; it neither cancels the Claude task nor
-permits a resend. Closing the target ends observation with
-`session_unavailable`.
-
-Command output `responses` contains only text groups newly observed or revised
-in that call. The saved request retains their accumulated revisions;
-`matched_response` reflects the matching result across those observations.
-
-## Inbound controls and troubleshooting
-
-The user prepares the receiving session through `/config` → `Messages from your
-other sessions` → `accept` when unattended delivery is desired. The skill does
-not change settings. The receiver still applies its own tools and permissions.
-`hold` and `refuse` can both leave a sender without an observed input; a live
-inbox alone does not disclose the effective inbound setting.
-
-Messages are plain text: file paths and `@` mentions do not attach resources.
-Inbox delivery cannot interrupt a running tool or implement forced cancellation.
-See [Claude's message delivery and inbound controls](https://code.claude.com/docs/en/cross-session-messaging)
-for receiver behavior.
-
-| Observation | Next technical action |
-| --- | --- |
-| No live candidate | Report unavailable; the user can open Claude separately |
-| Incompatible native registry or peer protocol | Report compatibility failure; preserve the run |
-| Possible write, input not observed | Recheck the same run; inspect receiver settings without resending |
-| Input observed, response not matched | Read or wait on the same run; examine newly observed assistant text |
-| History gap or ambiguous match | Report the gap or ambiguity with preserved evidence |
-| Target no longer available | Stop observation; do not switch sessions or read archived history |
-
-Run state stays under `.codex-skills/claude/<unique-id>/` unless an explicit
-location was chosen. Keep unconfirmed evidence for recovery. Remove only
-expendable intermediates after they are no longer needed; do not delete the
-target's native history or unrelated workspace data.
+For unattended receipt, the user prepares Claude through `/config` →
+`Messages from your other sessions` → `accept`. The skill does not change this
+setting. `hold` or `refuse` can prevent admission despite a successful write.
+Claude still applies its own tools and permissions. Paths and `@` mentions in a
+message do not attach resources, and inbox delivery cannot forcibly interrupt
+a running tool. See [Claude's messaging controls](https://code.claude.com/docs/en/cross-session-messaging).

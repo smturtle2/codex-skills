@@ -1,8 +1,8 @@
-"""Read Claude replies through the SDK without starting a Claude session.
+"""Observe an existing Claude session's ordinary assistant text through the SDK.
 
-Liveness belongs to the caller: it must validate the bound live session before
-and after calling this module. A reply marker is attribution evidence only; it
-does not establish that the caller's task has been fulfilled.
+The connection owns liveness and durable storage. This module owns its bound
+history cursor and emits text changes without relating them to sent messages.
+It never starts a Claude session or runs inference.
 """
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from copy import deepcopy
 import hashlib
 import json
 import os
-import re
 from typing import Any, Protocol
 
 
@@ -37,9 +36,10 @@ def _fingerprint(value: Any) -> str:
     try:
         serialized = json.dumps(value, sort_keys=True, separators=(",", ":"),
                                 ensure_ascii=False, allow_nan=False)
-    except (TypeError, ValueError) as error:
+        encoded = serialized.encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as error:
         raise HistoryError("SDK history contains an unsupported message value") from error
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _field(value: Any, name: str, default: Any = None) -> Any:
@@ -85,7 +85,7 @@ def _text(record: dict[str, Any]) -> str:
         return content
     if not isinstance(content, list):
         return ""
-    # Tool calls, tool results and thinking are not readable reply text.
+    # Tool calls, tool results and thinking are not ordinary assistant text.
     return "".join(block["text"] for block in content
                    if isinstance(block, Mapping) and block.get("type") == "text"
                    and isinstance(block.get("text"), str))
@@ -128,88 +128,67 @@ def _groups(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def capture_cursor(target: Target) -> dict[str, Any]:
-    """Capture a pre-send baseline using UUIDs and content, never list offsets."""
+    """Set the connection's initial receive position once, before accepting sends.
+
+    Existing text is already behind the receive position. A later revision of
+    an existing native message may still produce its first published event.
+    """
     records = _read(target)
     fingerprints = {record["uuid"]: record["fingerprint"] for record in records}
     return {
-        "version": 1,
+        "version": 2,
         "session_id": target.session_id,
         "cwd": os.fspath(target.cwd),
-        "baseline": dict(fingerprints),
-        "seen": dict(fingerprints),
-        "groups": {group["message_id"]: group["fingerprint"] for group in _groups(records)},
+        "seen": fingerprints,
+        "groups": {group["message_id"]: {"fingerprint": group["fingerprint"], "revision": 0}
+                   for group in _groups(records)},
         "last_uuid": records[-1]["uuid"] if records else None,
         "history_gap": False,
     }
 
 
 def _cursor(target: Target, cursor: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(cursor, dict) or cursor.get("version") != 1:
+    if not isinstance(cursor, dict) or cursor.get("version") != 2:
         raise HistoryError("unsupported history cursor")
     if cursor.get("session_id") != target.session_id or cursor.get("cwd") != os.fspath(target.cwd):
         raise HistoryError("history cursor belongs to a different target")
     result = deepcopy(cursor)
-    for name in ("baseline", "seen", "groups"):
-        mapping = result.setdefault(name, {})
-        if not isinstance(mapping, dict) or any(not isinstance(key, str) or
-                not isinstance(value, str) for key, value in mapping.items()):
-            raise HistoryError(f"invalid {name} fingerprints in history cursor")
-    if result.get("last_uuid") is not None and not isinstance(result["last_uuid"], str):
+    seen = result.get("seen")
+    if not isinstance(seen, dict) or any(not isinstance(key, str) or not key or
+            not isinstance(value, str) or not value for key, value in seen.items()):
+        raise HistoryError("invalid record fingerprints in history cursor")
+    groups = result.get("groups")
+    if not isinstance(groups, dict):
+        raise HistoryError("invalid message groups in history cursor")
+    for message_id, group in groups.items():
+        if (not isinstance(message_id, str) or not message_id or not isinstance(group, dict)
+                or not isinstance(group.get("fingerprint"), str) or not group["fingerprint"]
+                or type(group.get("revision")) is not int or group["revision"] < 0):
+            raise HistoryError("invalid message group in history cursor")
+    if result.get("last_uuid") is not None and (
+            not isinstance(result["last_uuid"], str) or not result["last_uuid"]):
         raise HistoryError("invalid last UUID in history cursor")
-    if not isinstance(result.get("history_gap", False), bool):
+    if not isinstance(result.get("history_gap"), bool):
         raise HistoryError("invalid history gap state in history cursor")
     return result
 
 
-def _reply(text: str, request_id: str) -> str | None:
-    # Anchoring the entire text excludes markers in code fences, block quotes,
-    # explanations and ordinary inline examples. Require the exact attribute
-    # form sent by the caller, rather than accepting loose XML-like syntax.
-    opening = f'<codex-reply request-id="{request_id}">'
-    closing = "</codex-reply>"
-    pattern = r"\A\s*" + re.escape(opening) + r"(?P<body>[\s\S]*?)" + re.escape(closing) + r"\s*\Z"
-    match = re.fullmatch(pattern, text)
-    if match is None:
-        return None
-    body = match.group("body")
-    # Two separate reply wrappers are ambiguous, even when they share an ID.
-    if closing in body:
-        return None
-    return body
+def observe_messages(target: Target, cursor: dict[str, Any]) -> dict[str, Any]:
+    """Read new or revised assistant text independently of outgoing messages.
 
-
-def _match(groups: list[dict[str, Any]], request_id: str) -> tuple[dict | None, bool]:
-    matches = []
-    for group in groups:
-        body = _reply(group["text"], request_id)
-        if body is not None:
-            matches.append({**group, "request_id": request_id, "content": body})
-    return (matches[0] if len(matches) == 1 else None, len(matches) > 1)
-
-
-def observe_responses(target: Target, request_id: str, cursor: dict[str, Any],
-                      previous_responses: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Observe new/edited readable text and explicitly attributed replies.
-
-    A full current native message group is re-evaluated when any constituent
-    changes, allowing partial reply text to become a complete wrapper later.
-    The caller owns durable storage of observations and any matched response.
+    Each emitted event is the complete current text of one native message.id
+    group. Its revision increases only when content is published; empty content
+    withdraws previously published text. The final constituent's record UUID
+    identifies the current snapshot, while message_id identifies its revisions.
+    Missing records do not imply a deletion or an empty-text revision.
     """
-    if not isinstance(request_id, str) or not request_id:
-        raise HistoryError("request ID must be a nonempty string")
     updated = _cursor(target, cursor)
     records = _read(target)
-    # Persisted observations survive SDK compaction. Latest revision wins for
-    # attribution; the caller retains earlier versions as historical evidence.
-    candidates = {group["message_id"]: group for group in (previous_responses or [])}
-    history_gap = updated.get("history_gap", False)
+    history_gap = updated["history_gap"]
     if not records:
         # The SDK may return [] during a transient file rewrite. It cannot
         # establish that the saved conversation boundary has disappeared.
-        matched, ambiguous = _match(list(candidates.values()), request_id)
-        return {"cursor": updated, "responses": [], "matched_response": matched,
-                "history_gap": history_gap, "unmatched": any(group["text"] for group in candidates.values()) and matched is None,
-                "ambiguous": ambiguous}
+        return {"cursor": updated, "messages": [], "history_gap": history_gap}
 
     fingerprints = {record["uuid"]: record["fingerprint"] for record in records}
     boundary = updated.get("last_uuid")
@@ -217,26 +196,23 @@ def observe_responses(target: Target, request_id: str, cursor: dict[str, Any],
         history_gap = True
     touched = {_message_id(record) for record in records
                if record["type"] == "assistant" and updated["seen"].get(record["uuid"]) != record["fingerprint"]}
-    post_send = {_message_id(record) for record in records
-                 if record["type"] == "assistant" and updated["baseline"].get(record["uuid"]) != record["fingerprint"]}
-    responses = []
+    messages = []
     for group in _groups(records):
         message_id = group["message_id"]
-        if (message_id in touched and updated["groups"].get(message_id) != group["fingerprint"]
-                and (group["text"] or message_id in candidates)):
-            responses.append(group)
-        if message_id in post_send:
-            candidates[message_id] = group
-        else:
-            candidates.pop(message_id, None)
-        updated["groups"][message_id] = group["fingerprint"]
-    # Retain observations from chains removed by compaction; neither baseline
-    # nor previously seen fingerprints is replaced by only the current chain.
+        previous = updated["groups"].get(message_id)
+        revision = previous["revision"] if previous is not None else 0
+        if (message_id in touched and (
+                previous is None or previous["fingerprint"] != group["fingerprint"])
+                and (group["text"] or revision > 0)):
+            revision += 1
+            messages.append({"source": "assistant", "uuid": group["uuids"][-1],
+                             "message_id": message_id, "content": group["text"],
+                             "revision": revision})
+        if message_id in touched:
+            updated["groups"][message_id] = {"fingerprint": group["fingerprint"], "revision": revision}
+    # Keep observed UUIDs and revisions when compaction removes their chain.
     updated["seen"].update(fingerprints)
     updated["last_uuid"] = records[-1]["uuid"]
     updated["history_gap"] = history_gap
 
-    matched, ambiguous = _match(list(candidates.values()), request_id)
-    return {"cursor": updated, "responses": responses, "matched_response": matched,
-            "history_gap": history_gap, "unmatched": any(group["text"] for group in candidates.values()) and matched is None,
-            "ambiguous": ambiguous}
+    return {"cursor": updated, "messages": messages, "history_gap": history_gap}

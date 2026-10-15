@@ -1,4 +1,4 @@
 interface:
   display_name: "Claude"
   short_description: "Use open Claude Code sessions as subagents"
-  default_prompt: "Use $claude to send this task to an already-open Claude Code session and read its reply."
+  default_prompt: "Use $claude to connect to an already-open Claude Code session, send this work, and receive its messages while it works."

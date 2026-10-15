@@ -1,89 +1,124 @@
 ---
 name: claude
-description: Use an already-running local Claude Code session as a subagent through its inbox and read its replies. Requires a live session; does not launch Claude.
+description: Use an already-running local Claude Code session as a subagent through a persistent connection that sends instructions and relays its messages. Requires a live session; does not launch Claude.
 ---
 
 # Claude
 
-Use an open Claude Code session to perform work supplied by the calling agent.
-This skill owns session discovery, inbox delivery, and reply observation; the
-caller supplies the work and instructions and interprets the result.
+Connect to an open Claude Code session and exchange messages while it works.
+This skill owns discovery, the connection, delivery, receiving, and shutdown.
+The caller supplies the work and instructions and interprets Claude's output.
 
 Supports same-user local Linux sessions. Set `SKILL_DIR` to this skill's absolute
-directory and run from the calling project's root. Claude Code must already be
-running with a usable inbox. The user prepares its inbound settings; the skill
-does not change them. No live target means `session_unavailable`: do not launch,
-resume, fork, or substitute an archived conversation.
+directory and run from the calling project's root. Claude must already have a
+usable inbox. The user prepares its inbound settings; the skill does not change
+them. No live target means `session_unavailable`: do not launch, resume, fork,
+or substitute an archived conversation.
 
-## Find the target
+## Find and connect
 
 ```sh
 uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/claude.py" sessions
 ```
 
-Identify the target by its displayed name and working directory, then use its
-exact `target.session_id` from an available row. Discovery verifies the actual
-process and inbox; a row in `claude agents --json` alone can refer to a finished
-session. Once a request is
-saved, it stays bound to that session, process start, working directory, and
-inbox. Never replace it with a same-named session.
+Identify the target by name and working directory, then use the exact
+`target.session_id` from an available row. Discovery verifies the process and
+inbox; a CLI listing alone can include a finished session.
 
-## Send and read
-
-Write the caller's task to a UTF-8 file. Paths in the task refer to the target
-session's machine and working directory; inbox messages do not attach files or
-transfer the calling conversation's context.
+Start the following command in a **retained host execution session with writable
+stdin**. Keep that execution session's identifier to send controls and collect
+output from the same process.
 
 ```sh
-uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/claude.py" send \
-  --session "$SESSION_ID" --message-file request.txt \
-  --expect-reply --run-dir "$RUN_DIR"
-
-uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/claude.py" wait \
-  "$RUN_DIR" --timeout 30
+uv run --project "$SKILL_DIR" "$SKILL_DIR/scripts/claude.py" connect \
+  --session "$SESSION_ID" --run-dir "$CONNECTION_DIR"
 ```
 
-Use `--expect-reply` when the caller needs a corresponding answer. It preserves
-the task text and adds a technical instruction to wrap the normal assistant
-reply in `<codex-reply request-id="UUID">...</codex-reply>`. Omit it for a
-message whose reply will be read without request matching. A follow-up is a new
-message to the same live session with a new run directory, not a resend of the
-previous request.
+Wait for `connected` before sending work. `connect` stays in the foreground;
+it is not a one-shot shell command. If the host requires a PTY to retain stdin,
+use one; the helper disables terminal echo and canonical input limits. A pipe
+that closes after supplying one command also closes the connection.
 
-`wait --timeout` accepts 0–60 seconds as a polling deadline; an in-flight
-discovery or history read can finish after that deadline. Continue other work
-between waits, or use `read "$RUN_DIR"` for an immediate observation. `status "$RUN_DIR"`
-refreshes the target and saved evidence. These commands do not send messages or
-start Claude. Every observation revalidates the live target; if it closes,
-observation stops with `session_unavailable`.
+Use `.codex-skills/claude/<unique-id>/` for each connection unless the user gives
+another location; omitting `--run-dir` creates a unique default path. Existing
+run directories cannot start a new connection. In Git projects, ignore
+`/.codex-skills/` unless execution records should be versioned.
 
-Waiting returns when a reply matches, matches are ambiguous, or Claude is
-waiting for input. Without `--expect-reply`, new readable output also ends the
-wait. Inspect the evidence; an early return does not establish task completion.
+## Send and receive independently
 
-Use `.codex-skills/claude/<unique-id>/` for each new message unless the user gives
-another location; omitting `--run-dir` creates a unique default path. Use the
-same saved path for observation and recovery. In a Git project, ensure
-`/.codex-skills/` is ignored unless the user intends to version execution data.
+Write one UTF-8 JSON object followed by a newline to the retained process's
+stdin. Supply the caller's message unchanged:
 
-## Interpret the evidence
+```jsonl
+{"type":"send","message":"Review the parser and report the problems you find."}
+{"type":"send","message":"Focus on malformed input; leave the files unchanged."}
+```
 
-Transport, input, and response observations are separate. Socket writing has no
-ordinary message acknowledgement; a write does not prove delivery. Input is
-observed by its UUID in Claude's native record. Replies are read through the
-Agent SDK's history API, without starting inference. Shared sessions can contain
-interleaved user input and multiple tasks: a recent assistant message or an idle
-session does not identify this request's answer or prove task completion.
+A follow-up uses the same connection. Sending does not reset its receive cursor.
+An optional `uuid` identifies a transmission for deduplication within this
+connection; repeating the same UUID and text never resends it. It does not pair
+an input with Claude's output.
 
-After a write may have begun, repeating `send` with its saved run directory only
-observes the existing request. Never replay an uncertain send. Keep unconfirmed
-runs and use `status`, `read`, or `wait` to recover observations. Report a missing
-reply, ambiguous match, or history gap as such instead of inferring an answer.
+Read asynchronous JSONL events from stdout while continuing other work. Keep
+host output waits under 60 seconds, then resume collecting from the same
+execution session. Poll timeouts and Claude's `idle` or `waiting` state leave
+the connection open.
 
-Transmission or observation errors for a valid loaded request include its
-`run_dir`, `request_id`, and latest evidence states for recovery. `responses` contains new or revised text
-from that observation; `matched_response` is evaluated against the accumulated
-evidence. Revisions can invalidate a previously matched reply.
+`message` events relay Claude's native peer messages and newly observed ordinary
+assistant text. They carry `seq`, `connection_id`, `session_id`, `source` (`peer`
+or `assistant`), `uuid`, and `content`; assistant output also carries `message_id`
+and `revision`.
+Forward the content as received. There may be multiple outputs for one
+instruction or one output after several instructions. Do not require a reply
+tag, match outputs to inputs, or treat an event as proof of task completion.
 
-For wire framing, version compatibility, inbound controls, evidence states, and
-failure recovery, read [the inbox contract](references/inbox-contract.md).
+`sent` reports a socket-write outcome; transmission failures use `error` with
+the same UUID and transport state. `delivery_status` relays verified native
+transport notices such as held, refused, or dropped messages. Its `orig_msg_id`,
+when present, identifies a transmission, not a Claude reply. A `delivered` notice
+means a held message was released to Claude, not that work finished. A successful
+write or absent notice does not prove admission. Do not automatically replay an
+uncertain transmission. Other `error` events report connection or command
+failures; `history_gap` reports a lost history boundary. `closed` ends the
+connection and normal message delivery. Keep collecting until the helper exits:
+final cleanup errors can follow `closed`, and the process exit code reports
+the final outcome.
+
+History observations are published only after their post-read target check
+passes. Output already accepted into the queue can drain during shutdown, but
+the last in-flight observation can be lost when the target ends or changes.
+
+Paths in messages refer to the target's machine and working directory. Inbox
+messages do not attach files or transfer the caller's conversation context.
+
+## Close the connection
+
+When the connection is no longer needed, send:
+
+```jsonl
+{"type":"disconnect"}
+```
+
+Explicit disconnect, stdin EOF, `SIGINT`/`SIGTERM`/`SIGHUP`, or loss/change of the
+exact bound Claude session end the helper and clean up its own inbox. The helper
+binds both the chosen session ID and its process. `/clear` or `/new` starts a new
+session and closes the old connection; stopping or restarting the process also
+ends it, even if the new process resumes the same session ID. Reconnect only by
+explicitly selecting an open target and starting a new connection. The helper
+does not terminate Claude. Do not replace a lost target with a same-named session.
+Keep the host's actual control channel open for as long as the connection is needed;
+a chat turn ending is not a reliable process-lifetime signal.
+
+Exit codes are `0` for normal caller/owner closure, `3` for target loss/change or
+unsupported targets/environments, and `1` for helper execution, recording, or
+cleanup failure. A local failure takes precedence even after a disconnect or
+target loss; the first close reason is preserved. Error reporting is best effort
+if storage or output is unavailable.
+
+The run directory preserves `connection.json`, `events.jsonl`, and `outbox.json`
+as connection evidence. A stopped helper does not replay them or read a closed
+Claude session. Prior request directories remain untouched; the old
+`send`/`status`/`read`/`wait` command API is no longer used.
+
+Read [the inbox contract](references/inbox-contract.md) for event semantics,
+native framing, compatibility, and lifecycle details.
