@@ -1,11 +1,13 @@
 """Six connection contracts using real Linux processes, pipes, and Unix inboxes.
 
-Discovery and SDK reads use fixture data. Shutdown cases also inject faults at
-record, socket cleanup, worker, and owner boundaries. Relay processes, pipes,
-sockets/peer credentials, cursor, and durable files stay real.
+Discovery and explicit history reads use fixture data. Shutdown cases inject
+faults at record, inbox decode/cleanup, worker, and owner boundaries. Relay
+processes, pipes, sockets/peer credentials, and durable files stay real.
 """
 import hashlib
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -38,14 +40,14 @@ def store(path, value):
     temporary.replace(path)
 
 
-def sdk_message(message_id, text=None, *, record_uuid=None, private=False):
+def sdk_message(text=None, *, role="assistant", record_uuid=None, private=False):
     content = [{"type": "thinking", "thinking": "private reasoning"},
                {"type": "tool_use", "id": "hidden", "name": "Read", "input": {}}] if private else []
     if text is not None:
         content.append({"type": "text", "text": text})
-    return {"type": "assistant", "uuid": record_uuid or str(uuid.uuid4()),
+    return {"type": role, "uuid": record_uuid or str(uuid.uuid4()),
             "session_id": SESSION_ID,
-            "message": {"id": message_id, "role": "assistant", "content": content}}
+            "message": {"role": role, "content": content}}
 
 
 def eventually(predicate, description, timeout=6):
@@ -70,7 +72,6 @@ def relay_process(root, directory):
     sys.stdout = open(1, "w", encoding="utf-8", buffering=1, closefd=False)
     faults = read_json(root / "faults.json")
     release, finished = threading.Event(), threading.Event()
-    history_calls = 0
 
     def discover(command, **kwargs):
         if command != ["claude", "agents", "--json"]:
@@ -81,31 +82,23 @@ def relay_process(root, directory):
             raise AssertionError("Already bound relay repeated CLI discovery")
         return subprocess.CompletedProcess(command, 0, (root / "rows.json").read_text(), "")
 
-    def history(session_id, *, directory):
-        nonlocal history_calls
-        history_calls += 1
-        if session_id != SESSION_ID or directory != str(root):
-            raise AssertionError("SDK history read escaped the exact bound target")
-        messages = read_json(root / "history.json")
-        control = read_json(root / "history-control.json")
+    def decode(inbox, frame):
+        message = inbox_message(inbox, frame)
+        control = read_json(root / "receive-control.json")
         fault = control.get("fault")
-        if faults.get("late") and history_calls > 1:
+        if faults.get("late") and message is not None:
             store(root / "blocked.json", {})
             if not release.wait(5):
                 raise RuntimeError("Final-output barrier was never released")
             if faults["late"] == "target":
                 fault = "target_loss"
-                control = {"messages": []}
-            else:
-                return [sdk_message("late", "Output observed after records closed")]
         if fault == "target_loss":
-            messages = control["messages"]
             row = read_json(root / "rows.json")[0]
             path = root / "config" / "sessions" / f"{row['pid']}.json"
             store(path, {**read_json(path), "procStart": "stale"})
         elif fault == "unexpected":
-            raise RuntimeError("SDK boundary failed unexpectedly")
-        return messages
+            raise RuntimeError("Native inbox decode failed unexpectedly")
+        return message
 
     def wrap(name, replacement):
         original = getattr(claude_connection.Connection, name)
@@ -130,13 +123,13 @@ def relay_process(root, directory):
         try:
             return original(connection, work)
         finally:
-            if work.__name__ == "_history_loop":
+            if work.__name__ == "_receive_loop":
                 finished.set()
 
-    def history_loop(original, connection):
+    def receive_loop(original, connection):
         original(connection)
         if faults.get("late") == "worker":
-            raise RuntimeError("History worker failed during final output")
+            raise RuntimeError("Receive worker failed during final output")
 
     def control_loop(original, connection):
         if faults.get("main"):
@@ -157,6 +150,7 @@ def relay_process(root, directory):
 
     inbox_exit = claude_connection.ReturnInbox.__exit__
     inbox_peer = claude_connection.ReturnInbox._peer
+    inbox_message = claude_connection.ReturnInbox._message
 
     def peer_ready(inbox, connection):
         inbox_peer(inbox, connection)
@@ -183,21 +177,28 @@ def relay_process(root, directory):
 
     with ExitStack() as stack:
         stack.enter_context(patch.object(subprocess, "run", side_effect=discover))
-        stack.enter_context(patch.object(claude_history, "get_session_messages", side_effect=history))
+        history = stack.enter_context(patch.object(claude_history, "get_session_messages",
+            side_effect=AssertionError("Connect read session history")))
+        snapshot = stack.enter_context(patch.object(claude_history, "read_history",
+            side_effect=AssertionError("Connect requested a history snapshot")))
+        stack.enter_context(patch.dict(sys.modules, {"claude_history": None, "claude_agent_sdk": None}))
         for name, replacement in (("_close_records", close_records), ("_flush_output", flush),
                 ("_worker", worker), ("_control_loop", control_loop)):
             wrap(name, replacement)
         if faults.get("late") == "worker":
             # Preserve the worker name for the actual worker-completion barrier.
-            original = claude_connection.Connection._history_loop
-            def _history_loop(connection):
-                history_loop(original, connection)
-            stack.enter_context(patch.object(claude_connection.Connection, "_history_loop", _history_loop))
+            original = claude_connection.Connection._receive_loop
+            def _receive_loop(connection):
+                receive_loop(original, connection)
+            stack.enter_context(patch.object(claude_connection.Connection, "_receive_loop", _receive_loop))
         if faults.get("signal"):
             wrap("_request_owner_disconnect", signal_request)
         stack.enter_context(patch.object(claude_connection.ReturnInbox, "_peer", peer_ready))
+        stack.enter_context(patch.object(claude_connection.ReturnInbox, "_message", decode))
         stack.enter_context(patch.object(claude_connection.ReturnInbox, "__exit__", close_inbox))
         code = claude.main(["connect", "--session", SESSION_ID, "--run-dir", str(directory)])
+        history.assert_not_called()
+        snapshot.assert_not_called()
     os._exit(code)
 
 
@@ -234,7 +235,6 @@ class PeerFixture:
         self.registry_path = self.config / "sessions" / f"{pid}.json"
         store(self.registry_path, self.registry)
         store(self.root / "rows.json", [self.row])
-        store(self.root / "history.json", [])
         self.frames = []
         self.transmissions = 0
         self.transports_at_receive = []
@@ -428,10 +428,9 @@ class ClaudeConnectionContracts(unittest.TestCase):
         self.assertTrue(all(event["type"] == "error" for event in journal[closed[0] + 1:]))
         return journal
 
-    def test_many_to_many_native_and_history_output_survives_followups(self):
+    def test_many_to_many_native_output_survives_followups_without_sdk(self):
+        self.assertIsNone(importlib.util.find_spec("claude_agent_sdk"), "Run without the history extra")
         peer = self.peer()
-        old = sdk_message("old", "Already present")
-        store(peer.root / "history.json", [old])
         relay = peer.start()
         connected = relay.connected()
         address = connected["reply_address"]
@@ -442,16 +441,14 @@ class ClaudeConnectionContracts(unittest.TestCase):
         for text in tasks[:2]:
             relay.command(type="send", message=text)
         eventually(lambda: len(peer.frames) == 2, "two native inputs")
-        progress = sdk_message("progress", "한글 progress\n<literal>")
-        store(peer.root / "history.json", [old, progress])
-        relay.event("message", content="한글 progress\n<literal>", source="assistant")
+        peer_write(peer, address, "한글 progress\n<literal>")
+        relay.event("message", content="한글 progress\n<literal>", source="peer")
         relay.command(type="send", message=tasks[2])
         question_id = str(uuid.uuid4())
         peer_write(peer, address, "Which boundary should I focus on?", message_id=question_id)
         relay.event("message", uuid=question_id)
         peer_write(peer, address, "Which boundary should I focus on?", message_id=question_id)
-        final = sdk_message("final", "Both instructions converge in this result.")
-        store(peer.root / "history.json", [old, progress, final])
+        peer_write(peer, address, "Both instructions converge in this result.")
         relay.event("message", content="Both instructions converge in this result.")
         eventually(lambda: len(peer.frames) == 3, "follow-up native input")
         eventually(lambda: len(read_json(relay.directory / "outbox.json")) == 3 and
@@ -486,9 +483,8 @@ class ClaudeConnectionContracts(unittest.TestCase):
         self.assertEqual([event for event in journal if event["type"] == "delivery_status"], receipts)
         self.assertEqual(read_json(relay.directory / "outbox.json"), outbox)
         self.assertEqual(len([item for item in messages if item.get("uuid") == question_id]), 1)
-        self.assertIn(old["uuid"], state["cursor"]["seen"])
-        self.assertIn(progress["uuid"], state["cursor"]["seen"])
-        self.assertEqual(state["cursor"]["last_uuid"], final["uuid"])
+        self.assertNotIn("cursor", state)
+        self.assertTrue(all(event["source"] == "peer" for event in messages))
         self.assertEqual([frame["message"]["content"] for frame in peer.frames], [
             f'<cross-session-message from="{address}" from-name="Codex">\n{text}\n</cross-session-message>'
             for text in tasks])
@@ -552,15 +548,13 @@ class ClaudeConnectionContracts(unittest.TestCase):
                 elif cause == "signal":
                     relay.process.send_signal(signal.SIGTERM)
                 elif cause == "captured_loss":
-                    accepted = sdk_message("accepted", "Accepted before the peer disappeared")
-                    store(peer.root / "history.json", [accepted])
+                    peer_write(peer, address, "Accepted before the peer disappeared")
                     relay.event("message", content="Accepted before the peer disappeared")
-                    accepted_cursor = relay.state()["cursor"]
-                    captured = sdk_message("last", "Captured before the peer disappeared")
-                    store(peer.root / "history-control.json", {"fault": "target_loss",
-                        "messages": [accepted, captured]})
+                    store(peer.root / "receive-control.json", {"fault": "target_loss"})
+                    peer_write(peer, address, "Captured before the peer disappeared")
                 else:
-                    store(peer.root / "history-control.json", {"fault": "unexpected"})
+                    store(peer.root / "receive-control.json", {"fault": "unexpected"})
+                    peer_write(peer, address, "Trigger a native worker fault")
                 owner_loss = cause in {"eof", "pty", "signal"}
                 state = relay.finish(expected=0 if owner_loss else 1 if cause == "worker_failure" else 3)
                 self.assertEqual(state["reason"], "owner_disconnected" if owner_loss else
@@ -571,8 +565,6 @@ class ClaudeConnectionContracts(unittest.TestCase):
                 if cause == "captured_loss":
                     self.assertEqual([event["content"] for event in journal if event["type"] == "message"],
                                      ["Accepted before the peer disappeared"])
-                    self.assertEqual(state["cursor"], accepted_cursor)
-                    self.assertNotIn(captured["uuid"], state["cursor"]["seen"])
                 if cause == "signal":
                     self.assertEqual(read_json(peer.root / "signal.json"), {"flag": True, "event_sets_in_handler": 0})
                 self.assertEqual(read_json(peer.root / "discovery.json")["count"], 1)
@@ -635,9 +627,9 @@ class ClaudeConnectionContracts(unittest.TestCase):
         eventually(lambda: relay.state().get("status") == "connected", "connected without output reader")
         address = relay.state()["reply_address"]
         text = "Output remains in the journal. " * 15_000
-        store(peer.root / "history.json", [sdk_message("large", text)])
-        eventually(lambda: relay.state().get("cursor", {}).get("groups", {}).get("large", {}).get("revision") == 1,
-                   "journal spooling before cursor publication")
+        peer_write(peer, address, text)
+        eventually(lambda: relay.state().get("seq", 0) >= 2,
+                   "native output spooled with stdout blocked")
         message_id = str(uuid.uuid4())
         relay.command(type="send", uuid=message_id, message="x" * 850_000)
         self.assertTrue(peer.held.wait(4), "Native socket did not hold an in-flight write")
@@ -664,7 +656,8 @@ class ClaudeConnectionContracts(unittest.TestCase):
                 relay = peer.start(faults=faults)
                 address = relay.connected()["reply_address"]
                 if cause.startswith("late_"):
-                    eventually(lambda: (peer.root / "blocked.json").exists(), "in-flight SDK boundary")
+                    peer_write(peer, address, "Output observed after records closed")
+                    eventually(lambda: (peer.root / "blocked.json").exists(), "in-flight native decode boundary")
                 if cause == "inbox":
                     active = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     self.addCleanup(active.close)
@@ -696,45 +689,79 @@ class ClaudeConnectionContracts(unittest.TestCase):
                 self.assertFalse(Path(unquote(address[4:])).exists())
                 self.assertTrue(peer.inbox.exists())
 
-    def test_assistant_revisions_empty_reads_and_compaction_keep_cursor_evidence(self):
+    def test_optional_history_snapshot_is_one_shot_and_independent_of_relay(self):
         peer = self.peer()
-        target = peer.bind()
-        baseline_uuid = str(uuid.uuid4())
-        rows = [sdk_message("answer", "Old draft", record_uuid=baseline_uuid)]
-        with patch.object(claude_history, "get_session_messages", side_effect=lambda *args, **kwargs: rows):
-            cursor = claude_history.capture_cursor(target)
-            second = sdk_message("answer", "ha")
-            third = sdk_message("answer", "ha")
-            hidden = sdk_message("hidden", private=True)
-            rows[:] = [sdk_message("answer", "Draft ", record_uuid=baseline_uuid), second, third,
-                       hidden]
-            result = claude_history.observe_messages(target, cursor)
-            self.assertEqual([(event["content"], event["revision"]) for event in result["messages"]], [("Draft haha", 1)])
-            cursor = result["cursor"]
-            rows[:] = [sdk_message("answer", "Outdated", record_uuid=baseline_uuid),
-                       sdk_message("answer", "Final ", record_uuid=baseline_uuid), second, third, hidden]
-            result = claude_history.observe_messages(target, cursor)
-            self.assertEqual([(event["content"], event["revision"]) for event in result["messages"]], [("Final haha", 2)])
-            cursor = result["cursor"]
-            rows.clear()
-            result = claude_history.observe_messages(target, cursor)
-            self.assertEqual(result, {"cursor": cursor, "messages": [], "history_gap": False})
-            rows[:] = [sdk_message("answer", record_uuid=baseline_uuid, private=True),
-                       sdk_message("answer", record_uuid=second["uuid"], private=True),
-                       sdk_message("answer", record_uuid=third["uuid"], private=True), hidden]
-            result = claude_history.observe_messages(target, cursor)
-            self.assertEqual([(event["content"], event["revision"]) for event in result["messages"]], [("", 3)])
-            cursor = result["cursor"]
-            self.assertFalse(claude_history.observe_messages(target, cursor)["messages"])
-            rows[:] = [sdk_message("replacement", "After compaction")]
-            result = claude_history.observe_messages(target, cursor)
-            self.assertTrue(result["history_gap"])
-            self.assertEqual(result["messages"][0]["content"], "After compaction")
-            self.assertEqual(result["cursor"]["groups"]["answer"]["revision"], 3)
-            self.assertNotIn("private reasoning", json.dumps(result))
-            rows[0]["session_id"] = str(uuid.uuid4())
-            with self.assertRaises(claude_history.HistoryError):
-                claude_history.observe_messages(target, result["cursor"])
+        relay = peer.start()
+        address = relay.connected()["reply_address"]
+        peer_write(peer, address, "Native message before explicit history")
+        relay.event("message", content="Native message before explicit history")
+        baseline = (relay.state(), relay.journal())
+
+        def lookup(*arguments, reader=None):
+            output = io.StringIO()
+            with ExitStack() as stack:
+                stack.enter_context(redirect_stdout(output))
+                stack.enter_context(redirect_stderr(io.StringIO()))
+                stack.enter_context(patch.object(claude, "NativeClient", return_value=peer.client()))
+                stack.enter_context(patch.object(subprocess, "run", side_effect=lambda command, **kwargs:
+                    subprocess.CompletedProcess(command, 0, (peer.root / "rows.json").read_text(), "")))
+                if reader is not None:
+                    read = stack.enter_context(patch.object(claude_history, "get_session_messages", side_effect=reader))
+                code = claude.main(["history", "--session", SESSION_ID, *arguments])
+                if reader is not None and code != 3:
+                    read.assert_called_once_with(SESSION_ID, directory=str(peer.root))
+            return code, json.loads(output.getvalue())
+
+        texts = [f"Message {index}\n한글 <literal>" for index in range(13)]
+        visible = [sdk_message(text, role="user" if index % 2 else "assistant")
+                   for index, text in enumerate(texts)]
+        visible[1]["message"]["content"] = texts[1]  # Native string and block content both occur.
+        visible[2]["message"]["content"] = [
+            {"type": "text", "text": texts[2][:5]}, {"type": "tool_result", "content": "private result"},
+            {"type": "text", "text": texts[2][5:]}]
+        records = visible[:7] + [sdk_message(private=True), sdk_message(""),
+            {"type": "system", "message": {"content": "private system"}}] + visible[7:]
+        expected = [{"type": row["type"], "uuid": row["uuid"], "content": text}
+                    for row, text in zip(visible, texts)]
+        for arguments, limit in (((), 10), (("--limit", "3"), 3), (("--limit", "20"), 20)):
+            with self.subTest(limit=limit):
+                code, result = lookup(*arguments, reader=lambda *args, **kwargs: records)
+                self.assertEqual(code, 0)
+                self.assertEqual(result, {"type": "history", "session_id": SESSION_ID,
+                    "cwd": str(peer.root), "limit": limit, "messages": expected[-limit:],
+                    "truncated": len(expected) > limit})
+        code, result = lookup(reader=lambda *args, **kwargs: [])
+        self.assertEqual((code, result["messages"], result["truncated"]), (0, [], False))
+        for value in ("0", "-1", "1.5"):
+            with self.subTest(invalid_limit=value), self.assertRaises(SystemExit) as caught:
+                lookup("--limit", value)
+            self.assertEqual(caught.exception.code, 2)
+        def read_failure(*args, **kwargs):
+            raise OSError("SDK read failed")
+        for reader in (None, read_failure):
+            code, result = lookup(reader=reader)
+            self.assertEqual((code, result["type"], result["error"]["code"]),
+                             (1, "error", "history_unavailable"))
+        self.assertEqual((relay.state(), relay.journal()), baseline)
+        relay.command(type="send", message="Follow up after optional history")
+        eventually(lambda: len(peer.frames) == 1, "native follow-up after history success and failure")
+        peer_write(peer, address, "Native message after explicit history")
+        relay.event("message", content="Native message after explicit history")
+        relay.command(type="disconnect")
+        relay.finish()
+        self.assert_journal(relay)
+
+        peer = self.peer()  # Intentional target loss belongs to a separate fixture.
+        store(peer.root / "rows.json", [])
+        code, result = lookup(reader=lambda *args, **kwargs: records)
+        self.assertEqual((code, result["error"]["code"]), (3, "session_unavailable"))
+        store(peer.root / "rows.json", [peer.row])
+        def change_target(*args, **kwargs):
+            store(peer.registry_path, {**peer.registry, "sessionId": str(uuid.uuid4())})
+            return records
+        code, result = lookup(reader=change_target)
+        self.assertEqual((code, result["error"]["code"]), (3, "session_unavailable"))
+        self.assertNotIn("messages", result, "Changed target leaked its history snapshot")
 
     def test_invalid_owner_frames_and_foreign_peers_do_not_poison_connection(self):
         peer = self.peer()

@@ -54,20 +54,20 @@ stdin. Supply the caller's message unchanged:
 {"type":"send","message":"Focus on malformed input; leave the files unchanged."}
 ```
 
-A follow-up uses the same connection. Sending does not reset its receive cursor.
-An optional `uuid` identifies a transmission for deduplication within this
-connection; repeating the same UUID and text never resends it. It does not pair
-an input with Claude's output.
+A follow-up uses the same connection. An optional `uuid` identifies a
+transmission for deduplication within this connection; repeating the same UUID
+and text never resends it. It does not pair an input with Claude's output.
 
 Read asynchronous JSONL events from stdout while continuing other work. Keep
 host output waits under 60 seconds, then resume collecting from the same
 execution session. Poll timeouts and Claude's `idle` or `waiting` state leave
 the connection open.
 
-`message` events relay Claude's native peer messages and newly observed ordinary
-assistant text. They carry `seq`, `connection_id`, `session_id`, `source` (`peer`
-or `assistant`), `uuid`, and `content`; assistant output also carries `message_id`
-and `revision`.
+Claude sends reports and questions through native `SendMessage` to the sender's
+return address, supplied in the incoming message. `message` events relay those
+messages with `seq`, `connection_id`, `session_id`, `source: "peer"`, `uuid`, and
+`content`. Ordinary text in Claude's own conversation is not received by the
+connection. Connecting, sending, and receiving require no SDK or history reads.
 Forward the content as received. There may be multiple outputs for one
 instruction or one output after several instructions. Do not require a reply
 tag, match outputs to inputs, or treat an event as proof of task completion.
@@ -79,17 +79,29 @@ when present, identifies a transmission, not a Claude reply. A `delivered` notic
 means a held message was released to Claude, not that work finished. A successful
 write or absent notice does not prove admission. Do not automatically replay an
 uncertain transmission. Other `error` events report connection or command
-failures; `history_gap` reports a lost history boundary. `closed` ends the
-connection and normal message delivery. Keep collecting until the helper exits:
-final cleanup errors can follow `closed`, and the process exit code reports
-the final outcome.
-
-History observations are published only after their post-read target check
-passes. Output already accepted into the queue can drain during shutdown, but
-the last in-flight observation can be lost when the target ends or changes.
+failures. `closed` ends the connection and normal message delivery. Keep
+collecting until the helper exits: final cleanup errors can follow `closed`,
+and the process exit code reports the final outcome.
 
 Paths in messages refer to the target's machine and working directory. Inbox
 messages do not attach files or transfer the caller's conversation context.
+
+## Inspect history only when needed
+
+History inspection is a separate, optional one-shot command:
+
+```sh
+uv run --project "$SKILL_DIR" --extra history \
+  "$SKILL_DIR/scripts/claude.py" history --session "$SESSION_ID" --limit 10
+```
+
+It requires a live selected target and the optional SDK dependency. It returns
+the latest visible user/assistant text messages as standalone JSON, with a
+default limit of 10. It does not feed connection events or affect an active
+connection. Do not invoke it automatically because Claude is silent or a
+delivery notice is absent. See the
+[inbox contract](references/inbox-contract.md#optional-history-inspection) for
+the output and filtering rules.
 
 ## Close the connection
 

@@ -7,8 +7,10 @@ assignment and interpretation. Inputs and outputs are independent streams.
 ## Support and interfaces
 
 Supports local Linux sessions owned by the calling operating-system user. The
-compatibility baseline is Claude Code `2.1.299`, native peer protocol `1`, and
-`claude-agent-sdk==0.2.166`. Unsupported native layouts are explicit errors.
+compatibility baseline is Claude Code `2.1.299` and native peer protocol `1`.
+Optional history inspection uses `claude-agent-sdk==0.2.166`, installed through
+the `history` extra. `sessions` and `connect` require no SDK. Unsupported native
+layouts are explicit errors.
 macOS, Windows named pipes, remote machines, and cloud sessions are outside this
 implementation's support.
 
@@ -18,7 +20,7 @@ The public interfaces used are:
   for candidate discovery.
 - The target's [inbox address and authentication](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket).
 - [`get_session_messages`](https://code.claude.com/docs/en/agent-sdk/python#get_session_messages)
-  for ordinary conversation history.
+  only for explicitly requested, one-shot history inspection.
 
 Registry layout, native frame fields, and direct peer reply addresses are
 version-specific compatibility details owned by `scripts/claude_native.py`.
@@ -37,7 +39,6 @@ The helper owns:
 
 - The exact target binding and its availability checks.
 - A local return inbox for native peer messages.
-- One receive cursor for ordinary assistant output.
 - Per-transmission UUID bookkeeping, independent of received messages.
 - Event output, local evidence, and cleanup.
 
@@ -120,11 +121,10 @@ Stdout contains asynchronous JSONL events:
 | Event | Meaning |
 | --- | --- |
 | `connected` | Exact target binding and the helper's return inbox are ready |
-| `message` | Native peer content or new/revised ordinary assistant text |
+| `message` | Claude's native peer content |
 | `sent` | Transmission UUID and observed transport outcome |
-| `delivery_status` | Verified native peer transport notice, separate from assistant output |
+| `delivery_status` | Verified native transport notice from the same return inbox |
 | `error` | Command or connection failure; inspect the error and later stream events |
-| `history_gap` | The saved history boundary disappeared from the current SDK chain |
 | `closed` | The helper has ended the connection |
 
 `closed` ends normal message delivery. Final output or reader cleanup errors
@@ -133,15 +133,13 @@ exits; its exit code reports the final outcome.
 
 Invalid controls or rejected peer frames report errors without closing an
 otherwise usable connection. Target, return-listener, and record failures close
-the helper. A history gap is reported once when the cursor first detects it and
-remains recorded; it does not close the connection.
+the helper.
 
 Events carry `seq`, `connection_id`, and the selected `session_id`. Each
-`message` also carries `source` (`peer` or `assistant`), `uuid`, and `content`.
-Assistant messages additionally carry `message_id` and `revision`. A revised
-assistant event updates the same output group; an empty
-revision clears its previously observed text. Preserve message content and
-revisions when presenting or consuming output.
+`message` also carries `source: "peer"`, `uuid`, and `content`. Preserve the
+received content when presenting or consuming output. The connection does not
+read conversation history or emit ordinary assistant output, revisions, or
+history-gap events.
 
 The event journal spools output while the host pauses collection. A full stdout
 pipe does not block stdin controls or connection shutdown. Unread output stays
@@ -154,9 +152,8 @@ Progress, questions, intermediate results, and final reports can all arrive.
 Additional instructions can be sent while Claude works. One instruction need
 not produce one output, and the helper does not impose a response format.
 
-The native peer and assistant-history sources remain distinguishable. Content
-that appears in both sources is not collapsed by textual similarity: repetition
-alone does not establish that two messages are the same event.
+Native message UUIDs provide event deduplication. Repeated text alone does not
+establish that two messages are the same event.
 
 ## Native delivery and return inbox
 
@@ -178,10 +175,10 @@ The sender builds one complete UTF-8 JSON line before transmission:
 }
 ```
 
-The return address is the helper's actual `uds:` inbox address. Claude can use
-its native `SendMessage` reply path to reach that inbox. Ordinary assistant
-text is also received through the SDK history reader; the helper does not ask
-Claude to choose a prescribed reply channel or wrap its reply in a marker.
+The return address is the helper's actual `uds:` inbox address. Claude uses
+native `SendMessage` to that address for reports and questions. Ordinary text
+left in Claude's own conversation does not reach the helper. No reply marker or
+input/output matching is required.
 The adapter creates a unique `codex-<id>.sock` in the target's validated inbox
 directory with mode `0600`. It removes that socket at shutdown only while its
 identity still belongs to this helper; the run directory holds records only.
@@ -212,6 +209,8 @@ not read raw transcripts to certify input receipt.
 At shutdown, an unfinished `write_started` transmission is frozen as
 `delivery_unknown`. Workers cannot update transmission records after closure.
 
+The same return inbox carries Claude's messages and native delivery notices;
+these are different frame types, not separate receive channels.
 The return inbox accepts the bound Claude process only and retains its
 post-read binding check. It recognizes native `control` frames with
 `action: "peer_message_status"` and relays allowlisted, type-checked fields as
@@ -243,9 +242,22 @@ Missing notices prove nothing about admission.
 native notices. They do not pair Claude's output with an input, establish task
 completion, trigger automatic retries, or change the saved socket-write state.
 
-## Assistant history stream
+## Optional history inspection
 
-History reading uses only:
+History is an independent inspection command, not part of task messaging:
+
+```sh
+uv run --project "$SKILL_DIR" --extra history \
+  "$SKILL_DIR/scripts/claude.py" history --session "$SESSION_ID" --limit 10
+```
+
+`--limit` must be a positive integer and defaults to `10`. The command selects
+one exact live target and validates it before and after reading. It does not
+open or require a persistent connection. An unavailable or changed target is an
+error; an archived conversation cannot substitute for it.
+
+The optional `history` extra supplies the pinned SDK. Its only SDK operation is
+read-only history retrieval:
 
 ```python
 from claude_agent_sdk import get_session_messages
@@ -253,27 +265,35 @@ from claude_agent_sdk import get_session_messages
 messages = get_session_messages(session_id, directory=target_cwd)
 ```
 
-Capture the initial history boundary once when connecting. Assistant output
-returned by that initial read is the baseline. Track SDK UUIDs,
-content fingerprints, and native `message.id` groups to emit new or revised
-assistant text. Thinking and tool blocks are not assistant text. Sending a
-follow-up neither resets the cursor nor consumes received output.
-Each observation validates the bound target, reads SDK history, and validates
-the target again before enqueuing the result or advancing the worker cursor.
-Only observations passing that post-read check are published. Already accepted
-queued output can drain during closure; if the session switches or the process
-ends during a read, that last observation may be lost. The SDK returns
-session-level history and does not identify the writer PID of every record.
-Journal an entire accepted observation batch before committing its new receive
-cursor.
-An SDK empty result is an empty observation, including when its history file
-has not appeared yet. Records first exposed later are newly observed; the API
-cannot establish from an empty result whether they predated the connection.
+The command returns one standalone JSON object:
 
-If compaction removes the observation boundary, preserve previously observed
-events and report a history gap. A gap does not authorize rereading all old
-output as new. The helper does not infer which instructions any assistant text
-answers or infer task completion from session status.
+```json
+{
+  "type": "history",
+  "session_id": "<selected-session-id>",
+  "cwd": "<target-working-directory>",
+  "limit": 10,
+  "messages": [
+    {"type": "user", "uuid": "<record-uuid>", "content": "<visible text>"},
+    {"type": "assistant", "uuid": "<record-uuid>", "content": "<visible text>"}
+  ],
+  "truncated": false
+}
+```
+
+Select the last `limit` nonempty visible user/assistant text messages and retain
+their chronological order. Text is preserved verbatim; thinking, tool calls,
+and tool results are excluded. `truncated: true` means earlier visible messages
+were omitted by the limit. An empty visible history returns `messages: []` and
+`truncated: false`. This is the SDK's session-level view; it does not identify
+the writer PID of each record.
+
+Inspection does not create or update a connection cursor, emit `message`
+events, or change connection records. It does not associate inputs with
+responses or establish task completion. Its failure does not affect an active
+connection. Do not invoke it automatically on silence, a host output timeout,
+or a missing delivery notice. The caller chooses it only when inspecting the
+conversation is useful. No SDK inference client or fallback session is started.
 
 ## Evidence and inbound controls
 
@@ -282,7 +302,7 @@ Each connection gets a new run directory, defaulting to
 
 | File | Responsibility |
 | --- | --- |
-| `connection.json` | Exact target, helper metadata, receive cursor, sequence, connection state and close reason |
+| `connection.json` | Exact target, helper metadata, sequence, connection state and close reason |
 | `events.jsonl` | Persisted stream events, including the closing event |
 | `outbox.json` | Outbound text and transport state keyed by transmission UUID |
 

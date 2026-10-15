@@ -16,7 +16,6 @@ import threading
 import time
 import uuid
 
-from claude_history import HistoryError, capture_cursor, observe_messages
 from claude_native import ClaudeError, NativeClient, ReturnInbox, build_frame
 
 
@@ -26,11 +25,11 @@ LOCAL_FAILURES = {"record_unavailable", "inbox_unavailable", "worker_failed", "i
 
 
 def error_code(error: Exception) -> str:
-    return getattr(error, "code", "history_unavailable" if isinstance(error, HistoryError) else "record_unavailable")
+    return getattr(error, "code", "record_unavailable")
 
 
 def _connection_error(error: Exception) -> Exception:
-    if isinstance(error, (ClaudeError, HistoryError, OSError)):
+    if isinstance(error, (ClaudeError, OSError)):
         return error
     return ClaudeError("internal_error", f"Unexpected connection error ({type(error).__name__})")
 
@@ -160,36 +159,26 @@ class Connection:
                 self._failure(ClaudeError("worker_failed", f"{work.__name__} ended unexpectedly"))
 
     def _publish(self, kind: str, **fields) -> None:
-        self._publish_many([(kind, fields)])
-
-    def _publish_many(self, items: list[tuple[str, dict]], **updates) -> None:
-        """Commit a whole observed batch before advancing its receive cursor."""
-        if not items and all(self.state.get(key) == value for key, value in updates.items()):
-            return
+        """Journal an event before publishing the updated connection state."""
         if self.journal_broken:
             raise OSError("Connection event journal is unavailable")
-        next_seq = self.state["seq"] + len(items)
-        events = [{"type": kind, "seq": self.state["seq"] + index + 1,
-                   "connection_id": self.connection_id, "session_id": self.target.session_id, **fields}
-                  for index, (kind, fields) in enumerate(items)]
-        if events:
-            encoded = "".join(json.dumps(event, ensure_ascii=False, allow_nan=False) + "\n"
-                              for event in events)
-            try:
-                with (self.directory / "events.jsonl").open("a", encoding="utf-8") as stream:
-                    stream.write(encoded)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                    self.journal_end = os.fstat(stream.fileno()).st_size
-            except OSError:
-                self.journal_broken = True
-                raise
-            # The journal already owns these sequence numbers even when the
-            # later atomic state publication fails. Never allocate them again.
-            self.state["seq"] = next_seq
-        updated = {**self.state, **updates}
-        _save_json(self.directory / "connection.json", updated)
-        self.state = updated
+        next_seq = self.state["seq"] + 1
+        event = {"type": kind, "seq": next_seq, "connection_id": self.connection_id,
+                 "session_id": self.target.session_id, **fields}
+        encoded = json.dumps(event, ensure_ascii=False, allow_nan=False) + "\n"
+        try:
+            with (self.directory / "events.jsonl").open("a", encoding="utf-8") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+                self.journal_end = os.fstat(stream.fileno()).st_size
+        except OSError:
+            self.journal_broken = True
+            raise
+        # The journal already owns this sequence number even when the later
+        # atomic state publication fails. Never allocate it again.
+        self.state["seq"] = next_seq
+        _save_json(self.directory / "connection.json", self.state)
 
     def _flush_output(self) -> None:
         """The journal spools output while a slow owner keeps control available."""
@@ -271,6 +260,9 @@ class Connection:
     def _receive_loop(self) -> None:
         while not self._stopping():
             try:
+                # Availability belongs to the connection even when Claude
+                # sends no messages. No conversation history is read here.
+                self.client.validate(self.target)
                 event = self.inbox.read_message(timeout=0.5)
                 if event is not None:
                     fields = dict(event)
@@ -280,26 +272,6 @@ class Connection:
                 if getattr(error, "code", None) in TERMINAL_ERRORS:
                     break
                 self.stop.wait(0.5)
-
-    def _history_loop(self) -> None:
-        cursor = self.state["cursor"]
-        previous_error = None
-        while not self._stopping():
-            try:
-                self.client.validate(self.target)
-                result = observe_messages(self.target, cursor)
-                self.client.validate(self.target)
-                cursor = result["cursor"]
-                self._enqueue("history", result)
-                previous_error = None
-            except (ClaudeError, HistoryError, OSError) as error:
-                signature = (getattr(error, "code", "history_unavailable"), str(error))
-                if signature != previous_error:
-                    self._failure(error)
-                    previous_error = signature
-                if getattr(error, "code", None) in TERMINAL_ERRORS:
-                    break
-            self.stop.wait(1)
 
     def _command(self, line: bytes) -> None:
         try:
@@ -346,12 +318,6 @@ class Connection:
             if kind == "failure":
                 fields = dict(payload)
                 self._error(fields.pop("error"), **fields)
-            elif kind == "history":
-                old_gap = self.state["cursor"].get("history_gap", False)
-                events = [("message", message) for message in payload["messages"]]
-                if payload["history_gap"] and not old_gap:
-                    events.append(("history_gap", {}))
-                self._publish_many(events, cursor=payload["cursor"])
             else:
                 if kind in {"message", "delivery_status"} and payload.get("source") == "peer":
                     if payload["uuid"] in self.peer_uuids:
@@ -405,7 +371,7 @@ class Connection:
         try:
             with _owner_channel(self._request_owner_disconnect):
                 return self._run()
-        except (ClaudeError, HistoryError, OSError):
+        except (ClaudeError, OSError):
             raise  # Before records exist, the CLI owns structured error output.
         except Exception as error:
             raise _connection_error(error) from error
@@ -416,19 +382,13 @@ class Connection:
         self.target = self.client.bind(self.session_id)
         if self._stopping():
             return self.exit_code
-        cursor = capture_cursor(self.target)
-        if self._stopping():
-            return self.exit_code
-        self.client.validate(self.target)
-        if self._stopping():
-            return self.exit_code
         try:
             self.directory.mkdir(parents=True, mode=0o700)
         except FileExistsError as error:
             raise ClaudeError("connection_conflict", "Use a new directory for each connection; existing records are never restarted") from error
         self.state = {"version": 2, "connection_id": self.connection_id,
                       "target": self.target.to_dict(), "server_pid": os.getpid(),
-                      "status": "connecting", "seq": 0, "cursor": cursor}
+                      "status": "connecting", "seq": 0}
         threads = []
         output_blocking = None
         try:
@@ -441,7 +401,7 @@ class Connection:
                     self.state.update(status="connected", reply_address=self.inbox.address)
                     self._publish("connected", run_dir=str(self.directory), target=self.target.to_dict(),
                                   reply_address=self.inbox.address)
-                    for work in (self._send_loop, self._receive_loop, self._history_loop):
+                    for work in (self._send_loop, self._receive_loop):
                         thread = threading.Thread(target=self._worker, args=(work,), daemon=True)
                         threads.append(thread)
                         thread.start()

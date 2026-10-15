@@ -168,12 +168,15 @@ wheels = [
 name = "codex-skill-claude"
 version = "0.1.0"
 source = { virtual = "." }
-dependencies = [
+
+[package.optional-dependencies]
+history = [
     { name = "claude-agent-sdk" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "claude-agent-sdk", specifier = "==0.2.166" }]
+requires-dist = [{ name = "claude-agent-sdk", marker = "extra == 'history'", specifier = "==0.2.166" }]
+provides-extras = ["history"]
 
 [[package]]
 name = "cryptography"
