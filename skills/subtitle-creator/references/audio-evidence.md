@@ -1,6 +1,6 @@
 # Audio Evidence
 
-Read when unclear automatic captions need speech recognition or when available audio can support timing adjustments. The main agent coordinates this work and supplies the resulting observations to the translation workers that need them.
+Read when timed speech evidence must be acquired from media, when a passage needs additional recognition, or when audio can support timing adjustments. The main agent coordinates acquisition and supplies the observations to the workers that need them.
 
 ## Resolve the Available Capability
 
@@ -8,15 +8,19 @@ Start with the session's exposed tools, the calling project's environment, and a
 
 Use supported GPU execution when the selected runtime and model can operate on that device. Use CPU when GPU execution is unavailable or fails for an identified backend or resource reason. Retain useful completed results when changing the execution device, and record the actual runtime, model, device, and any fallback used.
 
-If no usable local recognition path or matching audio is available, continue the supported translation work from the available evidence and record the unresolved evidence limitation. Keep material decisions in `pending` until an interpretation has been accepted from the available context.
+Report any unavailable recognition capability with the affected media range. Continue work supported by existing evidence and retain unresolved acquisition ranges or material interpretation decisions until they have been addressed.
 
-## Obtain Targeted Recognition
+## Obtain Timed Speech Evidence
 
-Collect unclear original-time intervals from translation work together with the source cue IDs, competing readings, and the context needed to interpret them. Combine overlapping requests and retain enough surrounding speech to recognize complete phrases. Reuse the loaded runtime where its interface supports it, coordinating requests to avoid competing model loads.
+Establish the requested media range before recognition. When no subtitle track supplies the initial timed evidence, process that full range and retain the native result files, completed ranges, and any failures or pending ranges. Resume unprocessed portions using the retained results. A whole-file call can supply one completed range; divide work when the runtime or input requires it.
+
+Normalize the actual recognized segments and their time anchors according to [work-data.md](work-data.md) before preparing common subtitle work. Distinguish a completed recognition call from a reliable reading of every utterance. Review empty output against the available speech evidence before accepting an empty subtitle track.
+
+During composition, collect unclear original-time intervals together with source cue IDs, competing readings, and the context needed to interpret them. Combine overlapping requests and retain enough surrounding speech to recognize complete phrases. Reuse the loaded runtime where its interface supports it, coordinating requests to avoid competing model loads.
 
 Use the selected tool's own interval support or extract the required audio with an available media tool. Preserve the extraction offset. A time returned relative to a clip becomes an original-media time by adding that clip's start offset; inspect the runtime's timestamp convention before making this conversion.
 
-Retain the original automatic caption and the new recognition result as separate observations. Provide the relevant outputs and any documented confidence or timing information to the responsible translation worker. Judge disagreements through the surrounding dialogue, speaker intent, terminology, and available audio. Revisit earlier terminology decisions when stronger evidence changes an interpretation.
+Retain initial subtitle or recognition evidence and subsequent recognition results as separate observations. Provide the relevant outputs and any documented confidence or timing information to the responsible worker. Judge disagreements through the surrounding dialogue, speaker intent, terminology, and available audio. Revisit earlier terminology decisions when stronger evidence changes an interpretation.
 
 Record accepted corrections and important remaining uncertainty in the work notes. Reuse those observations when repairing the same passage. Further recognition should address an identified question or execution failure.
 

@@ -1,12 +1,12 @@
-"""Repeatable subtitle-translator checks.
+"""Repeatable subtitle-creator checks.
 
 Run from the repository root with Python 3.11+ and uv:
-    uv run python -m unittest discover -s tests -p 'test_subtitle_translator.py' -v
+    uv run python -m unittest discover -s tests -p 'test_subtitle_creator.py' -v
 
 Each automated case creates its source, workspace, and destinations inside a TemporaryDirectory and removes them after the case. No STT, media, model access, third-party dependencies, or persistent environment configuration is required.
 Successful runs must preserve source data, represent every source cue through translated groups or explicit omissions, and produce the exact expected text and timestamps. Invalid/incomplete work and refused writes must leave source, work, and existing outputs unchanged, without abandoned publication temporaries.
 
-For the separately run behavioral evaluation, write BEHAVIORAL_SRT to an English SRT under a unique .codex-skills/subtitle-translator/<run-id>/ directory, prepare its source/work files, and give an independent latest-available Terra/max worker the skill and a request for Korean subtitles without supplying this rubric.
+For the separately run behavioral evaluation, write BEHAVIORAL_SRT to an English SRT under a unique .codex-skills/subtitle-creator/<run-id>/ directory, prepare its source/work files, and give an independent latest-available Terra/max worker the skill and a request for Korean subtitles without supplying this rubric.
 Assess natural contextual idioms, the 15/50 contrast, the I scream/ice cream exchange, removal of non-dialogue annotations while preserving inline speech, source coverage, and sentence boundaries. With no media supplied, the result must distinguish source-based timing from verified speech synchronization and must not claim STT use. Keep the worker result, final subtitles, and assessment in that run for reproduction; unittest does not execute or judge model output.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ import unittest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "skills/subtitle-translator/scripts/subtitle_io.py"
+SCRIPT = REPO_ROOT / "skills/subtitle-creator/scripts/subtitle_io.py"
 
 BEHAVIORAL_SRT = """1
 00:00:00,500 --> 00:00:02,000
@@ -138,9 +138,9 @@ def accepted_work() -> dict:
     }
 
 
-class SubtitleTranslatorTests(unittest.TestCase):
+class SubtitleCreatorTests(unittest.TestCase):
     def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory(prefix="subtitle-translator-tests-")
+        directory = tempfile.TemporaryDirectory(prefix="subtitle-creator-tests-")
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
 

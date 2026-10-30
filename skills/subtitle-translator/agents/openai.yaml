@@ -1,4 +1,0 @@
-interface:
-  display_name: "Subtitle Translator"
-  short_description: "Translate subtitles with context and speech timing"
-  default_prompt: "Use $subtitle-translator to translate these English subtitles into my language, refine their timing with the supplied media, and save a new subtitle file."

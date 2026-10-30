@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Read subtitle evidence and publish the agent's edited SRT or WebVTT cues."""
+"""Prepare timed speech evidence and publish the agent's SRT or WebVTT cues."""
 from __future__ import annotations
 
 import argparse
@@ -98,8 +98,8 @@ def parse_payload(text: str, format_: str, *, allow_empty: bool = False) -> tupl
 def parse_subtitles(path: Path, encoding: str = "utf-8-sig", *, allow_empty: bool = False) -> dict:
     format_ = subtitle_format(path)
     cues, metadata = parse_payload(path.read_text(encoding=encoding), format_, allow_empty=allow_empty)
-    return {"version": 1, "source": {"path": str(path.resolve()), "format": format_, "encoding": encoding},
-            "cues": cues, "metadata": metadata}
+    return {"version": 2, "source": {"path": str(path.resolve()), "format": format_, "encoding": encoding},
+            "inputs": [str(path.resolve())], "cues": cues, "metadata": metadata}
 
 
 def read_json(path: Path) -> dict:
@@ -145,36 +145,157 @@ def source_warnings(source: dict) -> list[str]:
     return warnings
 
 
-def inspect(input_: Path, workdir: Path | None, encoding: str) -> dict:
-    source = parse_subtitles(input_, encoding)
+def initialize_work(source: dict, workdir: Path | None) -> dict:
     if workdir is None:
         return {**source, "warnings": source_warnings(source)}
-    if workdir.exists() and (not workdir.is_dir() or any(workdir.iterdir())):
-        raise SubtitleError("workdir is not empty; resume its source.json and work.json in place")
+    if workdir.exists() and not workdir.is_dir():
+        raise SubtitleError("workdir must be a directory")
+    if any((workdir / name).exists() or (workdir / name).is_symlink() for name in ("source.json", "work.json")):
+        raise SubtitleError("source.json or work.json already exists; resume its saved state in place")
     workdir.mkdir(parents=True, exist_ok=True)
     work = {"version": 1, "target_language": "", "groups": [], "omitted": [], "pending": [], "notes": []}
     for filename, data in (("source.json", source), ("work.json", work)):
         write_atomic(workdir / filename, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     return {"source_path": str((workdir / "source.json").resolve()),
             "work_path": str((workdir / "work.json").resolve()), "cue_count": len(source["cues"]),
-            "last_source_end_ms": max(cue["end_ms"] for cue in source["cues"]),
+            "last_source_end_ms": max((cue["end_ms"] for cue in source["cues"]), default=None),
             "warnings": source_warnings(source)}
+
+
+def inspect(input_: Path, workdir: Path | None, encoding: str) -> dict:
+    return initialize_work(parse_subtitles(input_, encoding), workdir)
 
 
 def integer(value) -> bool:
     return type(value) is int
 
 
+def interval(value, label: str, errors: list[str]) -> tuple[int, int] | None:
+    if not isinstance(value, dict):
+        errors.append(f"{label} must be an object")
+        return None
+    start, end = value.get("start_ms"), value.get("end_ms")
+    if not integer(start) or not integer(end) or start < 0 or end <= start:
+        errors.append(f"{label} requires integer times with 0 <= start_ms < end_ms")
+        return None
+    return start, end
+
+
+def recognition_status(receipt: dict, cues: list[dict], *, verify_files: bool = False) -> dict:
+    errors, blockers, completed = [], [], []
+    requested = interval(receipt.get("requested_range"), "requested_range", errors)
+    media = receipt.get("media_path")
+    if not isinstance(media, str) or not Path(media).is_absolute():
+        errors.append("media_path must be an absolute file path")
+    elif verify_files and not Path(media).is_file():
+        errors.append(f"Media file not found: {media}")
+    ranges = receipt.get("completed_ranges")
+    if not isinstance(ranges, list):
+        errors.append("completed_ranges must be a list")
+        ranges = []
+    for index, record in enumerate(ranges, 1):
+        bounds = interval(record, f"completed_ranges[{index}]", errors)
+        if bounds is not None:
+            completed.append(bounds)
+        path = record.get("result_path") if isinstance(record, dict) else None
+        if not isinstance(path, str) or not Path(path).is_absolute():
+            errors.append(f"completed_ranges[{index}].result_path must be an absolute file path")
+        elif verify_files and not Path(path).is_file():
+            errors.append(f"Recognition result file not found: {path}")
+    pending = receipt.get("pending_ranges")
+    if not isinstance(pending, list):
+        errors.append("pending_ranges must be a list")
+        pending = []
+    for index, record in enumerate(pending, 1):
+        interval(record, f"pending_ranges[{index}]", errors)
+        reason = record.get("reason") if isinstance(record, dict) else None
+        if not isinstance(reason, str) or not reason.strip():
+            errors.append(f"pending_ranges[{index}].reason must explain the remaining work")
+    missing = []
+    if requested is not None:
+        start, end = requested
+        cursor = start
+        for lower, upper in sorted(completed):
+            lower, upper = max(lower, start), min(upper, end)
+            if upper <= cursor or lower >= end:
+                continue
+            if lower > cursor:
+                missing.append({"start_ms": cursor, "end_ms": lower})
+            cursor = max(cursor, upper)
+        if cursor < end:
+            missing.append({"start_ms": cursor, "end_ms": end})
+        for cue in cues:
+            if cue["start_ms"] < start or cue["end_ms"] > end:
+                errors.append(f"Source {cue['id']} extends outside requested_range")
+    if missing:
+        blockers.append(f"{len(missing)} media ranges remain unprocessed")
+    if pending:
+        blockers.append(f"{len(pending)} recognition ranges remain pending")
+    review = receipt.get("empty_review")
+    if review is not None and (not isinstance(review, str) or not review.strip()):
+        errors.append("empty_review must explain the accepted empty recognition result")
+    if not cues and not review:
+        blockers.append("Review the empty recognition result against available speech evidence and record empty_review")
+    return {"valid": not errors, "evidence_ready": not errors and not blockers,
+            "errors": errors, "blockers": blockers, "missing_ranges": missing,
+            "requested_range": receipt.get("requested_range"), "completed_ranges": len(ranges),
+            "pending_ranges": len(pending)}
+
+
+def prepare(evidence: Path, workdir: Path | None) -> dict:
+    data = read_json(evidence)
+    if type(data.get("version")) is not int or data["version"] != 1:
+        raise SubtitleError("Timed evidence version must be 1")
+    base = evidence.resolve().parent
+
+    def absolute(value, label: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise SubtitleError(f"{label} must be a file path")
+        path = Path(value).expanduser()
+        return str((base / path).resolve())
+
+    media = absolute(data.get("media_path"), "media_path")
+    completed = data.get("completed_ranges")
+    if not isinstance(completed, list) or any(not isinstance(item, dict) for item in completed):
+        raise SubtitleError("completed_ranges must contain range objects")
+    completed = [{**item, "result_path": absolute(item.get("result_path"), "result_path")} for item in completed]
+    segments = data.get("segments")
+    if not isinstance(segments, list):
+        raise SubtitleError("segments must be a list of timed observations")
+    cues = []
+    for index, item in enumerate(segments, 1):
+        errors = []
+        bounds = interval(item, f"segments[{index}]", errors)
+        text = item.get("text") if isinstance(item, dict) else None
+        if bounds is None or not isinstance(text, str) or not text.strip():
+            raise SubtitleError("; ".join(errors) or f"segments[{index}].text must contain recognized content")
+        if cues and bounds[0] < cues[-1]["start_ms"]:
+            raise SubtitleError("segments must follow nondecreasing start times on the media clock")
+        cues.append({"id": f"s{index}", "start_ms": bounds[0], "end_ms": bounds[1], "text": text})
+    receipt = {"media_path": media, "requested_range": data.get("requested_range"),
+               "completed_ranges": completed, "pending_ranges": data.get("pending_ranges")}
+    if "empty_review" in data:
+        receipt["empty_review"] = data["empty_review"]
+    status = recognition_status(receipt, cues, verify_files=True)
+    if not status["evidence_ready"]:
+        return status
+    paths = list(dict.fromkeys([str(evidence.resolve()), media, *(item["result_path"] for item in completed)]))
+    source = {"version": 2, "source": {"path": str(evidence.resolve()), "format": "timed-evidence", "encoding": "utf-8"},
+              "inputs": paths, "cues": cues, "metadata": [], "recognition": receipt}
+    return {**initialize_work(source, workdir), "evidence_ready": True, "recognition": status}
+
+
 def load_source(workdir: Path) -> dict:
     source = read_json(workdir / "source.json")
     info = source.get("source")
     cues = source.get("cues")
-    if type(source.get("version")) is not int or source["version"] != 1 or not isinstance(info, dict):
+    version = source.get("version")
+    if type(version) is not int or version not in (1, 2) or not isinstance(info, dict):
         raise SubtitleError("Invalid source.json version or source metadata")
-    if not isinstance(info.get("path"), str) or not Path(info["path"]).is_absolute() or info.get("format") not in TIMESTAMPS:
+    if not isinstance(info.get("path"), str) or not Path(info["path"]).is_absolute() or not isinstance(info.get("format"), str) or not info["format"]:
         raise SubtitleError("Invalid source.json source path or format")
-    if not isinstance(cues, list) or not cues:
-        raise SubtitleError("source.json must contain source cues")
+    if not isinstance(cues, list):
+        raise SubtitleError("source.json must contain a cues list")
     seen = set()
     for cue in cues:
         if not isinstance(cue, dict) or not isinstance(cue.get("id"), str) or not cue["id"] or cue["id"] in seen:
@@ -182,11 +303,40 @@ def load_source(workdir: Path) -> dict:
         if not all(integer(cue.get(key)) and cue[key] >= 0 for key in ("start_ms", "end_ms")) or not isinstance(cue.get("text"), str):
             raise SubtitleError(f"Invalid source cue: {cue['id']}")
         seen.add(cue["id"])
+    if version == 1:
+        if info["format"] not in TIMESTAMPS or not cues:
+            raise SubtitleError("Invalid legacy source.json format or empty source cues")
+        if "recognition" in source:
+            raise SubtitleError("Recognition receipts require source.json version 2")
+        return source
+    paths = source.get("inputs")
+    if not isinstance(paths, list) or not paths or any(not isinstance(path, str) or not Path(path).is_absolute() for path in paths):
+        raise SubtitleError("source.json inputs must contain absolute file paths")
+    required = [info["path"]]
+    receipt = source.get("recognition")
+    if "recognition" in source:
+        if not isinstance(receipt, dict):
+            raise SubtitleError("source.json recognition must be a receipt object")
+        status = recognition_status(receipt, cues)
+        if status["errors"]:
+            raise SubtitleError("Invalid recognition receipt: " + "; ".join(status["errors"]))
+        required += [receipt["media_path"], *(item["result_path"] for item in receipt["completed_ranges"])]
+    elif not cues or info["format"] not in TIMESTAMPS:
+        raise SubtitleError("Timed recognition evidence requires a recognition receipt")
+    if not all(path in paths for path in required):
+        raise SubtitleError("source.json inputs must retain every source, media, and recognition result path")
     return source
 
 
 def check_work(source: dict, work: dict, media_duration: int | None = None) -> tuple[dict, list[dict]]:
     errors, warnings, blockers = [], [], []
+    recognition = None
+    requested = None
+    if "recognition" in source:
+        recognition = recognition_status(source["recognition"], source["cues"])
+        errors.extend(recognition["errors"])
+        blockers.extend(recognition["blockers"])
+        requested = source["recognition"]["requested_range"]
     source_ids = {cue["id"] for cue in source["cues"]}
     assigned = {}
     output = []
@@ -249,6 +399,8 @@ def check_work(source: dict, work: dict, media_duration: int | None = None) -> t
                 continue
             if media_duration is not None and end > media_duration:
                 errors.append(f"{location} ends beyond the supplied media duration")
+            if requested is not None and (start < requested["start_ms"] or end > requested["end_ms"]):
+                errors.append(f"{location} extends outside the requested media range")
             output.append({"start_ms": start, "end_ms": end, "text": text})
     omitted = records("omitted")
     for index, record in enumerate(omitted, 1):
@@ -302,6 +454,8 @@ def check_work(source: dict, work: dict, media_duration: int | None = None) -> t
               "metrics": {"source_cues": len(source["cues"]), "assigned_source_cues": len(assigned),
                           "output_cues": len(output), "omission_records": len(omitted), "pending_items": len(pending),
                           "overlaps": overlaps, "cues": cue_metrics}}
+    if recognition is not None:
+        report["recognition"] = recognition
     return report, output
 
 
@@ -332,7 +486,8 @@ def inspect_publication(output: Path, cues: list[dict], report: dict) -> None:
 def export(workdir: Path, output: Path, source: dict, cues: list[dict], report: dict, overwrite: bool) -> dict:
     if not report["export_ready"]:
         return report
-    protected = [Path(source["source"]["path"]), workdir / "source.json", workdir / "work.json"]
+    protected = [Path(path) for path in source.get("inputs", [source["source"]["path"]])]
+    protected += [workdir / "source.json", workdir / "work.json"]
     for path in protected:
         if output.resolve() == path.resolve() or (output.exists() and path.exists() and output.samefile(path)):
             raise SubtitleError(f"Output must be distinct from source and working data: {path}")
@@ -349,10 +504,13 @@ def export(workdir: Path, output: Path, source: dict, cues: list[dict], report: 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    inspect_parser = commands.add_parser("inspect", help="Read SRT/WebVTT; optionally prepare a new empty workspace")
+    inspect_parser = commands.add_parser("inspect", help="Read SRT/WebVTT; optionally initialize shared work files")
     inspect_parser.add_argument("--input", type=Path, required=True)
     inspect_parser.add_argument("--encoding", default="utf-8-sig")
     inspect_parser.add_argument("--workdir", type=Path)
+    prepare_parser = commands.add_parser("prepare", help="Prepare the same work files from completed timed speech evidence")
+    prepare_parser.add_argument("--evidence", type=Path, required=True)
+    prepare_parser.add_argument("--workdir", type=Path)
     for name in ("check", "export"):
         command = commands.add_parser(name, help="Check current work and optional published output" if name == "check" else "Publish complete work as SRT/WebVTT")
         command.add_argument("--workdir", type=Path, required=True)
@@ -368,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "inspect":
             result = inspect(args.input.expanduser(), args.workdir.expanduser() if args.workdir else None, args.encoding)
+        elif args.command == "prepare":
+            result = prepare(args.evidence.expanduser(), args.workdir.expanduser() if args.workdir else None)
         else:
             if args.media_duration_ms is not None and args.media_duration_ms < 0:
                 raise SubtitleError("--media-duration-ms must be nonnegative")
@@ -381,7 +541,7 @@ def main(argv: list[str] | None = None) -> int:
                     inspect_publication(args.output.expanduser(), cues, report)
                 result = report
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0 if result.get("export_ready", True) else 1
+        return 0 if result.get("export_ready", result.get("evidence_ready", True)) else 1
     except (ValueError, OSError, UnicodeError, LookupError, TypeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
