@@ -15,7 +15,7 @@ Copy a skill’s install prompt below into Codex. Once installed, use `$skill-na
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#subtitle-creator">subtitle&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#figma-cdp">figma&#8209;cdp</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#subtitle-creator">subtitle&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
 </p>
 
 ---
@@ -71,6 +71,24 @@ epub-translator
 ```
 
 [Guide](docs/skills/epub-translator.md) · [Instructions](skills/epub-translator/SKILL.md)
+
+---
+
+<a id="figma-cdp"></a>
+
+<img src="docs/assets/catalog/figma-cdp.svg" width="960" alt="figma-cdp">
+
+Create and refine designs directly in a live Figma document through a shared CDP tool, with native editing and access to the actual rendered result.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+figma-cdp
+```
+
+[Guide](docs/skills/figma-cdp.md) · [Instructions](skills/figma-cdp/SKILL.md)
 
 ---
 

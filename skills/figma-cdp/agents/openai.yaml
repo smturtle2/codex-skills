@@ -1,0 +1,5 @@
+interface:
+  display_name: "Figma CDP"
+  short_description: "Create and refine designs directly in Figma"
+  icon_small: "./assets/icon-small.svg"
+  icon_large: "./assets/icon-large.png"

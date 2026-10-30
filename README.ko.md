@@ -15,7 +15,7 @@
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#subtitle-creator">subtitle&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#figma-cdp">figma&#8209;cdp</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#subtitle-creator">subtitle&#8209;creator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
 </p>
 
 ---
@@ -71,6 +71,24 @@ epub-translator
 ```
 
 [사용 가이드](docs/skills/epub-translator.ko.md) · [지침](skills/epub-translator/SKILL.md)
+
+---
+
+<a id="figma-cdp"></a>
+
+<img src="docs/assets/catalog/figma-cdp.svg" width="960" alt="figma-cdp">
+
+공통 CDP 도구로 실제 Figma 문서를 직접 조작해 디자인을 제작하고 다듬으며, 네이티브 편집과 실제 렌더링 결과를 활용합니다.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+figma-cdp
+```
+
+[사용 가이드](docs/skills/figma-cdp.ko.md) · [지침](skills/figma-cdp/SKILL.md)
 
 ---
 
