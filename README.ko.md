@@ -15,7 +15,7 @@
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#subtitle-translator">subtitle&#8209;translator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
 </p>
 
 ---
@@ -125,6 +125,24 @@ jev-developer
 ```
 
 [사용 가이드](docs/skills/jev-developer.ko.md) · [지침](skills/jev-developer/SKILL.md)
+
+---
+
+<a id="subtitle-translator"></a>
+
+<img src="docs/assets/catalog/subtitle-translator.svg" width="960" alt="subtitle-translator">
+
+영어 자막을 맥락에 맞게 자연스럽게 번역하고, 읽기 좋은 문장 분할과 확보한 음성 근거에 맞춰 표시 시간을 다듬습니다.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+subtitle-translator
+```
+
+[사용 가이드](docs/skills/subtitle-translator.ko.md) · [지침](skills/subtitle-translator/SKILL.md)
 
 ---
 

@@ -15,7 +15,7 @@ Copy a skill’s install prompt below into Codex. Once installed, use `$skill-na
 <!-- skills:start -->
 
 <p align="center">
-<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
+<a href="#animation-creator">animation&#8209;creator</a> · <a href="#claude">claude</a> · <a href="#epub-translator">epub&#8209;translator</a> · <a href="#gomoku">gomoku</a> · <a href="#image-creator">image&#8209;creator</a> · <a href="#jev-developer">jev&#8209;developer</a> · <a href="#subtitle-translator">subtitle&#8209;translator</a> · <a href="#ui-blueprint">ui&#8209;blueprint</a> · <a href="#user-dialog">user&#8209;dialog</a>
 </p>
 
 ---
@@ -125,6 +125,24 @@ jev-developer
 ```
 
 [Guide](docs/skills/jev-developer.md) · [Instructions](skills/jev-developer/SKILL.md)
+
+---
+
+<a id="subtitle-translator"></a>
+
+<img src="docs/assets/catalog/subtitle-translator.svg" width="960" alt="subtitle-translator">
+
+Translate English subtitles into natural dialogue with readable segmentation and timing informed by the available speech evidence.
+
+```text
+Use $skill-installer.
+Repository:
+https://github.com/smturtle2/codex-skills
+Install from skills/:
+subtitle-translator
+```
+
+[Guide](docs/skills/subtitle-translator.md) · [Instructions](skills/subtitle-translator/SKILL.md)
 
 ---
 
