@@ -31,7 +31,7 @@ uv run --script "$SKILL_DIR/scripts/subtitle_io.py" prepare \
 
 Read the timed source and available context to establish coherent passage boundaries and shared name, term, relationship, and tone decisions. Keep those decisions compact in the run's notes and update them when later context changes an interpretation.
 
-Default composition workers to the newest Terra model available through the host, with reasoning effort `max`; resolve the concrete model when dispatching and honor an explicit user override. Report an unavailable requested model or reasoning setting.
+Default composition workers to the latest Terra model available through the host, with reasoning effort `max`; resolve the concrete model when dispatching and honor an explicit user override. Report an unavailable requested model or reasoning setting.
 
 Assign coherent contiguous passages with enough neighboring source to interpret references and sentence boundaries. Give each worker its owned source IDs, source and target language, shared decisions, available speech evidence, delivery constraints, and the work-data contract. Workers return results for their owned IDs for the main agent to merge; neighboring passages remain context. Parallelize independent passages within available capacity.
 
