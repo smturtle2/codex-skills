@@ -21,16 +21,12 @@ Supply media, an available SRT or WebVTT track, or both, and the desired subtitl
 ## Example
 
 ```text
-Use $subtitle-creator to create natural Korean subtitles for episode.mp4 and save episode.ko.srt.
-There is no existing subtitle track.
+Use $subtitle-creator to create subtitles from {input_files}.
+Language: {target_language}
+Output: {output_path}
 ```
 
-An existing track can supply the initial evidence instead:
-
-```text
-Use $subtitle-creator with episode.mp4 and episode.en.vtt to produce Korean subtitles.
-The English track was automatically generated.
-```
+Fill `input_files` with the available media and subtitle paths. Omit optional language or output preferences when their defaults are appropriate.
 
 ## Subtitle production
 
@@ -46,7 +42,7 @@ Timing can use available word timestamps, alignment, and review of matching audi
 
 ## Working files
 
-Working files default to the project-root-relative `.codex-skills/subtitle-creator/<run-id>/`. Use a unique directory for new work; a requested location takes precedence. Resume existing work at its original path, including runs created under the earlier skill name. Keep `/.codex-skills/` ignored in Git unless its contents are intentionally versioned.
+Working files default to the project-root-relative `.codex-skills/subtitle-creator/{run_id}/`. Use a unique directory for new work; a requested location takes precedence. Resume existing work at its original path, including runs created under the earlier skill name. Keep `/.codex-skills/` ignored in Git unless its contents are intentionally versioned.
 
 The helper initializes shared source and work data from the available timed evidence. Read the saved source, work, recognition records, and decisions when continuing; retain completed passages and useful recovery data. Clean up only expendable intermediates created by the current run.
 

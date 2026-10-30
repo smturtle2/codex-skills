@@ -21,16 +21,12 @@ Use $skill-installer to install skills/subtitle-creator from https://github.com/
 ## 사용 예시
 
 ```text
-$subtitle-creator로 episode.mp4의 자연스러운 한국어 자막을 만들어 episode.ko.srt에 저장해줘.
-기존 자막은 없어.
+$subtitle-creator로 {input_files}에서 자막을 만들어줘.
+언어: {target_language}
+저장 위치: {output_path}
 ```
 
-기존 자막이 있으면 그 자료로 시작할 수 있습니다.
-
-```text
-$subtitle-creator로 episode.mp4와 episode.en.vtt를 참고해서 한국어 자막을 만들어줘.
-영어 자막은 자동 생성됐어.
-```
+`input_files`에 확보한 미디어와 자막 경로를 넣습니다. 기본값을 사용할 언어나 저장 위치는 생략할 수 있습니다.
 
 ## 자막 제작
 
@@ -46,7 +42,7 @@ $subtitle-creator로 episode.mp4와 episode.en.vtt를 참고해서 한국어 자
 
 ## 작업 파일
 
-작업 파일의 기본 위치는 프로젝트 루트 기준 `.codex-skills/subtitle-creator/<run-id>/`입니다. 새 작업에는 고유한 폴더를 사용하고, 사용자가 위치를 지정하면 그 위치를 우선합니다. 이전 스킬 이름으로 만든 작업을 포함해 기존 작업은 원래 경로에서 재개합니다. 작업 데이터를 의도적으로 버전 관리하는 경우가 아니라면 Git에서 `/.codex-skills/`를 무시합니다.
+작업 파일의 기본 위치는 프로젝트 루트 기준 `.codex-skills/subtitle-creator/{run_id}/`입니다. 새 작업에는 고유한 폴더를 사용하고, 사용자가 위치를 지정하면 그 위치를 우선합니다. 이전 스킬 이름으로 만든 작업을 포함해 기존 작업은 원래 경로에서 재개합니다. 작업 데이터를 의도적으로 버전 관리하는 경우가 아니라면 Git에서 `/.codex-skills/`를 무시합니다.
 
 보조 도구는 확보한 시간 정보가 있는 발화 자료로 공통 원문·작업 데이터를 만듭니다. 이어가는 작업에서는 저장된 원문, 작업 데이터, 인식 기록과 결정을 읽고 완료된 구간과 복구에 필요한 자료를 보존합니다. 이번 실행에서 만든 폐기 가능한 중간 파일만 정리합니다.
 

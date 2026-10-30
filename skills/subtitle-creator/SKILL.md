@@ -9,7 +9,7 @@ Build subtitles from timed speech evidence through contextual interpretation, tr
 
 Use the requested target language, defaulting to the user's language. Confirm that supplied media and subtitle tracks refer to the same edition and establish their time-axis relationship. Deliver a separate subtitle file at the requested destination; otherwise choose a descriptive filename with the target language, preserving a supplied subtitle format or using SRT for media-only input.
 
-Set `SKILL_DIR` to this skill's absolute directory and run from the session project root. Keep working files in `.codex-skills/subtitle-creator/<run-id>/` unless the user chooses another workspace. Use a unique ID for new work and resume existing runs at their original paths, including older locations. Retain native recognition results, decisions, completed passages, and recovery data; remove only expendable intermediates created by this run.
+Set `SKILL_DIR` to this skill's absolute directory and run from the session project root. Keep working files in `.codex-skills/subtitle-creator/{run_id}/` unless the user chooses another workspace. Use a unique ID for new work and resume existing runs at their original paths, including older locations. Retain native recognition results, decisions, completed passages, and recovery data; remove only expendable intermediates created by this run.
 
 When creating the default workspace in a Git project, ensure `/.codex-skills/` is ignored unless the user intends to version that data.
 
@@ -19,14 +19,14 @@ Read [references/work-data.md](references/work-data.md) before preparing or edit
 
 ```bash
 uv run --script "$SKILL_DIR/scripts/subtitle_io.py" inspect \
-  --input <source.srt-or-vtt> --workdir <run-dir>
+  --input "{subtitle_path}" --workdir "{run_dir}"
 ```
 
 When subtitles are absent, read [references/audio-evidence.md](references/audio-evidence.md), recognize the full requested media range through an already usable local runtime, and prepare its timed observations using the same work-data contract. Record completed and unresolved recognition ranges and retain the native results. Successful range processing supplies evidence; assess its content and any empty result before accepting it.
 
 ```bash
 uv run --script "$SKILL_DIR/scripts/subtitle_io.py" prepare \
-  --evidence <timed-evidence.json> --workdir <run-dir>
+  --evidence "{evidence_path}" --workdir "{run_dir}"
 ```
 
 Read the timed source and available context to establish coherent passage boundaries and shared name, term, relationship, and tone decisions. Keep those decisions compact in the run's notes and update them when later context changes an interpretation.
@@ -50,11 +50,11 @@ Use available word times, alignment, and direct audio review to support timing d
 ## Export and Finish
 
 ```bash
-uv run --script "$SKILL_DIR/scripts/subtitle_io.py" check --workdir <run-dir>
+uv run --script "$SKILL_DIR/scripts/subtitle_io.py" check --workdir "{run_dir}"
 uv run --script "$SKILL_DIR/scripts/subtitle_io.py" export \
-  --workdir <run-dir> --output <subtitles.srt-or-vtt>
+  --workdir "{run_dir}" --output "{output_path}"
 uv run --script "$SKILL_DIR/scripts/subtitle_io.py" check \
-  --workdir <run-dir> --output <subtitles.srt-or-vtt>
+  --workdir "{run_dir}" --output "{output_path}"
 ```
 
 Review `errors`, `blockers`, `warnings`, and timing measurements. Resolve pending decisions, reconcile requested recognition coverage, and account for every source cue through a composed group or an explicit omission. After changing work data, export again and check the published file. Structural checks establish processing coverage, correspondence, and file consistency; meaning and synchronization require content and media evidence.
