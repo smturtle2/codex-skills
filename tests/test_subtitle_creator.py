@@ -6,6 +6,8 @@ Run from the repository root with Python 3.11+ and uv:
 Each automated case creates its source, workspace, and destinations inside a TemporaryDirectory and removes them after the case. No STT, media, model access, third-party dependencies, or persistent environment configuration is required.
 Successful runs must preserve source data, represent every source cue through translated groups or explicit omissions, and produce the exact expected text and timestamps. Invalid/incomplete work and refused writes must leave source, work, and existing outputs unchanged, without abandoned publication temporaries.
 
+Recognition cases use synthetic media/result files and authored timed observations to assess IO and acquisition receipts, not speech recognition or GPU performance. Completed ranges must cover the requested media range; gaps, pending work, and unreviewed empty recognition must block initialization. Acquisition artifacts may already occupy the run directory and must survive initialization, failed attempts, and resume. Saved receipts and requested bounds remain enforced at publication; original inputs stay protected even when their files are no longer available, and legacy version-1 work remains readable in place.
+
 For the separately run behavioral evaluation, write BEHAVIORAL_SRT to an English SRT under a unique .codex-skills/subtitle-creator/<run-id>/ directory, prepare its source/work files, and give an independent latest-available Terra/max worker the skill and a request for Korean subtitles without supplying this rubric.
 Assess natural contextual idioms, the 15/50 contrast, the I scream/ice cream exchange, removal of non-dialogue annotations while preserving inline speech, source coverage, and sentence boundaries. With no media supplied, the result must distinguish source-based timing from verified speech synchronization and must not claim STT use. Keep the worker result, final subtitles, and assessment in that run for reproduction; unittest does not execute or judge model output.
 """
@@ -180,6 +182,44 @@ class SubtitleCreatorTests(unittest.TestCase):
         for path, before in snapshot.items():
             self.assertEqual(path.read_bytes(), before, f"Changed protected data: {path}")
         self.assertEqual(list(self.root.rglob("*.tmp")), [])
+
+    def recognition_fixture(self, name: str = "recognition") -> tuple[Path, Path, dict]:
+        run = self.root / name
+        run.mkdir()
+        # Subtitle suffixes ensure overwrite protection is exercised before any format rejection.
+        (run / "media.srt").write_bytes(b"Synthetic media IO fixture; not playable audio.\n")
+        (run / "native.vtt").write_bytes(b"Synthetic native-result IO fixture; not STT output.\n")
+        evidence = run / "evidence.srt"
+        data = {
+            "version": 1,
+            "media_path": "media.srt",
+            "requested_range": {"start_ms": 1000, "end_ms": 10000},
+            "completed_ranges": [{"start_ms": 1000, "end_ms": 10000, "result_path": "native.vtt"}],
+            "pending_ranges": [],
+            "segments": [
+                {"start_ms": 1200, "end_ms": 2500, "text": "Hello."},
+                {"start_ms": 6000, "end_ms": 7500, "text": "Goodbye."},
+            ],
+        }
+        evidence.write_text(json.dumps(data), encoding="utf-8")
+        return run, evidence, data
+
+    def save_recognition_work(self, run: Path) -> None:
+        self.save_work(run, {
+            "version": 1, "target_language": "ko",
+            "groups": [{"source_ids": ["s1", "s2"], "cues": [
+                {"start_ms": 1200, "end_ms": 2500, "text": "안녕"},
+                {"start_ms": 6000, "end_ms": 7500, "text": "잘 가"},
+            ]}],
+            "omitted": [], "pending": [],
+            "notes": ["Synthetic timed evidence; no acoustic synchronization was assessed."],
+        })
+
+    def assert_input_error(self, *args: str | Path) -> None:
+        run = self.run_helper(*args)
+        self.assertEqual(run.returncode, 2, run.stderr or run.stdout)
+        self.assertTrue(run.stderr.startswith("error:"), run.stderr)
+        self.assertNotIn("Traceback", run.stderr)
 
     def test_inspect_preserves_srt_vtt_source_evidence_and_optional_encoding(self) -> None:
         for format_ in ("srt", "vtt"):
@@ -438,6 +478,227 @@ class SubtitleCreatorTests(unittest.TestCase):
                 self.assertEqual(state["metrics"]["output_cues"], 0)
                 self.assertEqual(output.read_text(), expected)
                 self.assertTrue(self.result("check", "--workdir", run, "--output", output)["export_ready"])
+        self.assert_preserved(before)
+
+    def test_recognition_overlap_union_enters_shared_work_and_publishes_exact_cues(self) -> None:
+        run, evidence, data = self.recognition_fixture()
+        data["completed_ranges"] = [
+            {"start_ms": 7000, "end_ms": 11000, "result_path": "native.vtt"},
+            {"start_ms": 1000, "end_ms": 6000, "result_path": "native.vtt"},
+            {"start_ms": 5000, "end_ms": 8000, "result_path": "native.vtt"},
+        ]
+        evidence.write_text(json.dumps(data), encoding="utf-8")
+        before = self.snapshot(*run.iterdir())
+        receipt = self.result("prepare", "--evidence", evidence, "--workdir", run)
+        self.assertTrue(receipt["evidence_ready"])
+        self.assertEqual(receipt["recognition"]["missing_ranges"], [])
+        source = json.loads((run / "source.json").read_text())
+        self.assertEqual(source["version"], 2)
+        self.assertEqual(source["source"]["format"], "timed-evidence")
+        self.assertEqual(source["inputs"], [str(evidence), str(run / "media.srt"), str(run / "native.vtt")])
+        self.assertEqual([(item["id"], item["start_ms"], item["end_ms"], item["text"]) for item in source["cues"]],
+                         [("s1", 1200, 2500, "Hello."), ("s2", 6000, 7500, "Goodbye.")])
+        self.save_recognition_work(run)
+        output = run / "Korean.srt"
+        state = self.result("export", "--workdir", run, "--output", output)
+        self.assertTrue(state["export_ready"])
+        self.assertTrue(state["recognition"]["evidence_ready"])
+        self.assertEqual(output.read_text(), "1\n00:00:01,200 --> 00:00:02,500\n안녕\n\n2\n00:00:06,000 --> 00:00:07,500\n잘 가\n\n")
+        self.assertTrue(self.result("check", "--workdir", run, "--output", output)["publication_matches"])
+        self.assert_preserved(before)
+
+    def test_recognition_gaps_and_pending_ranges_block_without_work_files(self) -> None:
+        cases = (
+            ("leading", [(2000, 6000), (6000, 10000)], [], [{"start_ms": 1000, "end_ms": 2000}]),
+            ("middle", [(1000, 4000), (5000, 10000)], [], [{"start_ms": 4000, "end_ms": 5000}]),
+            ("trailing", [(1000, 9000)], [], [{"start_ms": 9000, "end_ms": 10000}]),
+            ("pending", [(1000, 10000)], [{"start_ms": 3000, "end_ms": 4000, "reason": "Recognition failed."}], []),
+        )
+        for name, ranges, pending, missing in cases:
+            with self.subTest(case=name):
+                run, evidence, data = self.recognition_fixture(name)
+                data["completed_ranges"] = [{"start_ms": start, "end_ms": end, "result_path": "native.vtt"} for start, end in ranges]
+                data["pending_ranges"] = pending
+                evidence.write_text(json.dumps(data), encoding="utf-8")
+                before = self.snapshot(*run.iterdir())
+                state = self.result("prepare", "--evidence", evidence, "--workdir", run, expected=1)
+                self.assertTrue(state["valid"])
+                self.assertFalse(state["evidence_ready"])
+                self.assertEqual(state["missing_ranges"], missing)
+                self.assertFalse((run / "source.json").exists())
+                self.assertFalse((run / "work.json").exists())
+                self.assert_preserved(before)
+
+    def test_acquisition_resumes_in_same_directory_and_prior_work_is_not_reinitialized(self) -> None:
+        run, evidence, data = self.recognition_fixture()
+        data["completed_ranges"][0]["end_ms"] = 5000
+        data["pending_ranges"] = [{"start_ms": 5000, "end_ms": 10000, "reason": "Interrupted acquisition."}]
+        evidence.write_text(json.dumps(data), encoding="utf-8")
+        native_before = (run / "native.vtt").read_bytes()
+        self.result("prepare", "--evidence", evidence, "--workdir", run, expected=1)
+        self.assertFalse((run / "source.json").exists())
+        self.assertFalse((run / "work.json").exists())
+        (run / "second.vtt").write_bytes(b"Synthetic second completed-range result.\n")
+        data["completed_ranges"].append({"start_ms": 5000, "end_ms": 10000, "result_path": "second.vtt"})
+        data["pending_ranges"] = []
+        evidence.write_text(json.dumps(data), encoding="utf-8")
+        self.assertTrue(self.result("prepare", "--evidence", evidence, "--workdir", run)["evidence_ready"])
+        self.assertEqual((run / "native.vtt").read_bytes(), native_before)
+        self.save_recognition_work(run)
+        saved = self.snapshot(*run.iterdir())
+        self.assert_input_error("prepare", "--evidence", evidence, "--workdir", run)
+        self.assert_preserved(saved)
+        self.assertTrue(self.result("export", "--workdir", run, "--output", run / "resumed.srt")["publication_matches"])
+        for filename in ("source.json", "work.json"):
+            with self.subTest(partial_state=filename):
+                partial, path, _ = self.recognition_fixture(filename)
+                state = partial / filename
+                state.write_bytes(b"Partial prior state must survive.\n")
+                before = self.snapshot(*partial.iterdir())
+                self.assert_input_error("prepare", "--evidence", path, "--workdir", partial)
+                self.assertFalse((partial / ("work.json" if filename == "source.json" else "source.json")).exists())
+                self.assert_preserved(before)
+
+    def test_empty_recognition_requires_review_before_empty_publication(self) -> None:
+        run, evidence, data = self.recognition_fixture()
+        data["segments"] = []
+        for review in (None, "", False):
+            with self.subTest(review=review):
+                if review is None:
+                    data.pop("empty_review", None)
+                else:
+                    data["empty_review"] = review
+                evidence.write_text(json.dumps(data), encoding="utf-8")
+                self.assertFalse(self.result("prepare", "--evidence", evidence, "--workdir", run, expected=1)["evidence_ready"])
+                self.assertFalse((run / "source.json").exists())
+                self.assertFalse((run / "work.json").exists())
+        data["empty_review"] = "Reviewed synthetic empty-input case; this fixture does not assess real speech."
+        evidence.write_text(json.dumps(data), encoding="utf-8")
+        self.assertTrue(self.result("prepare", "--evidence", evidence, "--workdir", run)["evidence_ready"])
+        self.save_work(run, {"version": 1, "target_language": "ko", "groups": [], "omitted": [], "pending": [], "notes": []})
+        before = self.snapshot(*run.iterdir())
+        for format_, expected in (("srt", ""), ("vtt", "WEBVTT\n\n")):
+            with self.subTest(format=format_):
+                output = run / f"empty.{format_}"
+                state = self.result("export", "--workdir", run, "--output", output)
+                self.assertTrue(state["publication_matches"])
+                self.assertEqual(state["metrics"]["source_cues"], 0)
+                self.assertEqual(output.read_text(), expected)
+        self.assert_preserved(before)
+
+    def test_invalid_or_missing_recognition_evidence_is_a_controlled_failure(self) -> None:
+        for filename in ("media.srt", "native.vtt", "evidence.srt"):
+            with self.subTest(missing=filename):
+                run, evidence, _ = self.recognition_fixture(filename)
+                (run / filename).unlink()
+                before = self.snapshot(*run.iterdir())
+                if filename == "evidence.srt":
+                    self.assert_input_error("prepare", "--evidence", evidence, "--workdir", run)
+                else:
+                    state = self.result("prepare", "--evidence", evidence, "--workdir", run, expected=1)
+                    self.assertFalse(state["valid"])
+                    self.assertFalse(state["evidence_ready"])
+                self.assertFalse((run / "source.json").exists())
+                self.assertFalse((run / "work.json").exists())
+                self.assert_preserved(before)
+        changes = (
+            ("invalid requested interval", lambda data: data["requested_range"].update(end_ms=1000), 1),
+            ("invalid pending collection", lambda data: data.update(pending_ranges=None), 1),
+            ("source outside scope", lambda data: data["segments"][0].update(start_ms=0), 1),
+            ("noninteger source time", lambda data: data["segments"][0].update(start_ms=True), 2),
+            ("unordered source", lambda data: data["segments"].reverse(), 2),
+        )
+        for index, (name, change, expected) in enumerate(changes):
+            with self.subTest(case=name):
+                run, evidence, data = self.recognition_fixture(f"invalid-evidence-{index}")
+                change(data)
+                evidence.write_text(json.dumps(data), encoding="utf-8")
+                before = self.snapshot(*run.iterdir())
+                if expected == 2:
+                    self.assert_input_error("prepare", "--evidence", evidence, "--workdir", run)
+                else:
+                    self.assertFalse(self.result("prepare", "--evidence", evidence, "--workdir", run, expected=1)["evidence_ready"])
+                self.assertFalse((run / "source.json").exists())
+                self.assertFalse((run / "work.json").exists())
+                self.assert_preserved(before)
+        run, evidence, _ = self.recognition_fixture("malformed-evidence")
+        evidence.write_text('{"version":', encoding="utf-8")
+        self.assert_input_error("prepare", "--evidence", evidence, "--workdir", run)
+        self.assertFalse((run / "source.json").exists())
+
+    def test_saved_recognition_receipts_and_output_bounds_remain_enforced(self) -> None:
+        run, evidence, _ = self.recognition_fixture()
+        self.result("prepare", "--evidence", evidence, "--workdir", run)
+        self.save_recognition_work(run)
+        output = run / "accepted.srt"
+        self.result("export", "--workdir", run, "--output", output)
+        source_path = run / "source.json"
+        source = json.loads(source_path.read_text())
+        mutations = (
+            ("coverage gap", lambda item: item["recognition"]["completed_ranges"][0].update(end_ms=5000), 1),
+            ("pending range", lambda item: item["recognition"]["pending_ranges"].append({"start_ms": 5000, "end_ms": 6000, "reason": "Unresolved."}), 1),
+            ("null receipt", lambda item: item.update(recognition=None), 2),
+            ("invalid receipt", lambda item: item.update(recognition=[]), 2),
+            ("source outside range", lambda item: item["cues"][0].update(start_ms=0), 2),
+            ("missing protected media", lambda item: item["inputs"].remove(str(run / "media.srt")), 2),
+        )
+        for name, change, expected in mutations:
+            with self.subTest(case=name):
+                changed = copy.deepcopy(source)
+                change(changed)
+                source_path.write_text(json.dumps(changed), encoding="utf-8")
+                before = self.snapshot(*run.iterdir())
+                for command in ("check", "export"):
+                    args = [command, "--workdir", run]
+                    if command == "export":
+                        args += ["--output", output, "--overwrite"]
+                    if expected == 2:
+                        self.assert_input_error(*args)
+                    else:
+                        self.assertFalse(self.result(*args, expected=1)["export_ready"])
+                self.assert_preserved(before)
+        source_path.write_text(json.dumps(source), encoding="utf-8")
+        work = json.loads((run / "work.json").read_text())
+        work["groups"][0]["cues"][0]["start_ms"] = 500
+        self.save_work(run, work)
+        before = self.snapshot(*run.iterdir())
+        self.assertFalse(self.result("export", "--workdir", run, "--output", output, "--overwrite", expected=1)["export_ready"])
+        self.assert_preserved(before)
+
+    def test_recognition_inputs_are_protected_and_saved_work_outlives_external_files(self) -> None:
+        run, evidence, _ = self.recognition_fixture()
+        self.result("prepare", "--evidence", evidence, "--workdir", run)
+        self.save_recognition_work(run)
+        before = self.snapshot(*run.iterdir())
+        inputs = [run / name for name in ("media.srt", "native.vtt", "evidence.srt")]
+        for path in inputs:
+            with self.subTest(protected=path.name):
+                self.assert_input_error("export", "--workdir", run, "--output", path, "--overwrite")
+                self.assert_preserved(before)
+        for path in inputs:
+            path.unlink()
+        saved = self.snapshot(run / "source.json", run / "work.json")
+        output = run / "after-input-removal.srt"
+        self.assertTrue(self.result("export", "--workdir", run, "--output", output)["publication_matches"])
+        self.assertTrue(self.result("check", "--workdir", run, "--output", output)["export_ready"])
+        for path in inputs:
+            self.assert_input_error("export", "--workdir", run, "--output", path)
+            self.assertFalse(path.exists())
+        self.assert_preserved(saved)
+
+    def test_legacy_version_one_work_resumes_without_snapshot_rewrite(self) -> None:
+        source, run = self.prepare()
+        source_path = run / "source.json"
+        snapshot = json.loads(source_path.read_text())
+        snapshot["version"] = 1
+        snapshot.pop("inputs")
+        source_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+        self.save_work(run, accepted_work())
+        before = self.snapshot(source, source_path, run / "work.json")
+        self.assertTrue(self.result("check", "--workdir", run)["export_ready"])
+        output = source.parent / "legacy.ko.srt"
+        self.assertTrue(self.result("export", "--workdir", run, "--output", output)["publication_matches"])
+        self.assertTrue(self.result("check", "--workdir", run, "--output", output)["publication_matches"])
         self.assert_preserved(before)
 
 
