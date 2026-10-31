@@ -137,6 +137,8 @@ The primary operation is acknowledged before optional observations execute. Resu
 
 Returned values exist in the host's JavaScript runtime. Expose relevant operation outcomes, identities, and state through the host's tool output API. Saved records and runtime variables are separate from visible tool output. Host-side calculations can use these observations without executing analysis inside the Figma document.
 
+Use `tool.export(exportRequest)` to obtain an image of the relevant native node. Save the returned image payload through the host's file API and embed the saved render using its reply image syntax. Tool-output previews do not replace the renders embedded in the reply.
+
 For a host that provides `nodeRepl.write` and `nodeRepl.emitImage`, these independent examples use variables resolved for the current work:
 
 ```js

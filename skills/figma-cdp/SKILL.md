@@ -19,6 +19,8 @@ Group operations that carry out a settled design choice. When a further design c
 
 Evaluate the actual composition and native editability against the requested outcome, and resolve substantive problems before completion.
 
+After making changes in Figma or when requesting approval, save `tool.export` renders and embed them directly in the reply instead of browser screenshots.
+
 Use the host's documented browser controls to obtain CDP access to the requested Figma file. The helper requires `Runtime.evaluate` and access to the live `window.figma` API.
 
 Resolve `helperModuleUrl` to this installed skill's `scripts/figma-cdp.mjs`, and obtain `cdp` and `fileKey` from the selected browser tab and Figma file.

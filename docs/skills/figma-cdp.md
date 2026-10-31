@@ -59,6 +59,8 @@ When local files are useful, their default location is the project-root-relative
 
 ## Output
 
-The result is the authored Figma document, with links to the relevant file or nodes and any requested exports. Before completion, the agent evaluates the actual composition and native editability against the requested outcome and resolves substantive problems. Links, returned state, and image previews support that assessment but do not by themselves establish quality. Saved renders and working records can support follow-up work; material limitations are reported with the result.
+The result is the authored Figma document, with links to the relevant file or nodes and any requested exports. After making changes or when requesting approval, the agent saves `tool.export` renders and embeds them directly in the reply instead of browser screenshots.
+
+Before completion, the agent evaluates the actual composition and native editability against the requested outcome and resolves substantive problems. Links, returned state, and image previews support that assessment but do not by themselves establish quality. Saved renders and working records can support follow-up work; material limitations are reported with the result.
 
 [Read the agent instructions](../../skills/figma-cdp/SKILL.md)
