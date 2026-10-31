@@ -51,7 +51,7 @@ When creation omits a parent, scene nodes and instances use the page fixed when 
 
 The host retains browser connection and recovery controls, file creation and renaming, presentation interaction, browser screenshots, artifact saving, and analysis. The helper uses trusted common runtime code in the browser; it does not require the browser to import host filesystem modules.
 
-Figma functionality is documented in the [official API reference](https://developers.figma.com/docs/plugins/api/api-reference/). The skill's [session and tool contract](../../skills/figma-cdp/references/cdp-session.md) defines connection readiness, recovery, page behavior, and the helper's operation contracts.
+Consult the [Figma Design guides](https://help.figma.com/hc/en-us/categories/360002042553-Figma-design) for Figma features and their use. The skill's [session and tool contract](../../skills/figma-cdp/references/cdp-session.md) defines connection readiness, recovery, page behavior, and the helper's operation contracts.
 
 ## Working files
 

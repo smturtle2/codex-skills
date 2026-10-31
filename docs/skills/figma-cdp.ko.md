@@ -51,7 +51,7 @@ Figma 파일: {figma_file}
 
 브라우저 연결·복구 제어, 파일 생성·이름 변경, 프레젠테이션 조작, 브라우저 스크린샷, 결과 파일 저장과 분석은 호스트가 맡습니다. 보조 도구는 브라우저에서 신뢰하는 공통 실행 코드를 사용하며, 브라우저가 호스트 파일 시스템의 모듈을 직접 불러온다고 가정하지 않습니다.
 
-Figma 기능은 [공식 API 문서](https://developers.figma.com/docs/plugins/api/api-reference/)로 연결합니다. 스킬의 [세션과 도구 계약](../../skills/figma-cdp/references/cdp-session.md)은 연결 준비·복구, 페이지 처리와 보조 도구의 동작 계약을 정의합니다.
+Figma 기능의 이해와 활용은 [공식 기능 문서](https://help.figma.com/hc/en-us/categories/360002042553-Figma-design)를 참고합니다. 스킬의 [세션과 도구 계약](../../skills/figma-cdp/references/cdp-session.md)은 연결 준비·복구, 페이지 처리와 보조 도구의 동작 계약을 정의합니다.
 
 ## 작업 파일
 

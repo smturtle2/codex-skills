@@ -1,23 +1,33 @@
 /** Native text and font mechanics; this factory is evaluated in the live page. */
 export function createTextOperations(ctx) {
-  const layoutFields = new Set(['characters', 'fontName', 'fontSize', 'lineHeight', 'letterSpacing',
-    'textCase', 'textDecoration', 'paragraphSpacing', 'paragraphIndent', 'listSpacing',
-    'hangingPunctuation', 'hangingList', 'textAutoResize', 'leadingTrim', 'openTypeFeatures',
-    'textTruncation', 'maxLines', 'width', 'height', 'textAlignHorizontal', 'textAlignVertical',
-    'textWrapStyle', 'textDecorationStyle', 'textDecorationOffset', 'textDecorationThickness',
-    'textDecorationColor', 'textDecorationSkipInk', 'textStyleId']);
-  const rangeWriters = {
-    fontName: 'setRangeFontName', fontSize: 'setRangeFontSize', textCase: 'setRangeTextCase',
-    textDecoration: 'setRangeTextDecoration', textDecorationStyle: 'setRangeTextDecorationStyle',
-    textDecorationOffset: 'setRangeTextDecorationOffset', textDecorationThickness: 'setRangeTextDecorationThickness',
-    textDecorationColor: 'setRangeTextDecorationColor', textDecorationSkipInk: 'setRangeTextDecorationSkipInk',
-    letterSpacing: 'setRangeLetterSpacing', lineHeight: 'setRangeLineHeight', fills: 'setRangeFills',
-    fillStyleId: 'setRangeFillStyleIdAsync', textStyleId: 'setRangeTextStyleIdAsync',
-    hyperlink: 'setRangeHyperlink', listOptions: 'setRangeListOptions', indentation: 'setRangeIndentation',
-    paragraphIndent: 'setRangeParagraphIndent', paragraphSpacing: 'setRangeParagraphSpacing',
-    listSpacing: 'setRangeListSpacing', openTypeFeatures: 'setRangeOpenTypeFeatures', textWrapStyle: 'setRangeTextWrapStyle'
+  const properties = {
+    fontName: {method: 'setRangeFontName', layout: true, priority: 1, replacesFont: true},
+    fontSize: {method: 'setRangeFontSize', layout: true},
+    textCase: {method: 'setRangeTextCase', layout: true},
+    textDecoration: {method: 'setRangeTextDecoration', layout: true},
+    textDecorationStyle: {method: 'setRangeTextDecorationStyle', layout: true},
+    textDecorationOffset: {method: 'setRangeTextDecorationOffset', layout: true},
+    textDecorationThickness: {method: 'setRangeTextDecorationThickness', layout: true},
+    textDecorationColor: {method: 'setRangeTextDecorationColor', layout: true},
+    textDecorationSkipInk: {method: 'setRangeTextDecorationSkipInk', layout: true},
+    letterSpacing: {method: 'setRangeLetterSpacing', layout: true},
+    lineHeight: {method: 'setRangeLineHeight', layout: true},
+    fills: {method: 'setRangeFills'},
+    fillStyleId: {method: 'setRangeFillStyleIdAsync', style: 'fill'},
+    textStyleId: {method: 'setRangeTextStyleIdAsync', style: 'text', layout: true, priority: 0, replacesFont: true},
+    hyperlink: {method: 'setRangeHyperlink'},
+    listOptions: {method: 'setRangeListOptions'},
+    indentation: {method: 'setRangeIndentation'},
+    paragraphIndent: {method: 'setRangeParagraphIndent', layout: true},
+    paragraphSpacing: {method: 'setRangeParagraphSpacing', layout: true},
+    listSpacing: {method: 'setRangeListSpacing', layout: true},
+    openTypeFeatures: {method: 'setRangeOpenTypeFeatures', layout: true},
+    textWrapStyle: {method: 'setRangeTextWrapStyle', layout: true}
   };
-  const segmentFields = new Set([...Object.keys(rangeWriters), 'fontWeight', 'fontStyle', 'boundVariables', 'textStyleOverrides']);
+  const layoutFields = new Set(['characters', 'hangingPunctuation', 'hangingList', 'textAutoResize',
+    'leadingTrim', 'textTruncation', 'maxLines', 'width', 'height', 'textAlignHorizontal', 'textAlignVertical',
+    ...Object.keys(properties).filter(key => properties[key].layout)]);
+  const segmentFields = new Set([...Object.keys(properties), 'fontWeight', 'fontStyle', 'boundVariables', 'textStyleOverrides']);
   const loadedFonts = new Set();
   let availableFonts;
   const textNode = target => {
@@ -208,53 +218,58 @@ export function createTextOperations(ctx) {
     };
     await visit(target);
   };
-  const validateRangeProps = (target, props) => {
+  const prepareProperties = async (target, props, empty = false) => {
     ctx.assertObject(props, 'range properties');
+    const plan = [];
     for (const [key, value] of Object.entries(props)) {
-      const method = rangeWriters[key];
-      if (!method || typeof target[method] !== 'function') throw new TypeError(`Unsupported text range property: ${key}`);
+      if (!Object.hasOwn(properties, key)) throw new TypeError(`Unsupported text range property: ${key}`);
+      const definition = properties[key];
+      if (!empty && typeof target[definition.method] !== 'function') throw new TypeError(`Unsupported text range property: ${key}`);
       if (key === 'fontName') fontInput(value);
-      if (key.endsWith('StyleId') && typeof value !== 'string') throw new TypeError(`${key} must be a style ID string`);
+      let application;
+      if (definition.style) {
+        application = await ctx.resources.validateApplication(target, {styles: {[definition.style]: value}});
+      } else if (empty) {
+        try { ctx.nodes.validateProps(target, {[key]: value}); }
+        catch (error) { throw new TypeError(`Text property ${key} has no supported empty-result application: ${error.message}`); }
+      }
+      plan.push({key, value, definition, application});
     }
+    return plan.sort((a, b) => (a.definition.priority ?? 2) - (b.definition.priority ?? 2));
   };
-  const applyRange = async (target, start, end, props) => {
-    validateRangeProps(target, props);
+  const applyWholeProperty = async (target, item) => {
+    if (item.application) await ctx.resources.apply(target, {}, item.application);
+    else await ctx.nodes.apply(target, {[item.key]: item.value});
+  };
+  const applyRange = async (target, start, end, props, prepared) => {
+    const plan = prepared ?? await prepareProperties(target, props);
     await prepare(target, props, {start, end});
-    const ordered = Object.keys(props).sort((a, b) => {
-      const priority = key => key === 'textStyleId' ? 0 : key === 'fontName' ? 1 : 2;
-      return priority(a) - priority(b);
-    });
-    for (const key of ordered) {
-      const method = rangeWriters[key];
-      await ctx.write(`text:${key}`, () => target[method](start, end, props[key]));
+    for (const item of plan) {
+      await ctx.write(`text:${item.key}`, () => target[item.definition.method](start, end, item.value));
     }
   };
   const edit = async op => {
     const target = textNode(await ctx.node(op.id));
     const selected = range(target, op.start, op.end);
     const props = op.props ?? {};
-    validateRangeProps(target, props);
+    ctx.assertObject(props, 'range properties');
     if (op.characters !== undefined && typeof op.characters !== 'string') throw new TypeError('characters must be a string');
     if (op.useStyle !== undefined && !['BEFORE', 'AFTER'].includes(op.useStyle)) throw new TypeError('useStyle must be BEFORE or AFTER');
     if (op.characters === undefined && !Object.keys(props).length) throw new TypeError('A text edit requires characters or range properties');
     const replacement = op.characters !== undefined;
     const resultEnd = replacement ? selected.start + op.characters.length : selected.end;
-    if (resultEnd === selected.start && Object.keys(props).length &&
-        !(selected.start === 0 && selected.end === target.characters.length)) {
+    const empty = resultEnd === selected.start;
+    if (empty && Object.keys(props).length && !(selected.start === 0 && selected.end === target.characters.length)) {
       throw new TypeError('Range properties require a nonempty result range');
     }
-    if (resultEnd === selected.start && Object.keys(props).length) ctx.nodes.validateProps(target, props);
-    await prepare(target, props, selected);
-    // Replacement affects layout, so prepare existing runs before either native mutation.
-    // A complete explicit font replacement can repair a missing/mixed source font first.
+    // Resolve every writer and style before preparing or changing characters.
+    const plan = await prepareProperties(target, props, empty);
+    await prepare(target, props, empty ? undefined : selected);
+    // A full replacement may repair missing source fonts before character mutation.
+    // These writes prepare the source; final formatting still follows insertion/deletion.
     const replacesWholeText = replacement && selected.start === 0 && selected.end === target.characters.length;
-    if (replacesWholeText && typeof props.textStyleId === 'string' && props.textStyleId) {
-      await ctx.write('text:textStyleId', () => target.setTextStyleIdAsync(props.textStyleId));
-    }
-    const replaceWholeFont = replacesWholeText && props.fontName;
-    if (replaceWholeFont) {
-      await prepare(target, {fontName: props.fontName});
-      await ctx.write('text:fontName', () => { target.fontName = props.fontName; });
+    if (replacesWholeText) {
+      for (const item of plan) if (item.definition.replacesFont && item.value) await applyWholeProperty(target, item);
     }
     if (replacement) {
       await prepare(target, {characters: op.characters});
@@ -266,9 +281,9 @@ export function createTextOperations(ctx) {
         await ctx.write('text:delete', () => target.deleteCharacters(selected.start + shift, selected.end + shift));
       }
     }
-    if (Object.keys(props).length) {
-      if (resultEnd > selected.start) await applyRange(target, selected.start, resultEnd, props);
-      else if (!target.characters.length) await ctx.nodes.apply(target, props);
+    if (plan.length) {
+      if (!empty) await applyRange(target, selected.start, resultEnd, props, plan);
+      else for (const item of plan) await applyWholeProperty(target, item);
     }
     ctx.trackAffected(target);
     return {node: ctx.brief(target), range: {start: selected.start, end: resultEnd}, offsets: 'UTF-16'};

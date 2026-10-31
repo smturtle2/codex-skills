@@ -282,17 +282,15 @@ export function createStructureOperations(ctx) {
     return attachViewChange({root: ctx.brief(target), operation: op.operation, sourceIds,
       childIds: ctx.children(target).map(child => child.id)}, before);
   };
-  const definition = (action, required, optional, execute, requires = [], targetMethods = []) =>
-    ({kind: 'node', action, required, optional, requires, targetMethods, execute});
   return {
     edits: [
-      definition('duplicate', ['id'], ['parentId', 'index', 'props', 'mapping'], duplicate, [], ['clone']),
-      definition('move', ['id', 'parentId'], ['index', 'props', 'coordinates'], move),
-      definition('remove', ['id'], [], remove, [], ['remove']),
-      definition('group', ['ids', 'parentId'], ['index', 'props'], group, ['group']),
-      definition('ungroup', ['id'], [], ungroup, ['ungroup']),
-      definition('boolean', ['ids', 'parentId', 'operation'], ['index', 'props'], boolean,
-        ['union', 'subtract', 'intersect', 'exclude'])
+      {kind: 'node', action: 'duplicate', propsKind: 'node', required: ['id'], optional: ['parentId', 'index', 'props', 'mapping'], requires: [], targetMethods: ['clone'], execute: duplicate},
+      {kind: 'node', action: 'move', propsKind: 'node', required: ['id', 'parentId'], optional: ['index', 'props', 'coordinates'], requires: [], targetMethods: [], execute: move},
+      {kind: 'node', action: 'remove', required: ['id'], optional: [], requires: [], targetMethods: ['remove'], execute: remove},
+      {kind: 'node', action: 'group', propsKind: 'node', required: ['ids', 'parentId'], optional: ['index', 'props'], requires: ['group'], targetMethods: [], execute: group},
+      {kind: 'node', action: 'ungroup', required: ['id'], optional: [], requires: ['ungroup'], targetMethods: [], execute: ungroup},
+      {kind: 'node', action: 'boolean', propsKind: 'node', required: ['ids', 'parentId', 'operation'], optional: ['index', 'props'],
+        requires: ['union', 'subtract', 'intersect', 'exclude'], targetMethods: [], execute: boolean}
     ],
     queries: [],
     place,

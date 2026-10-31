@@ -10,8 +10,8 @@ export function createNodeOperations(ctx) {
   const validateBasicProps = props => {
     if (!props || typeof props !== 'object' || Array.isArray(props) || ![Object.prototype, null].includes(Object.getPrototypeOf(props))) throw new TypeError('props must be a plain object');
     for (const [key, value] of Object.entries(props)) {
-      if (protectedFields.has(key)) throw new TypeError(`Cannot assign ${key}; use the corresponding edit operation`);
-      if (managed[key]) throw new TypeError(`Use the ${managed[key]} edit field for ${key}`);
+      if (protectedFields.has(key)) throw new TypeError(`Cannot assign protected node property: props.${key}`);
+      if (Object.hasOwn(managed, key)) throw new TypeError(`Cannot assign props.${key}; use ${managed[key]} on node create/update. After other operations, use a separate node update.`);
       if (['width', 'height'].includes(key) && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) throw new TypeError(`${key} must be a finite nonnegative number`);
       if (key === 'fontName' && (!value || typeof value.family !== 'string' || !value.family || (value.style !== undefined && typeof value.style !== 'string'))) throw new TypeError('fontName requires {family, style?}');
     }
@@ -88,8 +88,8 @@ export function createNodeOperations(ctx) {
     return ctx.brief(target);
   };
   return {validateBasicProps, validateProps, apply, configure, edits: [
-    {kind: 'node', action: 'create', required: ['type'], optional: ['parentId', 'index', 'componentId', ...extra], nodeTypes: [...Object.keys(factories), 'INSTANCE'], execute: create},
-    {kind: 'node', action: 'update', required: ['id'], optional: extra, execute: update},
+    {kind: 'node', action: 'create', propsKind: 'node', required: ['type'], optional: ['parentId', 'index', 'componentId', ...extra], nodeTypes: [...Object.keys(factories), 'INSTANCE'], execute: create},
+    {kind: 'node', action: 'update', propsKind: 'node', required: ['id'], optional: extra, execute: update},
     {kind: 'node', action: 'scale', required: ['id', 'factor'], optional: [], targetMethods: ['rescale'], execute: scale}
   ], queries: []};
 }

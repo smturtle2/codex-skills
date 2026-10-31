@@ -79,7 +79,7 @@ export function normalize(operation, value) {
       const descriptor = edits.get(`${op.kind}:${op.action}`);
       if (!descriptor) throw new TypeError(`Unsupported edit: ${op.kind}:${op.action}`);
       shape(op, descriptor, ['kind', 'action']);
-      if (op.props !== undefined && op.kind === 'node' && op.action !== 'text') services.find(service => service.validateBasicProps)?.validateBasicProps(op.props);
+      if (op.props !== undefined && descriptor.propsKind === 'node') services.find(service => service.validateBasicProps).validateBasicProps(op.props);
     }
   } else if (operation === 'view') shape(input, services.find(service => service.state).definition, []);
   else if (operation === 'export') {

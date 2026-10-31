@@ -1,6 +1,6 @@
 # CDP session and tool contract
 
-The authoring criteria and primary-tool priority are in [SKILL.md](../SKILL.md). This reference describes the connection, accepted data, execution results, and host output. Figma functionality is documented in the [official API reference](https://developers.figma.com/docs/plugins/api/api-reference/).
+The authoring criteria and primary-tool priority are in [SKILL.md](../SKILL.md). This reference describes the connection, accepted data, execution results, and host output. Consult the [Figma API reference](https://developers.figma.com/docs/plugins/api/api-reference/) for native properties, methods, and constraints.
 
 ## Connection
 
@@ -87,6 +87,8 @@ For scene-node creation including `INSTANCE`, omitted `parentId` uses the page c
 
 Destination preparation precedes native creation or cloning; creation and final attachment then run without an intervening await.
 
+Operations that declare ordinary node `props` share basic validation before the batch executes. Text and resource operations retain their own property contracts. Structural and component operations accept the ordinary `props` fields declared in their contracts; apply managed fields with a subsequent node update on a target that supports them.
+
 For node creation/update, ordinary `props` are applied before `styles`, `bindings`, `modes`, `component`, and `reactions`. The property helper prepares fonts, assigns explicit `layoutMode` and `fontName`, resizes explicit dimensions, then assigns remaining properties in supplied order. Native read-only or method-backed fields use the corresponding declared edit fields:
 
 - `styles`: `fill`, `stroke`, `effect`, `grid`, or `text` mapped to a style ID; an empty string clears the applied style.
@@ -97,7 +99,9 @@ For node creation/update, ordinary `props` are applied before `styles`, `binding
 
 Font preparation accounts for typography bindings and requested mode changes, including affected descendant text. It resolves the relevant variable values and prepares current and prospective fonts before those changes. Font loading is deduplicated within a request.
 
-Text range edits use `start`, `end`, optional replacement `characters`, and range `props`; `useStyle` selects native insertion inheritance. The handler prepares fonts and preserves unaffected runs. `scale` uses native rescaling with `factor`, including descendants, rather than resizing only the container.
+Text edits use `start`, `end`, optional replacement `characters`, and text `props`; `useStyle` selects native insertion inheritance. Before changing characters or repairing source fonts, the handler resolves requested style identities and kinds and verifies a supported writer for each property in the resulting scope. Nonempty results use native range setters. An empty whole-text result uses writable node properties and awaited style application; range-only properties require a nonempty result. Formatting applies `textStyleId`, then `fontName`, then remaining properties in supplied order. The handler prepares required fonts and preserves unaffected runs.
+
+`scale` uses native rescaling with `factor`, including descendants, rather than resizing only the container.
 
 `duplicate` returns `root` and `correspondence`, and accepts explicit `parentId`/`index` placement; omitted `parentId` uses the source's parent. Correspondence contains `pairs`, `transformed`, `unresolved`, `visited`, and `complete`. Matching uses native child order with structural checks. Defaults are depth 20 and limit 500; accepted bounds are depth 0–50 and limit 1–2000. Mapping results retain these bounds independently of ordinary property serialization. Type-changing or unresolved branches are explicit.
 

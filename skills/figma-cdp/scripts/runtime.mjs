@@ -185,6 +185,10 @@ export async function browserRequest(request, factories, program) {
         const descriptor = edits.get(`${op.kind}:${op.action}`);
         if (!descriptor) throw new TypeError(`Unsupported edit: ${op.kind}:${op.action}`);
         shape(op, descriptor, ['kind', 'action']);
+        if (op.props !== undefined && descriptor.propsKind === 'node') {
+          phase = `${op.kind}:${op.action}:props`;
+          ctx.nodes.validateBasicProps(op.props);
+        }
       }
       for (let index = 0; index < input.operations.length; index++) {
         const op = input.operations[index], descriptor = edits.get(`${op.kind}:${op.action}`);

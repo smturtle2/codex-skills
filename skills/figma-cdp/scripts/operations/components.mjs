@@ -163,8 +163,8 @@ export function createComponentOperations(ctx) {
       {kind: 'component', action: 'define', required: ['id', 'name', 'propertyType', 'defaultValue'], optional: ['options'], targetMethods: ['addComponentProperty'], requires: [], execute: define},
       {kind: 'component', action: 'updateDefinition', required: ['id', 'propertyKey', 'changes'], optional: [], targetMethods: ['editComponentProperty'], requires: [], execute: updateDefinition},
       {kind: 'component', action: 'removeDefinition', required: ['id', 'propertyKey'], optional: [], targetMethods: ['deleteComponentProperty'], requires: [], execute: removeDefinition},
-      {kind: 'component', action: 'createSlot', required: ['id'], optional: ['props'], targetMethods: ['createSlot'], requires: [], execute: createSlot},
-      {kind: 'component', action: 'combineVariants', required: ['ids', 'parentId'], optional: ['index', 'props'], targetMethods: [], requires: ['combineAsVariants'], execute: combineVariants},
+      {kind: 'component', action: 'createSlot', propsKind: 'node', required: ['id'], optional: ['props'], targetMethods: ['createSlot'], requires: [], execute: createSlot},
+      {kind: 'component', action: 'combineVariants', propsKind: 'node', required: ['ids', 'parentId'], optional: ['index', 'props'], targetMethods: [], requires: ['combineAsVariants'], execute: combineVariants},
       {kind: 'component', action: 'detach', required: ['id'], optional: [], targetMethods: ['detachInstance'], requires: [], execute: detach},
       {kind: 'component', action: 'import', required: ['key'], optional: [], targetMethods: [], requires: ['importComponentByKeyAsync'], execute: importComponent}
     ],
